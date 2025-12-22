@@ -204,6 +204,38 @@
   }
 }
 
+@keyframes slideUpModal {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes logoBounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.15);
+  }
+  50% {
+    transform: scale(0.95);
+  }
+  75% {
+    transform: scale(1.05);
+  }
+}
+
+.animate-slide-up-modal {
+  animation: slideUpModal 0.4s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+.animate-logo-bounce {
+  animation: logoBounce 0.6s ease-in-out;
+}
+
 /* Hide scrollbar but keep functionality */
 .hide-scrollbar {
   -ms-overflow-style: none;

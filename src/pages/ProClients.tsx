@@ -1,11 +1,24 @@
 import { useState } from "react";
 import MobileLayout from "@/components/MobileLayout";
-import { Search, Plus, ChevronRight } from "lucide-react";
+import ClientEditModal from "@/components/ClientEditModal";
+import { Search, ChevronRight, Edit2 } from "lucide-react";
+
+interface Client {
+  id: number;
+  name: string;
+  phone: string;
+  lastVisit: string;
+  totalVisits: number;
+  notes: string;
+  avatar: string;
+}
 
 const ProClients = () => {
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-  const clients = [
+  const [clients, setClients] = useState<Client[]>([
     {
       id: 1,
       name: "Marie Dupont",
@@ -51,24 +64,30 @@ const ProClients = () => {
       notes: "Cliente fidèle",
       avatar: "JM",
     },
-  ];
+  ]);
 
   const filteredClients = clients.filter(client =>
     client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     client.phone.includes(searchQuery)
   );
 
+  const handleEditClient = (client: Client) => {
+    setSelectedClient(client);
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveClient = (updatedClient: Client) => {
+    setClients(clients.map(c => c.id === updatedClient.id ? updatedClient : c));
+  };
+
   return (
     <MobileLayout>
       <div className="px-5 pt-safe-top pb-6">
-        {/* Header */}
-        <div className="flex items-center justify-between py-6 animate-fade-in">
+        {/* Header - Removed Add Client Button */}
+        <div className="py-6 animate-fade-in">
           <h1 className="font-display text-2xl font-semibold text-foreground">
             Mes clientes
           </h1>
-          <button className="touch-button w-10 h-10 rounded-full gradient-primary flex items-center justify-center active:scale-95 transition-transform">
-            <Plus size={20} className="text-primary-foreground" />
-          </button>
         </div>
 
         {/* Search */}
@@ -106,9 +125,9 @@ const ProClients = () => {
         {/* Client List */}
         <div className="space-y-3 animate-slide-up" style={{ animationDelay: "0.15s" }}>
           {filteredClients.map((client, index) => (
-            <button
+            <div
               key={client.id}
-              className="blyss-card w-full flex items-center gap-4 active:scale-[0.98] transition-transform text-left"
+              className="blyss-card flex items-center gap-4"
               style={{ animationDelay: `${0.2 + index * 0.05}s` }}
             >
               <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
@@ -124,9 +143,19 @@ const ProClients = () => {
                   <span className="text-xs text-muted-foreground">•</span>
                   <span className="text-xs text-primary font-medium">{client.totalVisits} visites</span>
                 </div>
+                {client.notes && (
+                  <p className="text-xs text-muted-foreground mt-1 truncate italic">
+                    "{client.notes}"
+                  </p>
+                )}
               </div>
-              <ChevronRight size={20} className="text-muted-foreground flex-shrink-0" />
-            </button>
+              <button
+                onClick={() => handleEditClient(client)}
+                className="w-10 h-10 rounded-full bg-accent flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
+              >
+                <Edit2 size={16} className="text-primary" />
+              </button>
+            </div>
           ))}
         </div>
 
@@ -136,6 +165,19 @@ const ProClients = () => {
           </div>
         )}
       </div>
+
+      {/* Edit Modal */}
+      {selectedClient && (
+        <ClientEditModal
+          client={selectedClient}
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setSelectedClient(null);
+          }}
+          onSave={handleSaveClient}
+        />
+      )}
     </MobileLayout>
   );
 };

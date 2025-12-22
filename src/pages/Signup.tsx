@@ -10,18 +10,19 @@ const Signup = () => {
     lastName: "",
     phone: "",
     age: "",
+    email: "",
     password: "",
     confirmPassword: "",
   });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
 
-  const totalSteps = 4;
+  const totalSteps = 5;
 
   const handleNext = () => {
     setError("");
     
-    if (step === 3) {
+    if (step === 4) {
       const age = parseInt(formData.age);
       if (age < 16) {
         setError("Tu dois avoir au moins 16 ans pour utiliser Blyss");
@@ -29,7 +30,7 @@ const Signup = () => {
       }
     }
     
-    if (step === 4) {
+    if (step === 5) {
       if (formData.password !== formData.confirmPassword) {
         setError("Les mots de passe ne correspondent pas");
         return;
@@ -39,7 +40,8 @@ const Signup = () => {
         return;
       }
       // TODO: Implement actual signup with Supabase
-      navigate("/pro/dashboard");
+      // Signup goes to Client experience
+      navigate("/client");
       return;
     }
     
@@ -61,8 +63,10 @@ const Signup = () => {
       case 2:
         return formData.phone.trim().length >= 10;
       case 3:
-        return formData.age && parseInt(formData.age) > 0;
+        return formData.email.trim().includes("@");
       case 4:
+        return formData.age && parseInt(formData.age) > 0;
+      case 5:
         return formData.password && formData.confirmPassword;
       default:
         return false;
@@ -117,8 +121,27 @@ const Signup = () => {
             />
           </div>
         );
-      
+
       case 3:
+        return (
+          <div className="animate-slide-up">
+            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
+              Super ! ✉️
+            </h1>
+            <p className="text-muted-foreground mb-8">Ton email ?</p>
+            
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              placeholder="ton@email.com"
+              autoFocus
+            />
+          </div>
+        );
+      
+      case 4:
         return (
           <div className="animate-slide-up">
             <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
@@ -140,7 +163,7 @@ const Signup = () => {
           </div>
         );
       
-      case 4:
+      case 5:
         return (
           <div className="animate-slide-up">
             <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
@@ -215,7 +238,7 @@ const Signup = () => {
           disabled={!isStepValid()}
           className="w-full py-4 rounded-2xl gradient-primary text-primary-foreground font-medium text-lg shadow-soft touch-button disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {step === 4 ? "Créer mon compte" : "Continuer"}
+          {step === 5 ? "Créer mon compte" : "Continuer"}
         </button>
       </div>
     </div>
