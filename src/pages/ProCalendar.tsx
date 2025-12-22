@@ -1,10 +1,14 @@
 import { useState } from "react";
 import MobileLayout from "@/components/MobileLayout";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import AddAppointmentModal from "@/components/AddAppointmentModal";
+import { ChevronLeft, ChevronRight, Plus, Search, X } from "lucide-react";
 
 const ProCalendar = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const daysOfWeek = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
   const months = [
@@ -54,17 +58,23 @@ const ProCalendar = () => {
   };
 
   const hasAppointments = (day: number) => {
-    // Mock: Some days have appointments
     return [5, 8, 12, 15, 18, 22, 25].includes(day);
   };
 
   // Mock appointments for selected date
-  const appointments = [
+  const [appointments] = useState([
     { id: 1, time: "09:00", name: "Claire Petit", service: "Pose complète", duration: "1h30", price: 65 },
     { id: 2, time: "11:00", name: "Julie Moreau", service: "Remplissage", duration: "1h", price: 45 },
     { id: 3, time: "14:00", name: "Marie Dupont", service: "Manucure", duration: "45min", price: 35 },
     { id: 4, time: "16:00", name: "Sophie Martin", service: "Nail art", duration: "2h", price: 85 },
-  ];
+  ]);
+
+  const filteredAppointments = searchQuery
+    ? appointments.filter(apt =>
+        apt.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        apt.service.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : appointments;
 
   // Get nearby days for the day view header
   const getNearbyDays = () => {
@@ -78,15 +88,52 @@ const ProCalendar = () => {
     return days;
   };
 
+  const handleAddAppointment = (appointment: any) => {
+    console.log("New appointment:", appointment);
+    // TODO: Add to appointments list
+  };
+
   return (
     <MobileLayout>
       <div className="px-5 pt-safe-top pb-6">
         {/* Header */}
-        <div className="py-6 animate-fade-in">
+        <div className="flex items-center justify-between py-6 animate-fade-in">
           <h1 className="font-display text-2xl font-semibold text-foreground">
             Calendrier
           </h1>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setIsSearchOpen(!isSearchOpen)}
+              className="w-10 h-10 rounded-full bg-muted flex items-center justify-center active:scale-95 transition-transform"
+            >
+              {isSearchOpen ? (
+                <X size={20} className="text-foreground" />
+              ) : (
+                <Search size={20} className="text-foreground" />
+              )}
+            </button>
+            <button 
+              onClick={() => setIsAddModalOpen(true)}
+              className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center active:scale-95 transition-transform"
+            >
+              <Plus size={20} className="text-primary-foreground" />
+            </button>
+          </div>
         </div>
+
+        {/* Search Bar */}
+        {isSearchOpen && (
+          <div className="mb-4 animate-fade-in">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Rechercher un rendez-vous..."
+              className="w-full px-4 py-3 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              autoFocus
+            />
+          </div>
+        )}
 
         {/* Month Navigation */}
         <div className="flex items-center justify-between mb-4 animate-slide-up">
@@ -107,7 +154,7 @@ const ProCalendar = () => {
           </button>
         </div>
 
-        {/* Calendar Grid */}
+        {/* Calendar Grid - Month View */}
         <div className="blyss-card mb-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
           {/* Days of week header */}
           <div className="grid grid-cols-7 gap-1 mb-2">
@@ -173,24 +220,38 @@ const ProCalendar = () => {
 
             {/* Day's appointments */}
             <div className="space-y-3">
-              {appointments.map((apt) => (
-                <div key={apt.id} className="blyss-card flex items-center gap-4">
-                  <div className="text-center min-w-[50px]">
-                    <p className="text-lg font-bold text-foreground">{apt.time}</p>
-                    <p className="text-xs text-muted-foreground">{apt.duration}</p>
+              {filteredAppointments.length > 0 ? (
+                filteredAppointments.map((apt) => (
+                  <div key={apt.id} className="blyss-card flex items-center gap-4">
+                    <div className="text-center min-w-[50px]">
+                      <p className="text-lg font-bold text-foreground">{apt.time}</p>
+                      <p className="text-xs text-muted-foreground">{apt.duration}</p>
+                    </div>
+                    <div className="h-12 w-px bg-border" />
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-foreground">{apt.name}</h3>
+                      <p className="text-sm text-muted-foreground">{apt.service}</p>
+                    </div>
+                    <p className="font-bold text-foreground">{apt.price}€</p>
                   </div>
-                  <div className="h-12 w-px bg-border" />
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-foreground">{apt.name}</h3>
-                    <p className="text-sm text-muted-foreground">{apt.service}</p>
-                  </div>
-                  <p className="font-bold text-foreground">{apt.price}€</p>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  {searchQuery ? "Aucun rendez-vous trouvé" : "Aucun rendez-vous"}
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}
       </div>
+
+      {/* Add Appointment Modal */}
+      <AddAppointmentModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSave={handleAddAppointment}
+        selectedDate={selectedDate || undefined}
+      />
     </MobileLayout>
   );
 };

@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, MapPin, Star, Clock, Heart } from "lucide-react";
 import logo from "@/assets/logo.png";
+import ReviewsSection from "@/components/ReviewsSection";
 
 const SpecialistProfile = () => {
   const navigate = useNavigate();
@@ -23,6 +24,50 @@ const SpecialistProfile = () => {
     ],
     portfolio: [1, 2, 3, 4, 5, 6],
   };
+
+  // Mock reviews data
+  const reviewsData = [
+    {
+      id: 1,
+      author: "Sophie M.",
+      rating: 5,
+      comment: "Marie est une artiste ! Mes ongles n'ont jamais été aussi beaux. Je recommande à 100%",
+      date: "Il y a 2 jours",
+      avatar: "SM",
+    },
+    {
+      id: 2,
+      author: "Julie R.",
+      rating: 5,
+      comment: "Superbe travail, très professionnelle et à l'écoute. Le nail art est magnifique !",
+      date: "Il y a 1 semaine",
+      avatar: "JR",
+    },
+    {
+      id: 3,
+      author: "Emma L.",
+      rating: 4,
+      comment: "Très satisfaite de ma manucure. Seul petit bémol, un peu d'attente à l'arrivée.",
+      date: "Il y a 2 semaines",
+      avatar: "EL",
+    },
+    {
+      id: 4,
+      author: "Claire D.",
+      rating: 5,
+      comment: "Toujours au top ! Cela fait 2 ans que je viens chez Marie et je ne changerai pour rien au monde.",
+      date: "Il y a 3 semaines",
+      avatar: "CD",
+    },
+    {
+      id: 5,
+      author: "Laura P.",
+      rating: 5,
+      comment: "Un vrai plaisir à chaque visite. Ambiance zen et résultat impeccable.",
+      date: "Il y a 1 mois",
+      avatar: "LP",
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-blyss-gold-light max-w-[430px] mx-auto">
@@ -93,7 +138,7 @@ const SpecialistProfile = () => {
         </div>
 
         {/* Portfolio */}
-        <div className="animate-slide-up" style={{ animationDelay: "0.15s" }}>
+        <div className="mb-6 animate-slide-up" style={{ animationDelay: "0.15s" }}>
           <h2 className="font-display text-lg font-semibold text-foreground mb-3">Portfolio</h2>
           <div className="grid grid-cols-3 gap-2">
             {specialist.portfolio.map((_, index) => (
@@ -104,6 +149,9 @@ const SpecialistProfile = () => {
             ))}
           </div>
         </div>
+
+        {/* Reviews Section */}
+        <ReviewsSection reviews={reviewsData} />
       </div>
 
       {/* CTA Button */}
