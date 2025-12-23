@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Check, Clock, Calendar, CreditCard, Smartphone } from "lucide-react";
+import { ArrowLeft, Check, Clock, Calendar as CalendarIcon, CreditCard, Smartphone } from "lucide-react";
+import MobileLayout from "@/components/MobileLayout";
 
 const ClientBooking = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [selectedService, setSelectedService] = useState<number | null>(null);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
 
@@ -75,24 +76,45 @@ const ClientBooking = () => {
   };
 
   const renderStep = () => {
+    const availableDateObjs = availableDates.map(d => {
+      const [year, month, day] = d.date.split('-').map(Number);
+      return { ...d, dateObj: new Date(year, month - 1, day) };
+    });
+    const getAvailableDateObj = (date: Date) => {
+      return availableDateObjs.find(
+        d =>
+          d.dateObj.getFullYear() === date.getFullYear() &&
+          d.dateObj.getMonth() === date.getMonth() &&
+          d.dateObj.getDate() === date.getDate()
+      );
+    };
+    const parseDate = (dateStr: string) => {
+      const [year, month, day] = dateStr.split("-").map(Number);
+      return new Date(year, month - 1, day);
+    };
+    const selectedDateLabel = selectedDate
+      ? (() => {
+          const found = getAvailableDateObj(selectedDate);
+          return found ? found.label : "";
+        })()
+      : "";
+
     switch (step) {
       case 1:
         return (
-          <div className="animate-slide-up">
+                  <div className="py-6 animate-fade-in">
+
             <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
               Choisis ta prestation
             </h1>
             <p className="text-muted-foreground mb-6">Quel soin te ferait plaisir ?</p>
-
             <div className="space-y-3">
               {services.map((service) => (
                 <button
                   key={service.id}
                   onClick={() => setSelectedService(service.id)}
-                  className={`w-full bg-card rounded-2xl p-4 shadow-card text-left transition-all ${
-                    selectedService === service.id
-                      ? "ring-2 ring-blyss-gold"
-                      : ""
+                  className={`w-full bg-card rounded-xl p-4 shadow-card text-left transition-all ${
+                    selectedService === service.id ? "ring-2 ring-blyss-gold" : ""
                   }`}
                 >
                   <div className="flex items-center justify-between">
@@ -117,37 +139,48 @@ const ClientBooking = () => {
             </div>
           </div>
         );
-
-      case 2:
+      case 2: {
+        const handleDateClick = (dateStr: string) => {
+          setSelectedDate(parseDate(dateStr));
+        };
+        const isSelectedDate = (dateStr: string) => {
+          if (!selectedDate) return false;
+          const d = parseDate(dateStr);
+          return (
+            d.getFullYear() === selectedDate.getFullYear() &&
+            d.getMonth() === selectedDate.getMonth() &&
+            d.getDate() === selectedDate.getDate()
+          );
+        };
         return (
           <div className="animate-slide-up">
-            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
-              Quand ?
-            </h1>
+            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">Quand ?</h1>
             <p className="text-muted-foreground mb-6">Choisis une date et un horaire</p>
-
             <div className="mb-6">
               <h3 className="font-medium text-foreground mb-3 flex items-center gap-2">
-                <Calendar size={16} className="text-blyss-gold" />
+                <CalendarIcon size={16} className="text-blyss-gold" />
                 Date
               </h3>
-              <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-2">
-                {availableDates.map((date) => (
+              <div
+                className="rounded-2xl p-3 flex flex-col gap-2 bg-[#FBF5F0] max-w-[340px] mx-auto"
+              >
+                {availableDates.map((d) => (
                   <button
-                    key={date.date}
-                    onClick={() => setSelectedDate(date.date)}
-                    className={`flex-shrink-0 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                      selectedDate === date.date
-                        ? "gradient-gold text-secondary-foreground"
-                        : "bg-card text-foreground shadow-card"
-                    }`}
+                    key={d.date}
+                    onClick={() => handleDateClick(d.date)}
+                    className={`w-full rounded-xl px-4 py-3 text-base font-medium transition-all
+                      ${
+                        isSelectedDate(d.date)
+                          ? "bg-blyss-gold text-white"
+                          : "bg-[#ececec] text-black"
+                      }
+                    `}
                   >
-                    {date.label}
+                    {d.label}
                   </button>
                 ))}
               </div>
             </div>
-
             <div>
               <h3 className="font-medium text-foreground mb-3 flex items-center gap-2">
                 <Clock size={16} className="text-blyss-gold" />
@@ -158,10 +191,10 @@ const ClientBooking = () => {
                   <button
                     key={time}
                     onClick={() => setSelectedTime(time)}
-                    className={`px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                    className={`transition-all rounded-xl shadow-card px-4 py-3 text-sm font-medium ${
                       selectedTime === time
                         ? "gradient-gold text-secondary-foreground"
-                        : "bg-card text-foreground shadow-card"
+                        : "bg-card text-foreground"
                     }`}
                   >
                     {time}
@@ -171,6 +204,7 @@ const ClientBooking = () => {
             </div>
           </div>
         );
+      }
 
       case 3:
         return (
@@ -179,8 +213,7 @@ const ClientBooking = () => {
               Récapitulatif
             </h1>
             <p className="text-muted-foreground mb-6">Vérifie ta réservation</p>
-
-            <div className="bg-card rounded-2xl p-4 shadow-card mb-6">
+            <div className="bg-card rounded-xl p-4 shadow-card mb-6">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Prestation</span>
@@ -189,9 +222,7 @@ const ClientBooking = () => {
                 <div className="h-px bg-border" />
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Date</span>
-                  <span className="font-medium text-foreground">
-                    {availableDates.find(d => d.date === selectedDate)?.label}
-                  </span>
+                  <span className="font-medium text-foreground">{selectedDateLabel}</span>
                 </div>
                 <div className="h-px bg-border" />
                 <div className="flex items-center justify-between">
@@ -210,12 +241,11 @@ const ClientBooking = () => {
                 </div>
               </div>
             </div>
-
             <h3 className="font-medium text-foreground mb-3">Mode de paiement</h3>
             <div className="space-y-3">
               <button
                 onClick={() => setPaymentMethod("on-site")}
-                className={`w-full bg-card rounded-2xl p-4 shadow-card text-left flex items-center gap-4 transition-all ${
+                className={`w-full bg-card rounded-xl p-4 shadow-card text-left flex items-center gap-4 transition-all ${
                   paymentMethod === "on-site" ? "ring-2 ring-blyss-gold" : ""
                 }`}
               >
@@ -232,10 +262,9 @@ const ClientBooking = () => {
                   </div>
                 )}
               </button>
-
               <button
                 onClick={() => setPaymentMethod("online")}
-                className={`w-full bg-card rounded-2xl p-4 shadow-card text-left flex items-center gap-4 transition-all ${
+                className={`w-full bg-card rounded-xl p-4 shadow-card text-left flex items-center gap-4 transition-all ${
                   paymentMethod === "online" ? "ring-2 ring-blyss-gold" : ""
                 }`}
               >
@@ -263,8 +292,7 @@ const ClientBooking = () => {
               Paiement
             </h1>
             <p className="text-muted-foreground mb-6">Sécurisé par Stripe</p>
-
-            <div className="bg-card rounded-2xl p-4 shadow-card mb-6">
+            <div className="bg-card rounded-xl p-4 shadow-card mb-6">
               <div className="flex items-center justify-between mb-4">
                 <span className="text-muted-foreground">Total à payer</span>
                 <span className="font-bold text-2xl text-foreground">{selectedServiceData?.price}€</span>
@@ -274,23 +302,19 @@ const ClientBooking = () => {
                 En confirmant, tu acceptes nos conditions générales de vente
               </p>
             </div>
-
             <div className="space-y-3">
-              {/* Apple Pay Button */}
-              <button 
+              <button
                 onClick={() => handlePayment("apple-pay")}
-                className="w-full py-4 rounded-2xl bg-foreground text-background font-medium flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+                className="w-full py-4 rounded-xl bg-foreground text-background font-medium flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
               >
                 <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
                   <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
                 </svg>
                 Apple Pay
               </button>
-              
-              {/* Google Pay Button */}
-              <button 
+              <button
                 onClick={() => handlePayment("google-pay")}
-                className="w-full py-4 rounded-2xl bg-card border border-border text-foreground font-medium shadow-card flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+                className="w-full py-4 rounded-xl bg-card border border-border text-foreground font-medium shadow-card flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
               >
                 <svg viewBox="0 0 24 24" className="w-5 h-5">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -300,11 +324,9 @@ const ClientBooking = () => {
                 </svg>
                 Google Pay
               </button>
-
-              {/* Card Payment Button */}
-              <button 
+              <button
                 onClick={() => handlePayment("card")}
-                className="w-full py-4 rounded-2xl gradient-gold text-secondary-foreground font-medium active:scale-[0.98] transition-transform"
+                className="w-full py-4 rounded-xl gradient-gold text-secondary-foreground font-medium active:scale-[0.98] transition-transform"
               >
                 Carte bancaire
               </button>
@@ -324,8 +346,7 @@ const ClientBooking = () => {
             <p className="text-muted-foreground mb-8">
               Tu recevras un rappel avant ton rendez-vous
             </p>
-
-            <div className="bg-card rounded-2xl p-4 shadow-card text-left mb-8">
+            <div className="bg-card rounded-xl p-4 shadow-card text-left mb-8">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Prestation</span>
@@ -334,9 +355,7 @@ const ClientBooking = () => {
                 <div className="h-px bg-border" />
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Date</span>
-                  <span className="font-medium text-foreground">
-                    {availableDates.find(d => d.date === selectedDate)?.label}
-                  </span>
+                  <span className="font-medium text-foreground">{selectedDateLabel}</span>
                 </div>
                 <div className="h-px bg-border" />
                 <div className="flex items-center justify-between">
@@ -352,10 +371,9 @@ const ClientBooking = () => {
                 </div>
               </div>
             </div>
-
             <button
               onClick={() => navigate("/client")}
-              className="w-full py-4 rounded-2xl gradient-gold text-secondary-foreground font-semibold"
+              className="w-full py-4 rounded-xl gradient-gold text-secondary-foreground font-semibold"
             >
               Retour à l'accueil
             </button>
@@ -368,42 +386,37 @@ const ClientBooking = () => {
   };
 
   return (
-    <div className="min-h-screen bg-blyss-gold-light flex flex-col max-w-[430px] mx-auto">
-      {/* Header */}
-      {step < 5 && (
-        <div className="px-5 pt-safe-top py-4">
-          <button onClick={handleBack} className="touch-button -ml-2 mb-4">
-            <ArrowLeft size={24} className="text-foreground" />
-          </button>
-
-          {/* Progress bar */}
-          <div className="progress-bar bg-blyss-gold/20">
-            <div
-              className="progress-bar-fill bg-blyss-gold"
-              style={{ width: `${(step / totalSteps) * 100}%` }}
-            />
+    <MobileLayout>
+      <div className="flex flex-col flex-1 px-6">
+        {step < 5 && (
+          <div className="pt-safe-top py-4">
+            <button onClick={handleBack} className="touch-button -ml-2 mb-4">
+              <ArrowLeft size={24} className="text-foreground" />
+            </button>
+            <div className="progress-bar bg-blyss-gold/20">
+              <div
+                className="progress-bar-fill bg-blyss-gold"
+                style={{ width: `${(step / totalSteps) * 100}%` }}
+              />
+            </div>
           </div>
+        )}
+        <div className="flex-1 py-4">
+          {renderStep()}
         </div>
-      )}
-
-      {/* Content */}
-      <div className="flex-1 px-5 py-4">
-        {renderStep()}
+        {step < 5 && step !== 4 && (
+          <div className="pb-8 safe-bottom">
+            <button
+              onClick={handleNext}
+              disabled={!isStepValid()}
+              className="w-full py-4 rounded-xl gradient-gold text-secondary-foreground font-semibold text-lg shadow-elevated disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
+            >
+              {step === 3 && paymentMethod === "on-site" ? "Confirmer" : "Continuer"}
+            </button>
+          </div>
+        )}
       </div>
-
-      {/* CTA Button */}
-      {step < 5 && step !== 4 && (
-        <div className="px-5 pb-8 safe-bottom">
-          <button
-            onClick={handleNext}
-            disabled={!isStepValid()}
-            className="w-full py-4 rounded-2xl gradient-gold text-secondary-foreground font-semibold text-lg shadow-elevated disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
-          >
-            {step === 3 && paymentMethod === "on-site" ? "Confirmer" : "Continuer"}
-          </button>
-        </div>
-      )}
-    </div>
+    </MobileLayout>
   );
 };
 

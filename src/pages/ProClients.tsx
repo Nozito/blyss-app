@@ -82,7 +82,6 @@ const ProClients = () => {
 
   return (
     <MobileLayout>
-      <div className="px-5 pt-safe-top pb-6">
         {/* Header - Removed Add Client Button */}
         <div className="py-6 animate-fade-in">
           <h1 className="font-display text-2xl font-semibold text-foreground">
@@ -164,7 +163,6 @@ const ProClients = () => {
             <p className="text-muted-foreground">Aucune cliente trouvée</p>
           </div>
         )}
-      </div>
 
       {/* Edit Modal */}
       {selectedClient && (

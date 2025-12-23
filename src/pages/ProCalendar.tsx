@@ -95,7 +95,6 @@ const ProCalendar = () => {
 
   return (
     <MobileLayout>
-      <div className="px-5 pt-safe-top pb-6">
         {/* Header */}
         <div className="flex items-center justify-between py-6 animate-fade-in">
           <h1 className="font-display text-2xl font-semibold text-foreground">
@@ -243,7 +242,6 @@ const ProCalendar = () => {
             </div>
           </div>
         )}
-      </div>
 
       {/* Add Appointment Modal */}
       <AddAppointmentModal

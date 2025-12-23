@@ -1,8 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
 
 @layer base {
   :root {
@@ -58,18 +56,20 @@
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
   
   html {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-tap-highlight-color: transparent;
   }
   
   body {
-    @apply bg-background text-foreground;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
     overflow-x: hidden;
     min-height: 100vh;
     min-height: 100dvh;
@@ -83,7 +83,10 @@
 @layer components {
   /* Glass Card Effect */
   .glass-card {
-    @apply bg-white/70 backdrop-blur-xl border border-white/30;
+    background: hsl(0 0% 100% / 0.7);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid hsl(0 0% 100% / 0.3);
     box-shadow: var(--shadow-card);
   }
   
@@ -98,39 +101,61 @@
   
   /* Blyss Card Style */
   .blyss-card {
-    @apply bg-card rounded-2xl p-4;
+    background: hsl(var(--card));
+    border-radius: var(--radius);
+    padding: 1rem;
     box-shadow: var(--shadow-card);
   }
   
   /* Stat Card */
   .stat-card {
-    @apply bg-gradient-to-br from-white to-muted rounded-2xl p-4;
+    background: linear-gradient(135deg, white 0%, hsl(var(--muted)) 100%);
+    border-radius: var(--radius);
+    padding: 1rem;
     box-shadow: var(--shadow-soft);
   }
   
   /* Client Card */
   .client-card {
-    @apply bg-white rounded-2xl p-4 relative overflow-hidden;
+    background: white;
+    border-radius: var(--radius);
+    padding: 1rem;
+    position: relative;
+    overflow: hidden;
     box-shadow: var(--shadow-card);
   }
   
   /* Progress Bar */
   .progress-bar {
-    @apply h-1 bg-muted rounded-full overflow-hidden;
+    height: 0.25rem;
+    background: hsl(var(--muted));
+    border-radius: 9999px;
+    overflow: hidden;
   }
   
   .progress-bar-fill {
-    @apply h-full bg-primary rounded-full transition-all duration-500 ease-out;
+    height: 100%;
+    background: hsl(var(--primary));
+    border-radius: 9999px;
+    transition: all 0.5s ease-out;
   }
   
   /* Touch-friendly buttons */
   .touch-button {
-    @apply min-h-[48px] min-w-[48px] flex items-center justify-center;
+    min-height: 48px;
+    min-width: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   
   /* Mobile container */
   .mobile-container {
-    @apply max-w-[430px] mx-auto px-5;
+    max-width: 430px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
   }
   
   /* Safe area padding */
@@ -146,7 +171,9 @@
 @layer utilities {
   /* Gradient Text */
   .gradient-text {
-    @apply bg-clip-text text-transparent;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
     background-image: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--secondary)) 100%);
   }
   

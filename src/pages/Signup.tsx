@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Eye, EyeOff } from "lucide-react";
+import MobileLayout from "@/components/MobileLayout";
 
 const Signup = () => {
   const navigate = useNavigate();
@@ -9,7 +10,7 @@ const Signup = () => {
     firstName: "",
     lastName: "",
     phone: "",
-    age: "",
+    birthDate: "",
     email: "",
     password: "",
     confirmPassword: "",
@@ -19,17 +20,35 @@ const Signup = () => {
 
   const totalSteps = 5;
 
+  const formatPhoneNumber = (value: string) => {
+    // Remove all non-digit characters
+    const digits = value.replace(/\D/g, "");
+    // Insert space every 2 digits
+    return digits.replace(/(\d{2})(?=\d)/g, "$1 ");
+  };
+
+  const getAgeFromBirthDate = (birthDate: string) => {
+    const today = new Date();
+    const birth = new Date(birthDate);
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    return age;
+  };
+
   const handleNext = () => {
     setError("");
-    
+
     if (step === 4) {
-      const age = parseInt(formData.age);
-      if (age < 16) {
+      const age = getAgeFromBirthDate(formData.birthDate);
+      if (isNaN(age) || age < 16) {
         setError("Tu dois avoir au moins 16 ans pour utiliser Blyss");
         return;
       }
     }
-    
+
     if (step === 5) {
       if (formData.password !== formData.confirmPassword) {
         setError("Les mots de passe ne correspondent pas");
@@ -44,7 +63,7 @@ const Signup = () => {
       navigate("/client");
       return;
     }
-    
+
     setStep(step + 1);
   };
 
@@ -61,11 +80,14 @@ const Signup = () => {
       case 1:
         return formData.firstName.trim() && formData.lastName.trim();
       case 2:
-        return formData.phone.trim().length >= 10;
+        return formData.phone.replace(/\s/g, "").length === 10;
       case 3:
         return formData.email.trim().includes("@");
       case 4:
-        return formData.age && parseInt(formData.age) > 0;
+        return (
+          !!formData.birthDate &&
+          getAgeFromBirthDate(formData.birthDate) >= 16
+        );
       case 5:
         return formData.password && formData.confirmPassword;
       default:
@@ -82,7 +104,7 @@ const Signup = () => {
               Enchanté, moi c'est Blyss 💖
             </h1>
             <p className="text-muted-foreground mb-8">Et toi ?</p>
-            
+
             <div className="space-y-4">
               <input
                 type="text"
@@ -102,7 +124,7 @@ const Signup = () => {
             </div>
           </div>
         );
-      
+
       case 2:
         return (
           <div className="animate-slide-up">
@@ -110,11 +132,11 @@ const Signup = () => {
               Enchanté {formData.firstName} 🙂
             </h1>
             <p className="text-muted-foreground mb-8">Un 06 ?</p>
-            
+
             <input
               type="tel"
               value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, phone: formatPhoneNumber(e.target.value) })}
               className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               placeholder="06 12 34 56 78"
               autoFocus
@@ -129,40 +151,42 @@ const Signup = () => {
               Super ! ✉️
             </h1>
             <p className="text-muted-foreground mb-8">Ton email ?</p>
-            
+
             <input
               type="email"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full max-w-lg px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               placeholder="ton@email.com"
               autoFocus
             />
           </div>
         );
-      
+
       case 4:
         return (
           <div className="animate-slide-up">
             <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
-              Pour continuer, quel âge as-tu ?
+              Ta date de naissance 🎂
             </h1>
-            <p className="text-muted-foreground mb-8">Minimum 16 ans</p>
-            
+            <p className="text-muted-foreground mb-8">
+              Tu dois avoir au moins 16 ans
+            </p>
+
             <input
-              type="number"
-              value={formData.age}
-              onChange={(e) => setFormData({ ...formData, age: e.target.value })}
-              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-              placeholder="Ton âge"
-              min="1"
-              max="120"
+              type="date"
+              value={formData.birthDate}
+              onChange={(e) =>
+                setFormData({ ...formData, birthDate: e.target.value })
+              }
+              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               autoFocus
             />
+
             {error && <p className="text-destructive text-sm mt-2">{error}</p>}
           </div>
         );
-      
+
       case 5:
         return (
           <div className="animate-slide-up">
@@ -170,7 +194,7 @@ const Signup = () => {
               Dernière étape ✨
             </h1>
             <p className="text-muted-foreground mb-8">Choisis ton mot de passe</p>
-            
+
             <div className="space-y-4">
               <div className="relative">
                 <input
@@ -200,48 +224,59 @@ const Signup = () => {
             </div>
           </div>
         );
-      
+
       default:
         return null;
     }
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col px-6 pt-safe-top">
-      {/* Header with back button and progress */}
-      <div className="py-4">
-        <button
-          onClick={handleBack}
-          className="touch-button -ml-2 mb-4"
+    <MobileLayout showNav={false}>
+      <div className="relative flex flex-col flex-1 min-h-screen max-w-lg mx-auto w-full bg-background">
+        {/* Header with back button and progress - fixed at top */}
+        <div className="fixed top-0 left-1/2 -translate-x-1/2 z-10 w-full max-w-lg bg-background">
+          <div className="flex items-center justify-between px-6 pt-4 pb-2">
+            <button
+              onClick={handleBack}
+              className="touch-button -ml-2"
+            >
+              <ArrowLeft size={24} className="text-foreground" />
+            </button>
+            <div className="flex-grow mx-4 h-2 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-2 bg-primary rounded-full transition-all duration-300"
+                style={{ width: `${(step / totalSteps) * 100}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Form content centered vertically and horizontally, between header and button */}
+        <div
+          className="flex flex-1 flex-col items-center justify-center px-6"
+          style={{
+            minHeight: "calc(100vh - 136px)", // 64px header + 72px button
+            marginTop: "64px", // header height
+            marginBottom: "72px", // button height
+          }}
         >
-          <ArrowLeft size={24} className="text-foreground" />
-        </button>
-        
-        {/* Progress bar */}
-        <div className="progress-bar">
-          <div 
-            className="progress-bar-fill"
-            style={{ width: `${(step / totalSteps) * 100}%` }}
-          />
+          <div className="w-full max-w-lg flex flex-col items-center justify-center">
+            {renderStep()}
+          </div>
+        </div>
+
+        {/* Continue button fixed at bottom with safe padding */}
+        <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-lg bg-background px-6 pb-4 pt-2 z-10">
+          <button
+            onClick={handleNext}
+            disabled={!isStepValid()}
+            className="w-full py-4 rounded-2xl gradient-primary text-primary-foreground font-medium text-lg shadow-soft touch-button disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {step === 5 ? "Créer mon compte" : "Continuer"}
+          </button>
         </div>
       </div>
-
-      {/* Form content */}
-      <div className="flex-1 flex flex-col justify-center pb-8">
-        {renderStep()}
-      </div>
-
-      {/* Continue button */}
-      <div className="pb-8 safe-bottom">
-        <button
-          onClick={handleNext}
-          disabled={!isStepValid()}
-          className="w-full py-4 rounded-2xl gradient-primary text-primary-foreground font-medium text-lg shadow-soft touch-button disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {step === 5 ? "Créer mon compte" : "Continuer"}
-        </button>
-      </div>
-    </div>
+    </MobileLayout>
   );
 };
 

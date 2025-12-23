@@ -14,8 +14,13 @@ import ProClients from "./pages/ProClients";
 import ProProfile from "./pages/ProProfile";
 import ClientHome from "./pages/ClientHome";
 import ClientBooking from "./pages/ClientBooking";
+import ClientFavorites from "./pages/ClientFavorites";
 import SpecialistProfile from "./pages/SpecialistProfile";
+import ClientMyBooking from "./pages/ClientMyBooking";
 import NotFound from "./pages/NotFound";
+import "./index.css";
+import "./App.css";
+import ClientProfile from "./pages/ClientProfile";
 
 const queryClient = new QueryClient();
 
@@ -42,6 +47,9 @@ const App = () => {
             <Route path="/client" element={<ClientHome />} />
             <Route path="/client/specialist/:id" element={<SpecialistProfile />} />
             <Route path="/client/booking" element={<ClientBooking />} />
+            <Route path="/client/profile" element={<ClientProfile />} />
+            <Route path="/client/favorites" element={<ClientFavorites />} />
+            <Route path="/client/my-booking" element={<ClientMyBooking />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

@@ -19,7 +19,7 @@ const MobileLayout = ({ children, showNav = true }: MobileLayoutProps) => {
 
   const clientNavItems = [
     { icon: Home, path: "/client", label: "Accueil" },
-    { icon: Calendar, path: "/client/booking", label: "Réserver" },
+    { icon: Calendar, path: "/client/my-booking", label: "Mes réservations" },
     { icon: Heart, path: "/client/favorites", label: "Favoris" },
     { icon: User, path: "/client/profile", label: "Profil" },
   ];
@@ -27,14 +27,24 @@ const MobileLayout = ({ children, showNav = true }: MobileLayoutProps) => {
   const navItems = isPro ? proNavItems : clientNavItems;
 
   return (
-    <div className="min-h-screen bg-background flex flex-col max-w-[430px] mx-auto">
-      <main className={`flex-1 ${showNav ? "pb-24" : ""}`}>
+    <div
+      className="flex flex-col max-w-[430px] mx-auto w-full bg-background"
+      style={{
+        minHeight: 'calc(100vh - env(safe-area-inset-bottom))',
+        paddingTop: '0px',
+        paddingBottom: showNav ? `calc(32px + env(safe-area-inset-bottom, 6px))` : '0px',
+      }}
+    >
+      <main className="flex-1">
         {children}
       </main>
 
       {showNav && (
-        <nav className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-[398px] glass-nav rounded-3xl px-2 py-2 z-50">
-          <div className="flex items-center justify-around">
+        <nav
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[320px] h-14 glass-nav rounded-full px-2 py-1 z-50"
+          style={{ paddingBottom: `env(safe-area-inset-bottom, 6px)` }}
+        >
+          <div className="flex items-center justify-around gap-0.5">
             {navItems.map((item) => {
               const isActive = location.pathname === item.path;
               return (

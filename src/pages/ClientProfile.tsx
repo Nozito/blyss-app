@@ -3,14 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { Settings, ChevronRight, CreditCard, Bell, HelpCircle, LogOut } from "lucide-react";
 import logo from "@/assets/logo.png";
 
-const ProProfile = () => {
+const ClientProfile = () => {
   const navigate = useNavigate();
 
   const menuItems = [
-    { icon: Settings, label: "Paramètres", path: "/pro/settings" },
-    { icon: CreditCard, label: "Mes prestations", path: "/pro/services" },
-    { icon: Bell, label: "Notifications", path: "/pro/notifications" },
-    { icon: HelpCircle, label: "Aide", path: "/pro/help" },
+    { icon: Settings, label: "Paramètres", path: "/client/settings" },
+    { icon: CreditCard, label: "Méthodes de paiement", path: "/client/payment-methods" },
+    { icon: Bell, label: "Notifications", path: "/client/notifications" },
+    { icon: HelpCircle, label: "Aide", path: "/client/help" },
   ];
 
   const handleLogout = () => {
@@ -19,6 +19,7 @@ const ProProfile = () => {
 
   return (
     <MobileLayout>
+      <div className="py-6 animate-fade-in">
         {/* Header */}
         <div className="py-6 animate-fade-in">
           <h1 className="font-display text-2xl font-semibold text-foreground">
@@ -28,15 +29,14 @@ const ProProfile = () => {
 
         {/* Profile Card */}
         <div className="blyss-card flex items-center gap-4 mb-6 animate-slide-up">
-          <div className="w-16 h-16 rounded-full gradient-primary flex items-center justify-center">
-            <img src={logo} alt="Profile" className="w-10 h-10 object-contain" />
+          <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center">
+            <img src={logo} alt="Profile" className="w-20 h-20 object-contain" />
           </div>
           <div className="flex-1">
             <h2 className="font-display text-lg font-semibold text-foreground">
-              Marie Beauté
+              Marie Dubois
             </h2>
-            <p className="text-sm text-muted-foreground">Nail Artist</p>
-            <p className="text-xs text-primary mt-1">Profil complété à 85%</p>
+            <p className="text-xs text-primary mt-1">Profil complété à 95%</p>
           </div>
         </div>
 
@@ -44,7 +44,7 @@ const ProProfile = () => {
         <div className="grid grid-cols-3 gap-3 mb-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
           <div className="stat-card text-center">
             <p className="text-2xl font-bold text-foreground">156</p>
-            <p className="text-xs text-muted-foreground">Clientes</p>
+            <p className="text-xs text-muted-foreground">Réservations</p>
           </div>
           <div className="stat-card text-center">
             <p className="text-2xl font-bold text-foreground">4.9</p>
@@ -88,12 +88,9 @@ const ProProfile = () => {
         <p className="text-center text-xs text-muted-foreground mt-8 animate-fade-in" style={{ animationDelay: "0.3s" }}>
           Blyss v1.0.0
         </p>
-        {/* Developp by */}
-        <p className="text-center text-xs text-muted-foreground mt-2 animate-fade-in" style={{ animationDelay: "0.3s" }}>
-          Développé par Noah DEKEYZER
-        </p>
+      </div>
     </MobileLayout>
   );
 };
 
-export default ProProfile;
+export default ClientProfile;

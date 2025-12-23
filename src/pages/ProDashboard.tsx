@@ -90,7 +90,6 @@ const ProDashboard = () => {
 
   return (
     <MobileLayout>
-      <div className="px-5 pt-safe-top pb-6">
         {/* Header */}
         <div className="py-6 animate-fade-in">
           <p className="text-muted-foreground text-sm">Bonjour ✨</p>
@@ -244,7 +243,6 @@ const ProDashboard = () => {
             ))}
           </div>
         </div>
-      </div>
     </MobileLayout>
   );
 };
