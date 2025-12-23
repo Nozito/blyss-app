@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -17,10 +17,11 @@ import ClientBooking from "./pages/ClientBooking";
 import ClientFavorites from "./pages/ClientFavorites";
 import SpecialistProfile from "./pages/SpecialistProfile";
 import ClientMyBooking from "./pages/ClientMyBooking";
+import ClientProfile from "./pages/ClientProfile";
+import BookingDetail from "./pages/BookingDetail";
 import NotFound from "./pages/NotFound";
 import "./index.css";
 import "./App.css";
-import ClientProfile from "./pages/ClientProfile";
 
 const queryClient = new QueryClient();
 
@@ -47,6 +48,8 @@ const App = () => {
             <Route path="/client" element={<ClientHome />} />
             <Route path="/client/specialist/:id" element={<SpecialistProfile />} />
             <Route path="/client/booking" element={<ClientBooking />} />
+            <Route path="/client/booking/:id" element={<ClientBooking />} />
+            <Route path="/client/booking-detail/:id" element={<BookingDetail />} />
             <Route path="/client/profile" element={<ClientProfile />} />
             <Route path="/client/favorites" element={<ClientFavorites />} />
             <Route path="/client/my-booking" element={<ClientMyBooking />} />

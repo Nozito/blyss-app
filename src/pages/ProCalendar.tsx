@@ -1,14 +1,17 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import MobileLayout from "@/components/MobileLayout";
 import AddAppointmentModal from "@/components/AddAppointmentModal";
-import { ChevronLeft, ChevronRight, Plus, Search, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Search, X, Calendar as CalendarIcon } from "lucide-react";
 
 const ProCalendar = () => {
+  const navigate = useNavigate();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"month" | "week">("month");
 
   const daysOfWeek = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
   const months = [
@@ -61,7 +64,7 @@ const ProCalendar = () => {
     return [5, 8, 12, 15, 18, 22, 25].includes(day);
   };
 
-  // Mock appointments for selected date
+  // Mock appointments
   const [appointments] = useState([
     { id: 1, time: "09:00", name: "Claire Petit", service: "Pose complète", duration: "1h30", price: 65 },
     { id: 2, time: "11:00", name: "Julie Moreau", service: "Remplissage", duration: "1h", price: 45 },
@@ -76,12 +79,12 @@ const ProCalendar = () => {
       )
     : appointments;
 
-  // Get nearby days for the day view header
-  const getNearbyDays = () => {
-    if (!selectedDate) return [];
+  // Get 5 days for week view
+  const getWeekDays = () => {
+    const today = selectedDate || new Date();
     const days = [];
     for (let i = -2; i <= 2; i++) {
-      const date = new Date(selectedDate);
+      const date = new Date(today);
       date.setDate(date.getDate() + i);
       days.push(date);
     }
@@ -90,17 +93,25 @@ const ProCalendar = () => {
 
   const handleAddAppointment = (appointment: any) => {
     console.log("New appointment:", appointment);
-    // TODO: Add to appointments list
   };
 
   return (
     <MobileLayout>
+      <div className="px-5 py-6 animate-fade-in">
         {/* Header */}
-        <div className="flex items-center justify-between py-6 animate-fade-in">
-          <h1 className="font-display text-2xl font-semibold text-foreground">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-semibold text-foreground">
             Calendrier
           </h1>
           <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setViewMode(viewMode === "month" ? "week" : "month")}
+              className={`w-10 h-10 rounded-full flex items-center justify-center active:scale-95 transition-all ${
+                viewMode === "week" ? "gradient-primary" : "bg-muted"
+              }`}
+            >
+              <CalendarIcon size={20} className={viewMode === "week" ? "text-primary-foreground" : "text-foreground"} />
+            </button>
             <button 
               onClick={() => setIsSearchOpen(!isSearchOpen)}
               className="w-10 h-10 rounded-full bg-muted flex items-center justify-center active:scale-95 transition-transform"
@@ -134,116 +145,120 @@ const ProCalendar = () => {
           </div>
         )}
 
-        {/* Month Navigation */}
-        <div className="flex items-center justify-between mb-4 animate-slide-up">
-          <button
-            onClick={() => navigateMonth(-1)}
-            className="touch-button p-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
-          >
-            <ChevronLeft size={24} className="text-foreground" />
-          </button>
-          <h2 className="font-display text-lg font-semibold text-foreground">
-            {months[currentDate.getMonth()]} {currentDate.getFullYear()}
-          </h2>
-          <button
-            onClick={() => navigateMonth(1)}
-            className="touch-button p-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
-          >
-            <ChevronRight size={24} className="text-foreground" />
-          </button>
-        </div>
-
-        {/* Calendar Grid - Month View */}
-        <div className="blyss-card mb-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-          {/* Days of week header */}
-          <div className="grid grid-cols-7 gap-1 mb-2">
-            {daysOfWeek.map((day) => (
-              <div key={day} className="text-center text-xs text-muted-foreground font-medium py-2">
-                {day}
-              </div>
-            ))}
-          </div>
-
-          {/* Calendar days */}
-          <div className="grid grid-cols-7 gap-1">
-            {getDaysInMonth(currentDate).map((day, index) => (
+        {viewMode === "month" ? (
+          <>
+            {/* Month Navigation */}
+            <div className="flex items-center justify-between mb-4 animate-slide-up">
               <button
-                key={index}
-                onClick={() => day && setSelectedDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), day))}
-                disabled={!day}
-                className={`
-                  aspect-square rounded-xl flex flex-col items-center justify-center text-sm font-medium
-                  transition-all duration-200 relative
-                  ${!day ? "invisible" : ""}
-                  ${isSelected(day!) ? "gradient-primary text-primary-foreground" : ""}
-                  ${isToday(day!) && !isSelected(day!) ? "bg-accent text-primary" : ""}
-                  ${!isSelected(day!) && !isToday(day!) && day ? "hover:bg-muted active:scale-95" : ""}
-                `}
+                onClick={() => navigateMonth(-1)}
+                className="touch-button p-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
               >
-                {day}
-                {day && hasAppointments(day) && !isSelected(day) && (
-                  <div className="absolute bottom-1 w-1 h-1 rounded-full bg-primary" />
-                )}
+                <ChevronLeft size={24} className="text-foreground" />
               </button>
-            ))}
-          </div>
-        </div>
+              <h2 className="text-lg font-semibold text-foreground">
+                {months[currentDate.getMonth()]} {currentDate.getFullYear()}
+              </h2>
+              <button
+                onClick={() => navigateMonth(1)}
+                className="touch-button p-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
+              >
+                <ChevronRight size={24} className="text-foreground" />
+              </button>
+            </div>
 
-        {/* Selected Date - Day View */}
-        {selectedDate && (
-          <div className="animate-slide-up" style={{ animationDelay: "0.2s" }}>
-            {/* Nearby days selector */}
-            <div className="flex items-center justify-center gap-2 mb-4 overflow-x-auto hide-scrollbar">
-              {getNearbyDays().map((date, index) => {
-                const isActive = date.getDate() === selectedDate.getDate() && 
+            {/* Calendar Grid */}
+            <div className="blyss-card mb-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
+              <div className="grid grid-cols-7 gap-1 mb-2">
+                {daysOfWeek.map((day) => (
+                  <div key={day} className="text-center text-xs text-muted-foreground font-medium py-2">
+                    {day}
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1">
+                {getDaysInMonth(currentDate).map((day, index) => (
+                  <button
+                    key={index}
+                    onClick={() => day && setSelectedDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), day))}
+                    disabled={!day}
+                    className={`
+                      aspect-square rounded-xl flex flex-col items-center justify-center text-sm font-medium
+                      transition-all duration-200 relative
+                      ${!day ? "invisible" : ""}
+                      ${isSelected(day!) ? "gradient-primary text-primary-foreground" : ""}
+                      ${isToday(day!) && !isSelected(day!) ? "bg-accent text-primary" : ""}
+                      ${!isSelected(day!) && !isToday(day!) && day ? "hover:bg-muted active:scale-95" : ""}
+                    `}
+                  >
+                    {day}
+                    {day && hasAppointments(day) && !isSelected(day) && (
+                      <div className="absolute bottom-1 w-1 h-1 rounded-full bg-primary" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          /* Week View */
+          <div className="animate-fade-in">
+            <div className="flex items-center justify-center gap-2 mb-6 overflow-x-auto hide-scrollbar">
+              {getWeekDays().map((date, index) => {
+                const isActive = selectedDate && date.getDate() === selectedDate.getDate() && 
                                  date.getMonth() === selectedDate.getMonth();
                 return (
                   <button
                     key={index}
                     onClick={() => setSelectedDate(date)}
                     className={`
-                      flex flex-col items-center px-3 py-2 rounded-xl transition-all min-w-[48px]
-                      ${isActive ? "gradient-primary" : "bg-muted"}
+                      flex flex-col items-center px-4 py-3 rounded-2xl transition-all min-w-[60px]
+                      ${isActive ? "gradient-primary" : "bg-card shadow-card"}
                     `}
                   >
                     <span className={`text-xs ${isActive ? "text-primary-foreground" : "text-muted-foreground"}`}>
                       {daysOfWeek[(date.getDay() + 6) % 7]}
                     </span>
-                    <span className={`text-lg font-semibold ${isActive ? "text-primary-foreground" : "text-foreground"}`}>
+                    <span className={`text-xl font-semibold ${isActive ? "text-primary-foreground" : "text-foreground"}`}>
                       {date.getDate()}
                     </span>
                   </button>
                 );
               })}
             </div>
-
-            {/* Day's appointments */}
-            <div className="space-y-3">
-              {filteredAppointments.length > 0 ? (
-                filteredAppointments.map((apt) => (
-                  <div key={apt.id} className="blyss-card flex items-center gap-4">
-                    <div className="text-center min-w-[50px]">
-                      <p className="text-lg font-bold text-foreground">{apt.time}</p>
-                      <p className="text-xs text-muted-foreground">{apt.duration}</p>
-                    </div>
-                    <div className="h-12 w-px bg-border" />
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-foreground">{apt.name}</h3>
-                      <p className="text-sm text-muted-foreground">{apt.service}</p>
-                    </div>
-                    <p className="font-bold text-foreground">{apt.price}€</p>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  {searchQuery ? "Aucun rendez-vous trouvé" : "Aucun rendez-vous"}
-                </div>
-              )}
-            </div>
           </div>
         )}
 
-      {/* Add Appointment Modal */}
+        {/* Appointments List */}
+        <div className="animate-slide-up" style={{ animationDelay: "0.2s" }}>
+          <h3 className="text-lg font-semibold text-foreground mb-3">
+            {viewMode === "week" ? "Rendez-vous du jour" : "Rendez-vous"}
+          </h3>
+          <div className="space-y-3">
+            {filteredAppointments.length > 0 ? (
+              filteredAppointments.map((apt) => (
+                <div key={apt.id} className="blyss-card flex items-center gap-4">
+                  <div className="text-center min-w-[50px]">
+                    <p className="text-lg font-bold text-foreground">{apt.time}</p>
+                    <p className="text-xs text-muted-foreground">{apt.duration}</p>
+                  </div>
+                  <div className="h-12 w-px bg-border" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-foreground">{apt.name}</h3>
+                    <p className="text-sm text-muted-foreground">{apt.service}</p>
+                  </div>
+                  <p className="font-bold text-foreground">{apt.price}€</p>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                {searchQuery ? "Aucun rendez-vous trouvé" : "Aucun rendez-vous"}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       <AddAppointmentModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}

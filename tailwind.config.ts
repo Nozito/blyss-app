@@ -56,8 +56,8 @@ export default {
         },
       },
       fontFamily: {
-        display: ["Playfair Display", "serif"],
-        sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "sans-serif"],
+        display: ["Helvetica Neue", "Helvetica", "-apple-system", "BlinkMacSystemFont", "sans-serif"],
+        sans: ["Helvetica Neue", "Helvetica", "-apple-system", "BlinkMacSystemFont", "sans-serif"],
       },
       borderRadius: {
         "3xl": "1.5rem",

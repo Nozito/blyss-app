@@ -19,10 +19,10 @@ const ClientProfile = () => {
 
   return (
     <MobileLayout>
-      <div className="py-6 animate-fade-in">
+      <div className="px-5 py-6 animate-fade-in">
         {/* Header */}
-        <div className="py-6 animate-fade-in">
-          <h1 className="font-display text-2xl font-semibold text-foreground">
+        <div className="mb-5">
+          <h1 className="text-2xl font-semibold text-foreground">
             Mon profil
           </h1>
         </div>
@@ -33,7 +33,7 @@ const ClientProfile = () => {
             <img src={logo} alt="Profile" className="w-20 h-20 object-contain" />
           </div>
           <div className="flex-1">
-            <h2 className="font-display text-lg font-semibold text-foreground">
+            <h2 className="text-lg font-semibold text-foreground">
               Marie Dubois
             </h2>
             <p className="text-xs text-primary mt-1">Profil complété à 95%</p>
@@ -61,7 +61,8 @@ const ClientProfile = () => {
           {menuItems.map((item, index) => (
             <button
               key={index}
-              className="w-full flex items-center gap-4 px-4 py-4 hover:bg-muted/50 active:bg-muted transition-colors border-b border-border last:border-b-0"
+              onClick={() => navigate(item.path)}
+              className="w-full flex items-center gap-4 px-4 py-4 hover:bg-muted/50 active:bg-muted active:scale-[0.99] transition-all border-b border-border last:border-b-0"
             >
               <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center">
                 <item.icon size={20} className="text-primary" />

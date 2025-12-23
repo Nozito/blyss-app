@@ -6,26 +6,26 @@ interface SplashScreenProps {
 }
 
 const SplashScreen = ({ onComplete }: SplashScreenProps) => {
-  const [animationPhase, setAnimationPhase] = useState<"fade" | "bounce" | "exit">("fade");
+  const [phase, setPhase] = useState<"initial" | "visible" | "exit">("initial");
 
   useEffect(() => {
-    // Fade in phase
-    const bounceTimer = setTimeout(() => {
-      setAnimationPhase("bounce");
-    }, 600);
+    // Start visible phase
+    const visibleTimer = setTimeout(() => {
+      setPhase("visible");
+    }, 100);
 
-    // Exit phase
+    // Start exit phase
     const exitTimer = setTimeout(() => {
-      setAnimationPhase("exit");
-    }, 1600);
+      setPhase("exit");
+    }, 1400);
 
     // Complete
     const completeTimer = setTimeout(() => {
       onComplete();
-    }, 2000);
+    }, 1800);
 
     return () => {
-      clearTimeout(bounceTimer);
+      clearTimeout(visibleTimer);
       clearTimeout(exitTimer);
       clearTimeout(completeTimer);
     };
@@ -33,28 +33,33 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
 
   return (
     <div
-      className={`fixed inset-0 z-[100] flex items-center justify-center bg-background transition-opacity duration-400 ${
-        animationPhase === "exit" ? "opacity-0" : "opacity-100"
+      className={`fixed inset-0 z-[100] flex items-center justify-center bg-background transition-all duration-400 ease-out ${
+        phase === "exit" ? "opacity-0 scale-105" : "opacity-100 scale-100"
       }`}
     >
       <div className="flex flex-col items-center">
-        <img
-          src={logo}
-          alt="Blyss"
-          className={`w-28 h-28 object-contain transition-all duration-500 ${
-            animationPhase === "fade"
-              ? "opacity-0 scale-75"
-              : animationPhase === "bounce"
-              ? "opacity-100 scale-100 animate-logo-bounce"
+        <div
+          className={`transition-all duration-500 ease-out ${
+            phase === "initial"
+              ? "opacity-0 scale-90"
               : "opacity-100 scale-100"
           }`}
-        />
+        >
+          <img
+            src={logo}
+            alt="Blyss"
+            className={`w-24 h-24 object-contain ${
+              phase === "visible" ? "animate-logo-bounce" : ""
+            }`}
+          />
+        </div>
         <h1
-          className={`font-display text-4xl font-semibold text-foreground mt-4 transition-all duration-500 ${
-            animationPhase === "fade"
+          className={`text-3xl font-semibold text-foreground mt-3 transition-all duration-500 ease-out ${
+            phase === "initial"
               ? "opacity-0 translate-y-4"
               : "opacity-100 translate-y-0"
           }`}
+          style={{ transitionDelay: "150ms" }}
         >
           Blyss
         </h1>
