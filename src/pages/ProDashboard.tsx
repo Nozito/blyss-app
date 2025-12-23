@@ -7,6 +7,7 @@ const ProDashboard = () => {
   const navigate = useNavigate();
   const [showSlotsModal, setShowSlotsModal] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Mock data
   const weeklyStats = {
@@ -95,8 +96,8 @@ const ProDashboard = () => {
   };
 
   return (
-    <MobileLayout>
-      <div className="px-5 py-6 animate-fade-in">
+    <MobileLayout showNav={!(showSlotsModal || showBlockModal)}>
+      <div className="py-6 animate-fade-in">
         {/* Header */}
         <div className="mb-5">
           <p className="text-muted-foreground text-sm">Bonjour ✨</p>
@@ -267,7 +268,7 @@ const ProDashboard = () => {
               <h3 className="text-xl font-semibold text-foreground">Ajouter des créneaux</h3>
               <button 
                 onClick={() => setShowSlotsModal(false)}
-                className="w-10 h-10 rounded-full bg-muted flex items-center justify-center"
+                className="w-10 h-10 rounded-full bg-muted flex items-center justify-center z-0"
               >
                 <X size={20} className="text-foreground" />
               </button>
@@ -313,8 +314,9 @@ const ProDashboard = () => {
               </button>
               <button
                 onClick={() => {
-                  alert("Journée bloquée");
+                  setToastMessage("Journée bloquée");
                   setShowBlockModal(false);
+                  setTimeout(() => setToastMessage(null), 2000); // auto-hide après 2s
                 }}
                 className="flex-1 py-4 rounded-2xl bg-destructive text-destructive-foreground font-semibold active:scale-[0.98] transition-transform"
               >
@@ -322,6 +324,12 @@ const ProDashboard = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {toastMessage && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-card py-2 px-4 rounded-xl shadow-lg animate-fade-in-out z-[9999]">
+          <span className="text-foreground">{toastMessage}</span>
         </div>
       )}
     </MobileLayout>

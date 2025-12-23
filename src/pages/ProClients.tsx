@@ -81,7 +81,7 @@ const ProClients = () => {
   };
 
   return (
-    <MobileLayout>
+    <MobileLayout showNav={!isEditModalOpen}>
         {/* Header - Removed Add Client Button */}
         <div className="py-6 animate-fade-in">
           <h1 className="font-display text-2xl font-semibold text-foreground">

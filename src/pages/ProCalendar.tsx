@@ -97,7 +97,7 @@ const ProCalendar = () => {
 
   return (
     <MobileLayout>
-      <div className="px-5 py-6 animate-fade-in">
+      <div className="py-6 animate-fade-in">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-semibold text-foreground">

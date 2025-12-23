@@ -19,7 +19,7 @@ const ProProfile = () => {
 
   return (
     <MobileLayout>
-      <div className="px-5 py-6 animate-fade-in">
+      <div className="py-6 animate-fade-in">
         {/* Header */}
         <div className="mb-5">
           <h1 className="text-2xl font-semibold text-foreground">
