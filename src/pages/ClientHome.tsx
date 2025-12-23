@@ -16,6 +16,7 @@ const ClientHome = () => {
       location: "Paris 11ème",
       rating: 4.9,
       reviews: 156,
+      avatar: "https://randomuser.me/api/portraits/women/1.jpg"
     },
     {
       id: 2,
@@ -24,6 +25,7 @@ const ClientHome = () => {
       location: "Paris 9ème",
       rating: 4.8,
       reviews: 89,
+      avatar: "https://randomuser.me/api/portraits/women/2.jpg"
     },
     {
       id: 3,
@@ -32,7 +34,35 @@ const ClientHome = () => {
       location: "Paris 15ème",
       rating: 4.7,
       reviews: 124,
+      avatar: "https://randomuser.me/api/portraits/women/3.jpg"
     },
+    {
+      id: 4,
+      name: "Léa Chic",
+      specialty: "Manucure",
+      location: "Paris 5ème",
+      rating: 4.6,
+      reviews: 102,
+      avatar: "https://randomuser.me/api/portraits/women/4.jpg"
+    },
+    {
+      id: 5,
+      name: "Julie Glam",
+      specialty: "Pose gel",
+      location: "Paris 12ème",
+      rating: 4.9,
+      reviews: 98,
+      avatar: "https://randomuser.me/api/portraits/women/5.jpg"
+    },
+    {
+      id: 6,
+      name: "Camille Art",
+      specialty: "Nail Art Specialist",
+      location: "Paris 8ème",
+      rating: 4.5,
+      reviews: 87,
+      avatar: "https://randomuser.me/api/portraits/women/6.jpg"
+    }
   ];
 
   const filteredSpecialists = searchQuery
@@ -46,11 +76,11 @@ const ClientHome = () => {
 
   return (
     <MobileLayout>
-      <div className="px-5 py-6 animate-fade-in">
+      <div className="py-6 animate-fade-in">
         {/* Header */}
         <div className="pt-2 pb-4 animate-fade-in">
           <div className="flex items-center gap-3 mb-1">
-            <img src={logo} alt="Blyss" className="w-8 h-8 object-contain" />
+            <img src={logo} alt="Blyss" className="w-12 h-12 object-contain" />
             <h1 className="text-2xl font-semibold text-foreground">
               Blyss
             </h1>
@@ -89,7 +119,7 @@ const ClientHome = () => {
                 >
                   <div className="flex items-center gap-4">
                     <div className="w-14 h-14 rounded-2xl gradient-gold flex items-center justify-center flex-shrink-0">
-                      <img src={logo} alt={specialist.name} className="w-9 h-9 object-contain" />
+                      <img src={specialist.avatar} alt={specialist.name} className="w-full h-full object-cover rounded-2xl" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-foreground">{specialist.name}</h3>

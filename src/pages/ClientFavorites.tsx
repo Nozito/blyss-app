@@ -8,9 +8,18 @@ const ClientFavorites = () => {
   const navigate = useNavigate();
   const { favorites, removeFavorite } = useFavorites();
 
+  const avatarsById: Record<number, string> = {
+    1: "https://randomuser.me/api/portraits/women/1.jpg",
+    2: "https://randomuser.me/api/portraits/women/2.jpg",
+    3: "https://randomuser.me/api/portraits/women/3.jpg",
+    4: "https://randomuser.me/api/portraits/women/4.jpg",
+    5: "https://randomuser.me/api/portraits/women/5.jpg",
+    6: "https://randomuser.me/api/portraits/women/6.jpg",
+  };
+
   return (
     <MobileLayout>
-      <div className="px-5 py-6 animate-fade-in">
+      <div className="py-6 animate-fade-in">
         {/* Header */}
         <div className="pt-2 pb-4 animate-fade-in">
           <h1 className="text-2xl font-semibold text-foreground">
@@ -47,11 +56,11 @@ const ClientFavorites = () => {
                   className="w-full text-left"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-2xl gradient-gold flex items-center justify-center flex-shrink-0">
+                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center overflow-hidden gradient-gold">
                       <img
-                        src={logo}
+                        src={avatarsById[specialist.id] || logo}
                         alt={specialist.name}
-                        className="w-9 h-9 object-contain"
+                        className="w-full h-full object-cover"
                       />
                     </div>
 

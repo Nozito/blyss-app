@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { Home, Calendar, Heart, User } from "lucide-react";
 
@@ -9,6 +10,10 @@ interface MobileLayoutProps {
 const MobileLayout = ({ children, showNav = true }: MobileLayoutProps) => {
   const location = useLocation();
   const isPro = location.pathname.startsWith("/pro");
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, [location.pathname]);
 
   const proNavItems = [
     { icon: Home, path: "/pro/dashboard", label: "Accueil" },

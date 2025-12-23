@@ -3,6 +3,15 @@ import { useState } from "react";
 import MobileLayout from "@/components/MobileLayout";
 import { Calendar, Clock, MapPin, ChevronRight, RotateCcw, XCircle } from "lucide-react";
 
+const avatarsByName: Record<string, string> = {
+  "Marie Beauté": "https://randomuser.me/api/portraits/women/1.jpg",
+  "Sophie Nails": "https://randomuser.me/api/portraits/women/2.jpg",
+  "Emma Style": "https://randomuser.me/api/portraits/women/3.jpg",
+  "Léa Chic": "https://randomuser.me/api/portraits/women/4.jpg",
+  "Julie Glam": "https://randomuser.me/api/portraits/women/5.jpg",
+  "Camille Art": "https://randomuser.me/api/portraits/women/6.jpg",
+};
+
 const ClientMyBooking = () => {
   const navigate = useNavigate();
   const [confirmId, setConfirmId] = useState<number | null>(null);
@@ -39,7 +48,7 @@ const ClientMyBooking = () => {
 
   return (
     <MobileLayout>
-      <div className="px-5 py-6 animate-fade-in">
+      <div className="py-6 animate-fade-in">
         {/* Header */}
         <div className="pt-2 pb-4 animate-fade-in">
           <h1 className="text-2xl font-semibold text-foreground">
@@ -74,16 +83,20 @@ const ClientMyBooking = () => {
                 onClick={() => navigate(`/client/booking-detail/${booking.id}`)}
                 className="bg-card rounded-2xl p-4 shadow-card w-full text-left active:scale-[0.98] transition-transform"
               >
+                <img
+                  src={avatarsByName[booking.name] || "/default-avatar.png"}
+                  alt={booking.name}
+                  className="w-16 h-16 rounded-full object-cover mb-3"
+                />
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <h3 className="font-semibold text-foreground">
                     {booking.name}
                   </h3>
                   <span
-                    className={`text-xs px-2 py-0.5 rounded-full ${
-                      booking.status === "upcoming"
+                    className={`text-xs px-2 py-0.5 rounded-full ${booking.status === "upcoming"
                         ? "bg-primary/10 text-primary"
                         : "bg-muted text-muted-foreground"
-                    }`}
+                      }`}
                   >
                     {booking.status === "upcoming" ? "À venir" : "Passée"}
                   </span>
@@ -112,10 +125,6 @@ const ClientMyBooking = () => {
                       {booking.location}
                     </span>
                   </div>
-                </div>
-
-                <div className="flex items-center justify-end mt-2">
-                  <ChevronRight size={16} className="text-muted-foreground" />
                 </div>
 
                 {booking.status === "upcoming" && (

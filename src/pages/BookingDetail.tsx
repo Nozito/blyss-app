@@ -4,6 +4,15 @@ import MobileLayout from "@/components/MobileLayout";
 import { ArrowLeft, Calendar, Clock, MapPin, Star, MessageSquare } from "lucide-react";
 import logo from "@/assets/logo.png";
 
+const avatarsById: Record<number, string> = {
+  1: "https://randomuser.me/api/portraits/women/1.jpg",
+  2: "https://randomuser.me/api/portraits/women/2.jpg",
+  3: "https://randomuser.me/api/portraits/women/3.jpg",
+  4: "https://randomuser.me/api/portraits/women/4.jpg",
+  5: "https://randomuser.me/api/portraits/women/5.jpg",
+  6: "https://randomuser.me/api/portraits/women/6.jpg",
+};
+
 const BookingDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -41,7 +50,7 @@ const BookingDetail = () => {
 
   return (
     <MobileLayout showNav={false}>
-      <div className="px-5 py-6 animate-fade-in">
+      <div className="py-6 animate-fade-in">
         {/* Header */}
         <div className="flex items-center gap-4 mb-6">
           <button
@@ -73,8 +82,12 @@ const BookingDetail = () => {
           onClick={() => navigate(`/client/specialist/${booking.specialist.id}`)}
           className="w-full blyss-card flex items-center gap-4 mb-4 active:scale-[0.98] transition-transform"
         >
-          <div className="w-14 h-14 rounded-full gradient-gold flex items-center justify-center flex-shrink-0">
-            <img src={logo} alt={booking.specialist.name} className="w-8 h-8 object-contain" />
+          <div className="w-14 h-14 rounded-full gradient-gold flex items-center justify-center flex-shrink-0 overflow-hidden">
+            <img
+              src={avatarsById[booking.specialist.id] || logo}
+              alt={booking.specialist.name}
+              className="w-full h-full object-cover"
+            />
           </div>
           <div className="flex-1 text-left">
             <h3 className="font-semibold text-foreground">{booking.specialist.name}</h3>

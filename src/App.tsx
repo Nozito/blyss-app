@@ -19,6 +19,10 @@ import SpecialistProfile from "./pages/SpecialistProfile";
 import ClientMyBooking from "./pages/ClientMyBooking";
 import ClientProfile from "./pages/ClientProfile";
 import BookingDetail from "./pages/BookingDetail";
+import ClientHelp from "./pages/ClientHelp";
+import ClientSettings from "./pages/ClientSettings";
+import ClientNotifications from "./pages/ClientNotifications";
+import ClientPayements from "./pages/ClientPayements";
 import NotFound from "./pages/NotFound";
 import "./index.css";
 import "./App.css";
@@ -53,6 +57,10 @@ const App = () => {
             <Route path="/client/profile" element={<ClientProfile />} />
             <Route path="/client/favorites" element={<ClientFavorites />} />
             <Route path="/client/my-booking" element={<ClientMyBooking />} />
+            <Route path="/client/help" element={<ClientHelp />} />
+            <Route path="/client/settings" element={<ClientSettings />} />
+            <Route path="/client/notifications" element={<ClientNotifications />} />
+            <Route path="/client/payment-methods" element={<ClientPayements />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
