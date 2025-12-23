@@ -1,16 +1,23 @@
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, MapPin, Star, Clock, Heart } from "lucide-react";
 import logo from "@/assets/logo.png";
 import ReviewsSection from "@/components/ReviewsSection";
 import MobileLayout from "@/components/MobileLayout";
+import { useFavorites } from "@/hooks/useFavorites";
 
 const SpecialistProfile = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState("");
 
   // Mock data
   const specialist = {
-    id: id,
+    id: Number(id),
     name: "Marie Beauté",
     specialty: "Nail Artist",
     location: "12 Rue de la Beauté, Paris 11ème",
@@ -24,6 +31,29 @@ const SpecialistProfile = () => {
       { name: "Nail art", duration: "2h", price: 85 },
     ],
     portfolio: [1, 2, 3, 4, 5, 6],
+  };
+
+  const isFav = isFavorite(specialist.id);
+
+  const handleToggleFavorite = () => {
+    setIsAnimating(true);
+    toggleFavorite({
+      id: specialist.id,
+      name: specialist.name,
+      specialty: specialist.specialty,
+      location: specialist.location.split(",")[1]?.trim() || specialist.location,
+      rating: specialist.rating,
+      reviews: specialist.reviews,
+    });
+    setTimeout(() => setIsAnimating(false), 300);
+  };
+
+  const handleSubmitReview = () => {
+    if (rating === 0) return;
+    console.log("Review submitted:", { rating, comment });
+    setShowReviewModal(false);
+    setRating(0);
+    setComment("");
   };
 
   // Mock reviews data
@@ -74,16 +104,26 @@ const SpecialistProfile = () => {
     <>
       <MobileLayout showNav={false}>
         {/* Header Image */}
-        <div className="py-6 animate-fade-in">
+        <div className="animate-fade-in">
           <div className="relative h-48 gradient-gold">
             <button
               onClick={() => navigate(-1)}
-              className="absolute top-safe-top left-4 mt-4 w-10 h-10 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center z-10"
+              className="absolute top-safe-top left-4 mt-4 w-10 h-10 rounded-full bg-card/80 backdrop-blur-sm flex items-center justify-center z-10 active:scale-95 transition-transform"
             >
               <ArrowLeft size={20} className="text-foreground" />
             </button>
-            <button className="absolute top-safe-top right-4 mt-4 w-10 h-10 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center z-10">
-              <Heart size={20} className="text-foreground" />
+            <button 
+              onClick={handleToggleFavorite}
+              className={`absolute top-safe-top right-4 mt-4 w-10 h-10 rounded-full bg-card/80 backdrop-blur-sm flex items-center justify-center z-10 active:scale-95 transition-all duration-200 ${
+                isAnimating ? "scale-125" : "scale-100"
+              }`}
+            >
+              <Heart 
+                size={20} 
+                className={`transition-colors duration-200 ${
+                  isFav ? "text-primary fill-primary" : "text-foreground"
+                }`} 
+              />
             </button>
             <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2">
               <div className="w-24 h-24 rounded-full bg-card shadow-elevated flex items-center justify-center border-4 border-blyss-gold-light">
@@ -96,7 +136,7 @@ const SpecialistProfile = () => {
           <div className="px-5 pt-16 pb-32">
             {/* Name & Info */}
             <div className="text-center mb-6 animate-fade-in">
-              <h1 className="font-display text-2xl font-semibold text-foreground">
+              <h1 className="text-2xl font-semibold text-foreground">
                 {specialist.name}
               </h1>
               <p className="text-muted-foreground">{specialist.specialty}</p>
@@ -117,13 +157,13 @@ const SpecialistProfile = () => {
 
             {/* Bio */}
             <div className="bg-card rounded-2xl p-4 shadow-card mb-6 animate-slide-up">
-              <h2 className="font-display text-lg font-semibold text-foreground mb-2">À propos</h2>
+              <h2 className="text-lg font-semibold text-foreground mb-2">À propos</h2>
               <p className="text-muted-foreground text-sm leading-relaxed">{specialist.bio}</p>
             </div>
 
             {/* Services */}
             <div className="mb-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-              <h2 className="font-display text-lg font-semibold text-foreground mb-3">Prestations</h2>
+              <h2 className="text-lg font-semibold text-foreground mb-3">Prestations</h2>
               <div className="space-y-3">
                 {specialist.services.map((service, index) => (
                   <div key={index} className="bg-card rounded-2xl p-4 shadow-card flex items-center justify-between">
@@ -142,7 +182,7 @@ const SpecialistProfile = () => {
 
             {/* Portfolio */}
             <div className="mb-6 animate-slide-up" style={{ animationDelay: "0.15s" }}>
-              <h2 className="font-display text-lg font-semibold text-foreground mb-3">Portfolio</h2>
+              <h2 className="text-lg font-semibold text-foreground mb-3">Portfolio</h2>
               <div className="grid grid-cols-3 gap-2">
                 {specialist.portfolio.map((_, index) => (
                   <div
@@ -155,6 +195,14 @@ const SpecialistProfile = () => {
 
             {/* Reviews Section */}
             <ReviewsSection reviews={reviewsData} />
+
+            {/* Add Review Button */}
+            <button
+              onClick={() => setShowReviewModal(true)}
+              className="w-full py-3 mt-4 rounded-xl border-2 border-primary text-primary font-medium active:scale-[0.98] transition-transform"
+            >
+              Laisser un avis
+            </button>
           </div>
         </div>
       </MobileLayout>
@@ -168,6 +216,64 @@ const SpecialistProfile = () => {
           Réserver
         </button>
       </div>
+
+      {/* Review Modal */}
+      {showReviewModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+          <div className="w-full max-w-[430px] bg-card rounded-t-3xl p-6 pb-10 animate-slide-up-modal">
+            <div className="w-12 h-1 bg-muted rounded-full mx-auto mb-6" />
+            
+            <h3 className="text-xl font-semibold text-foreground text-center mb-6">
+              Laisser un avis
+            </h3>
+
+            {/* Star Rating */}
+            <div className="flex items-center justify-center gap-2 mb-6">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  onClick={() => setRating(star)}
+                  className="p-1 active:scale-90 transition-transform"
+                >
+                  <Star
+                    size={36}
+                    className={`transition-colors ${
+                      star <= rating
+                        ? "text-blyss-gold fill-blyss-gold"
+                        : "text-muted-foreground"
+                    }`}
+                  />
+                </button>
+              ))}
+            </div>
+
+            {/* Comment */}
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Décrivez votre expérience..."
+              className="w-full h-32 px-4 py-3 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 mb-6"
+            />
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowReviewModal(false)}
+                className="flex-1 py-3 rounded-xl bg-muted text-foreground font-medium active:scale-95 transition-transform"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleSubmitReview}
+                disabled={rating === 0}
+                className="flex-1 py-3 rounded-xl gradient-primary text-primary-foreground font-medium active:scale-95 transition-transform disabled:opacity-50"
+              >
+                Envoyer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

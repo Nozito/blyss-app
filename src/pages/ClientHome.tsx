@@ -1,10 +1,12 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import MobileLayout from "@/components/MobileLayout";
-import { MapPin, Star, ChevronRight } from "lucide-react";
+import { MapPin, Star, ChevronRight, Search } from "lucide-react";
 import logo from "@/assets/logo.png";
 
 const ClientHome = () => {
   const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState("");
 
   const specialists = [
     {
@@ -33,38 +35,52 @@ const ClientHome = () => {
     },
   ];
 
+  const filteredSpecialists = searchQuery
+    ? specialists.filter(
+        (s) =>
+          s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          s.specialty.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          s.location.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : specialists;
+
   return (
     <MobileLayout>
-        <div className="py-6 animate-fade-in">
-          <div className="pt-2 pb-3 animate-fade-in">
-            <div className="flex items-center gap-3 mb-2">
-              <img src={logo} alt="Blyss" className="w-8 h-8 object-contain" />
-              <h1 className="font-display text-2xl font-semibold text-foreground">
-                Blyss
-              </h1>
-            </div>
-            <p className="text-muted-foreground">Trouve ta prochaine prestation</p>
+      <div className="px-5 py-6 animate-fade-in">
+        {/* Header */}
+        <div className="pt-2 pb-4 animate-fade-in">
+          <div className="flex items-center gap-3 mb-1">
+            <img src={logo} alt="Blyss" className="w-8 h-8 object-contain" />
+            <h1 className="text-2xl font-semibold text-foreground">
+              Blyss
+            </h1>
           </div>
+          <p className="text-muted-foreground text-sm">Trouve ta prochaine prestation</p>
+        </div>
 
-          {/* Search */}
-          <div className="mb-4 animate-slide-up">
-            <div className="bg-card rounded-2xl p-4 shadow-card">
-              <p className="text-sm text-muted-foreground mb-2">Où ?</p>
-              <div className="flex items-center gap-2">
-                <MapPin size={20} className="text-blyss-gold" />
-                <span className="font-medium text-foreground">Paris, France</span>
-              </div>
-            </div>
+        {/* Search Bar */}
+        <div className="mb-6 animate-slide-up">
+          <div className="relative">
+            <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Rechercher un spécialiste..."
+              className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-card shadow-card border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-shadow"
+            />
           </div>
+        </div>
 
-          {/* Featured Section */}
-          <div className="mb-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-            <h2 className="font-display text-lg font-semibold text-foreground mb-4">
-              À proximité
-            </h2>
+        {/* Specialists List */}
+        <div className="animate-slide-up" style={{ animationDelay: "0.1s" }}>
+          <h2 className="text-lg font-semibold text-foreground mb-4">
+            À proximité
+          </h2>
 
-            <div className="space-y-4">
-              {specialists.map((specialist, index) => (
+          <div className="space-y-3">
+            {filteredSpecialists.length > 0 ? (
+              filteredSpecialists.map((specialist, index) => (
                 <button
                   key={specialist.id}
                   onClick={() => navigate(`/client/specialist/${specialist.id}`)}
@@ -72,13 +88,13 @@ const ClientHome = () => {
                   style={{ animationDelay: `${0.15 + index * 0.05}s` }}
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-2xl gradient-gold flex items-center justify-center flex-shrink-0">
-                      <img src={logo} alt={specialist.name} className="w-10 h-10 object-contain" />
+                    <div className="w-14 h-14 rounded-2xl gradient-gold flex items-center justify-center flex-shrink-0">
+                      <img src={logo} alt={specialist.name} className="w-9 h-9 object-contain" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-foreground">{specialist.name}</h3>
                       <p className="text-sm text-muted-foreground">{specialist.specialty}</p>
-                      <div className="flex items-center gap-3 mt-1">
+                      <div className="flex items-center gap-3 mt-1.5">
                         <div className="flex items-center gap-1">
                           <MapPin size={12} className="text-muted-foreground" />
                           <span className="text-xs text-muted-foreground">{specialist.location}</span>
@@ -93,26 +109,14 @@ const ClientHome = () => {
                     <ChevronRight size={20} className="text-muted-foreground flex-shrink-0" />
                   </div>
                 </button>
-              ))}
-            </div>
+              ))
+            ) : (
+              <div className="text-center py-12 text-muted-foreground">
+                Aucun résultat trouvé
+              </div>
+            )}
           </div>
-
-          {/* Categories */}
-          <div className="mb-6 animate-slide-up" style={{ animationDelay: "0.25s" }}>
-            <h2 className="font-display text-lg font-semibold text-foreground mb-4">
-              Catégories
-            </h2>
-            <div className="grid grid-cols-2 gap-3">
-              {["Manucure", "Pose gel", "Nail art", "Pédicure"].map((category, index) => (
-                <button
-                  key={index}
-                  className="bg-card rounded-2xl p-4 shadow-card text-center active:scale-95 transition-transform"
-                >
-                  <span className="font-medium text-foreground">{category}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+        </div>
       </div>
     </MobileLayout>
   );

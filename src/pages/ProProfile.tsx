@@ -8,7 +8,7 @@ const ProProfile = () => {
 
   const menuItems = [
     { icon: Settings, label: "Paramètres", path: "/pro/settings" },
-    { icon: CreditCard, label: "Mes prestations", path: "/pro/services" },
+    { icon: CreditCard, label: "Paiement", path: "/pro/payment" },
     { icon: Bell, label: "Notifications", path: "/pro/notifications" },
     { icon: HelpCircle, label: "Aide", path: "/pro/help" },
   ];
@@ -19,9 +19,10 @@ const ProProfile = () => {
 
   return (
     <MobileLayout>
+      <div className="px-5 py-6 animate-fade-in">
         {/* Header */}
-        <div className="py-6 animate-fade-in">
-          <h1 className="font-display text-2xl font-semibold text-foreground">
+        <div className="mb-5">
+          <h1 className="text-2xl font-semibold text-foreground">
             Mon profil
           </h1>
         </div>
@@ -32,7 +33,7 @@ const ProProfile = () => {
             <img src={logo} alt="Profile" className="w-10 h-10 object-contain" />
           </div>
           <div className="flex-1">
-            <h2 className="font-display text-lg font-semibold text-foreground">
+            <h2 className="text-lg font-semibold text-foreground">
               Marie Beauté
             </h2>
             <p className="text-sm text-muted-foreground">Nail Artist</p>
@@ -61,7 +62,8 @@ const ProProfile = () => {
           {menuItems.map((item, index) => (
             <button
               key={index}
-              className="w-full flex items-center gap-4 px-4 py-4 hover:bg-muted/50 active:bg-muted transition-colors border-b border-border last:border-b-0"
+              onClick={() => navigate(item.path)}
+              className="w-full flex items-center gap-4 px-4 py-4 hover:bg-muted/50 active:bg-muted active:scale-[0.99] transition-all border-b border-border last:border-b-0"
             >
               <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center">
                 <item.icon size={20} className="text-primary" />
@@ -88,10 +90,10 @@ const ProProfile = () => {
         <p className="text-center text-xs text-muted-foreground mt-8 animate-fade-in" style={{ animationDelay: "0.3s" }}>
           Blyss v1.0.0
         </p>
-        {/* Developp by */}
         <p className="text-center text-xs text-muted-foreground mt-2 animate-fade-in" style={{ animationDelay: "0.3s" }}>
           Développé par Noah DEKEYZER
         </p>
+      </div>
     </MobileLayout>
   );
 };

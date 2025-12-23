@@ -1,7 +1,13 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import MobileLayout from "@/components/MobileLayout";
-import { TrendingUp, TrendingDown, Plus, Ban, Eye, Calendar, Users } from "lucide-react";
+import { TrendingUp, TrendingDown, Plus, Ban, Eye, Calendar, Users, X } from "lucide-react";
 
 const ProDashboard = () => {
+  const navigate = useNavigate();
+  const [showSlotsModal, setShowSlotsModal] = useState(false);
+  const [showBlockModal, setShowBlockModal] = useState(false);
+
   // Mock data
   const weeklyStats = {
     services: 24,
@@ -90,10 +96,11 @@ const ProDashboard = () => {
 
   return (
     <MobileLayout>
+      <div className="px-5 py-6 animate-fade-in">
         {/* Header */}
-        <div className="py-6 animate-fade-in">
+        <div className="mb-5">
           <p className="text-muted-foreground text-sm">Bonjour ✨</p>
-          <h1 className="font-display text-2xl font-semibold text-foreground">
+          <h1 className="text-2xl font-semibold text-foreground">
             Ton tableau de bord
           </h1>
         </div>
@@ -108,9 +115,7 @@ const ProDashboard = () => {
               </p>
               <p className="text-primary-foreground/80 text-sm">prestations</p>
             </div>
-            <div className={`flex items-center gap-1 px-3 py-1.5 rounded-full ${
-              weeklyStats.isUp ? "bg-white/20" : "bg-white/20"
-            }`}>
+            <div className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-primary-foreground/20">
               {weeklyStats.isUp ? (
                 <TrendingUp size={16} className="text-primary-foreground" />
               ) : (
@@ -125,19 +130,28 @@ const ProDashboard = () => {
 
         {/* Quick Actions */}
         <div className="grid grid-cols-3 gap-3 mb-5 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-          <button className="blyss-card flex flex-col items-center justify-center py-4 active:scale-95 transition-transform">
+          <button 
+            onClick={() => setShowSlotsModal(true)}
+            className="blyss-card flex flex-col items-center justify-center py-4 active:scale-95 transition-transform"
+          >
             <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center mb-2">
               <Plus size={20} className="text-primary" />
             </div>
             <span className="text-xs text-muted-foreground text-center">Créneaux</span>
           </button>
-          <button className="blyss-card flex flex-col items-center justify-center py-4 active:scale-95 transition-transform">
+          <button 
+            onClick={() => setShowBlockModal(true)}
+            className="blyss-card flex flex-col items-center justify-center py-4 active:scale-95 transition-transform"
+          >
             <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center mb-2">
               <Ban size={20} className="text-primary" />
             </div>
             <span className="text-xs text-muted-foreground text-center">Bloquer</span>
           </button>
-          <button className="blyss-card flex flex-col items-center justify-center py-4 active:scale-95 transition-transform">
+          <button 
+            onClick={() => navigate("/pro/calendar")}
+            className="blyss-card flex flex-col items-center justify-center py-4 active:scale-95 transition-transform"
+          >
             <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center mb-2">
               <Eye size={20} className="text-primary" />
             </div>
@@ -153,7 +167,7 @@ const ProDashboard = () => {
 
         {/* Upcoming Clients */}
         <div className="mb-5 animate-slide-up" style={{ animationDelay: "0.2s" }}>
-          <h2 className="font-display text-lg font-semibold text-foreground mb-3">
+          <h2 className="text-lg font-semibold text-foreground mb-3">
             Prochaines clientes
           </h2>
           <div className="space-y-3">
@@ -243,6 +257,73 @@ const ProDashboard = () => {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Add Slots Modal */}
+      {showSlotsModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+          <div className="w-full max-w-[430px] bg-card rounded-t-3xl p-6 pb-10 animate-slide-up-modal">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-foreground">Ajouter des créneaux</h3>
+              <button 
+                onClick={() => setShowSlotsModal(false)}
+                className="w-10 h-10 rounded-full bg-muted flex items-center justify-center"
+              >
+                <X size={20} className="text-foreground" />
+              </button>
+            </div>
+            <p className="text-muted-foreground mb-6">
+              Sélectionnez les créneaux que vous souhaitez ouvrir à la réservation.
+            </p>
+            <button
+              onClick={() => {
+                setShowSlotsModal(false);
+                navigate("/pro/calendar");
+              }}
+              className="w-full py-4 rounded-2xl gradient-primary text-primary-foreground font-semibold active:scale-[0.98] transition-transform"
+            >
+              Aller au calendrier
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Block Day Modal */}
+      {showBlockModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+          <div className="w-full max-w-[430px] bg-card rounded-t-3xl p-6 pb-10 animate-slide-up-modal">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-foreground">Bloquer une journée</h3>
+              <button 
+                onClick={() => setShowBlockModal(false)}
+                className="w-10 h-10 rounded-full bg-muted flex items-center justify-center"
+              >
+                <X size={20} className="text-foreground" />
+              </button>
+            </div>
+            <p className="text-muted-foreground mb-6">
+              Bloquez une journée pour ne plus recevoir de réservations.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowBlockModal(false)}
+                className="flex-1 py-4 rounded-2xl bg-muted text-foreground font-semibold active:scale-[0.98] transition-transform"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  alert("Journée bloquée");
+                  setShowBlockModal(false);
+                }}
+                className="flex-1 py-4 rounded-2xl bg-destructive text-destructive-foreground font-semibold active:scale-[0.98] transition-transform"
+              >
+                Bloquer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </MobileLayout>
   );
 };
