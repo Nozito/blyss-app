@@ -2,9 +2,12 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const Signup = () => {
   const navigate = useNavigate();
+  const { signup, isLoading } = useAuth();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     firstName: "",
@@ -21,9 +24,7 @@ const Signup = () => {
   const totalSteps = 5;
 
   const formatPhoneNumber = (value: string) => {
-    // Remove all non-digit characters
     const digits = value.replace(/\D/g, "");
-    // Insert space every 2 digits
     return digits.replace(/(\d{2})(?=\d)/g, "$1 ");
   };
 
@@ -38,8 +39,19 @@ const Signup = () => {
     return age;
   };
 
-  const handleNext = () => {
+  const validateEmail = (email: string): boolean => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  };
+
+  const handleNext = async () => {
     setError("");
+
+    if (step === 3) {
+      if (!validateEmail(formData.email)) {
+        setError("Email invalide");
+        return;
+      }
+    }
 
     if (step === 4) {
       const age = getAgeFromBirthDate(formData.birthDate);
@@ -58,9 +70,23 @@ const Signup = () => {
         setError("Le mot de passe doit contenir au moins 8 caractères");
         return;
       }
-      // TODO: Implement actual signup with Supabase
-      // Signup goes to Client experience
-      navigate("/client");
+
+      // Submit to API
+      const response = await signup({
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        email: formData.email.trim().toLowerCase(),
+        password: formData.password,
+        phone: formData.phone.replace(/\s/g, ""),
+        birthDate: formData.birthDate,
+      });
+
+      if (response.success) {
+        toast.success("Compte créé avec succès !");
+        navigate("/client");
+      } else {
+        setError(response.error || "Erreur lors de la création du compte");
+      }
       return;
     }
 
@@ -82,14 +108,14 @@ const Signup = () => {
       case 2:
         return formData.phone.replace(/\s/g, "").length === 10;
       case 3:
-        return formData.email.trim().includes("@");
+        return validateEmail(formData.email.trim());
       case 4:
         return (
           !!formData.birthDate &&
           getAgeFromBirthDate(formData.birthDate) >= 16
         );
       case 5:
-        return formData.password && formData.confirmPassword;
+        return formData.password.length >= 8 && formData.confirmPassword;
       default:
         return false;
     }
@@ -113,6 +139,7 @@ const Signup = () => {
                 className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                 placeholder="Prénom"
                 autoFocus
+                disabled={isLoading}
               />
               <input
                 type="text"
@@ -120,6 +147,7 @@ const Signup = () => {
                 onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                 className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                 placeholder="Nom"
+                disabled={isLoading}
               />
             </div>
           </div>
@@ -140,6 +168,7 @@ const Signup = () => {
               className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               placeholder="06 12 34 56 78"
               autoFocus
+              disabled={isLoading}
             />
           </div>
         );
@@ -155,11 +184,16 @@ const Signup = () => {
             <input
               type="email"
               value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              onChange={(e) => {
+                setFormData({ ...formData, email: e.target.value });
+                setError("");
+              }}
               className="w-full max-w-lg px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               placeholder="ton@email.com"
               autoFocus
+              disabled={isLoading}
             />
+            {error && <p className="text-destructive text-sm mt-2">{error}</p>}
           </div>
         );
 
@@ -181,6 +215,7 @@ const Signup = () => {
               }
               className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               autoFocus
+              disabled={isLoading}
             />
 
             {error && <p className="text-destructive text-sm mt-2">{error}</p>}
@@ -200,10 +235,14 @@ const Signup = () => {
                 <input
                   type={showPassword ? "text" : "password"}
                   value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, password: e.target.value });
+                    setError("");
+                  }}
                   className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 pr-12"
-                  placeholder="Mot de passe"
+                  placeholder="Mot de passe (min. 8 caractères)"
                   autoFocus
+                  disabled={isLoading}
                 />
                 <button
                   type="button"
@@ -216,9 +255,13 @@ const Signup = () => {
               <input
                 type={showPassword ? "text" : "password"}
                 value={formData.confirmPassword}
-                onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, confirmPassword: e.target.value });
+                  setError("");
+                }}
                 className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                 placeholder="Confirmer le mot de passe"
+                disabled={isLoading}
               />
               {error && <p className="text-destructive text-sm mt-2">{error}</p>}
             </div>
@@ -239,6 +282,7 @@ const Signup = () => {
             <button
               onClick={handleBack}
               className="touch-button -ml-2"
+              disabled={isLoading}
             >
               <ArrowLeft size={24} className="text-foreground" />
             </button>
@@ -255,9 +299,9 @@ const Signup = () => {
         <div
           className="flex flex-1 flex-col items-center justify-center px-6"
           style={{
-            minHeight: "calc(100vh - 136px)", // 64px header + 72px button
-            marginTop: "64px", // header height
-            marginBottom: "72px", // button height
+            minHeight: "calc(100vh - 136px)",
+            marginTop: "64px",
+            marginBottom: "72px",
           }}
         >
           <div className="w-full max-w-lg flex flex-col items-center justify-center">
@@ -269,10 +313,10 @@ const Signup = () => {
         <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-lg bg-background px-6 pb-4 pt-2 z-10">
           <button
             onClick={handleNext}
-            disabled={!isStepValid()}
+            disabled={!isStepValid() || isLoading}
             className="w-full py-4 rounded-2xl gradient-primary text-primary-foreground font-medium text-lg shadow-soft touch-button disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {step === 5 ? "Créer mon compte" : "Continuer"}
+            {isLoading ? "Chargement..." : step === 5 ? "Créer mon compte" : "Continuer"}
           </button>
         </div>
       </div>

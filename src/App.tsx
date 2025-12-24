@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { AuthProvider } from "@/contexts/AuthContext";
 import SplashScreen from "./components/SplashScreen";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -34,37 +35,39 @@ const App = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        {showSplash && (
-          <SplashScreen onComplete={() => setShowSplash(false)} />
-        )}
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
-            <Route path="/pro/dashboard" element={<ProDashboard />} />
-            <Route path="/pro/calendar" element={<ProCalendar />} />
-            <Route path="/pro/clients" element={<ProClients />} />
-            <Route path="/pro/profile" element={<ProProfile />} />
-            <Route path="/client" element={<ClientHome />} />
-            <Route path="/client/specialist/:id" element={<SpecialistProfile />} />
-            <Route path="/client/booking" element={<ClientBooking />} />
-            <Route path="/client/booking/:id" element={<ClientBooking />} />
-            <Route path="/client/booking-detail/:id" element={<BookingDetail />} />
-            <Route path="/client/profile" element={<ClientProfile />} />
-            <Route path="/client/favorites" element={<ClientFavorites />} />
-            <Route path="/client/my-booking" element={<ClientMyBooking />} />
-            <Route path="/client/help" element={<ClientHelp />} />
-            <Route path="/client/settings" element={<ClientSettings />} />
-            <Route path="/client/notifications" element={<ClientNotifications />} />
-            <Route path="/client/payment-methods" element={<ClientPayements />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+      <AuthProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          {showSplash && (
+            <SplashScreen onComplete={() => setShowSplash(false)} />
+          )}
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
+              <Route path="/pro/dashboard" element={<ProDashboard />} />
+              <Route path="/pro/calendar" element={<ProCalendar />} />
+              <Route path="/pro/clients" element={<ProClients />} />
+              <Route path="/pro/profile" element={<ProProfile />} />
+              <Route path="/client" element={<ClientHome />} />
+              <Route path="/client/specialist/:id" element={<SpecialistProfile />} />
+              <Route path="/client/booking" element={<ClientBooking />} />
+              <Route path="/client/booking/:id" element={<ClientBooking />} />
+              <Route path="/client/booking-detail/:id" element={<BookingDetail />} />
+              <Route path="/client/profile" element={<ClientProfile />} />
+              <Route path="/client/favorites" element={<ClientFavorites />} />
+              <Route path="/client/my-booking" element={<ClientMyBooking />} />
+              <Route path="/client/help" element={<ClientHelp />} />
+              <Route path="/client/settings" element={<ClientSettings />} />
+              <Route path="/client/notifications" element={<ClientNotifications />} />
+              <Route path="/client/payment-methods" element={<ClientPayements />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 };

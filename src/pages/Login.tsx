@@ -3,17 +3,52 @@ import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import logo from "@/assets/logo.png";
 import MobileLayout from "@/components/MobileLayout";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const Login = () => {
   const navigate = useNavigate();
+  const { login, isLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleLogin = (e: React.FormEvent) => {
+  const validateForm = (): boolean => {
+    if (!email.trim()) {
+      setError("L'email est requis");
+      return false;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Email invalide");
+      return false;
+    }
+    if (!password) {
+      setError("Le mot de passe est requis");
+      return false;
+    }
+    return true;
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Implement actual login with Supabase
-    navigate("/pro/dashboard");
+    setError("");
+
+    if (!validateForm()) return;
+
+    const response = await login({ email: email.trim(), password });
+
+    if (response.success && response.data) {
+      toast.success("Connexion réussie !");
+      // Redirect based on user role
+      if (response.data.user.role === 'pro') {
+        navigate("/pro/dashboard");
+      } else {
+        navigate("/client");
+      }
+    } else {
+      setError(response.error || "Email ou mot de passe incorrect");
+    }
   };
 
   return (
@@ -32,6 +67,12 @@ const Login = () => {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6 animate-fade-in-up">
+            {error && (
+              <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20">
+                <p className="text-destructive text-sm text-center">{error}</p>
+              </div>
+            )}
+
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-muted-foreground mb-2">
                 Email
@@ -40,10 +81,14 @@ const Login = () => {
                 id="email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setError("");
+                }}
                 className="w-full px-4 py-3 rounded-xl bg-muted border border-transparent text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition"
                 placeholder="ton@email.com"
                 required
+                disabled={isLoading}
               />
             </div>
 
@@ -56,10 +101,14 @@ const Login = () => {
                   id="password"
                   type={showPassword ? "text" : "password"}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setError("");
+                  }}
                   className="w-full px-4 py-3 rounded-xl bg-muted border border-transparent text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition pr-12"
                   placeholder="••••••••"
                   required
+                  disabled={isLoading}
                 />
                 <button
                   type="button"
@@ -74,9 +123,10 @@ const Login = () => {
 
             <button
               type="submit"
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-primary to-primary-dark text-primary-foreground font-semibold text-lg shadow-lg hover:shadow-xl transition-shadow duration-300 touch-button"
+              disabled={isLoading}
+              className="w-full py-4 rounded-2xl bg-gradient-to-r from-primary to-primary-dark text-primary-foreground font-semibold text-lg shadow-lg hover:shadow-xl transition-shadow duration-300 touch-button disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Se connecter
+              {isLoading ? "Connexion..." : "Se connecter"}
             </button>
           </form>
 
@@ -85,6 +135,7 @@ const Login = () => {
             <button
               onClick={() => navigate("/signup")}
               className="text-primary font-semibold hover:underline"
+              disabled={isLoading}
             >
               S'inscrire
             </button>
