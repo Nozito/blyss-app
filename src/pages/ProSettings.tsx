@@ -3,14 +3,17 @@ import { ChevronLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 
-const ClientSettings = () => {
+const ProSettings = () => {
   const navigate = useNavigate();
 
-  // Exemple de state local (à connecter plus tard à ton backend / contexte)
-  const [lastName, setLastName] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [birthDate, setBirthDate] = useState("");
+  // Infos pro (à connecter à ton backend plus tard)
+  const [brandName, setBrandName] = useState("");
+  const [proName, setProName] = useState("");
+  const [specialty, setSpecialty] = useState(""); // ex : Prothésiste ongulaire
+  const [city, setCity] = useState("");
+  const [instagram, setInstagram] = useState("");
 
+  // Sécurité
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
@@ -18,7 +21,6 @@ const ClientSettings = () => {
   const [errors, setErrors] = useState<string | null>(null);
 
   const validatePassword = (pwd: string) => {
-    // Exemple simple : 8+ caractères, 1 maj, 1 chiffre
     const hasLength = pwd.length >= 8;
     const hasUpper = /[A-Z]/.test(pwd);
     const hasDigit = /\d/.test(pwd);
@@ -28,6 +30,7 @@ const ClientSettings = () => {
   const handleSave = () => {
     setErrors(null);
 
+    // Si la pro touche au mot de passe
     if (newPassword || newPasswordConfirm || currentPassword) {
       if (!currentPassword) {
         setErrors("Renseigne ton ancien mot de passe pour le modifier.");
@@ -45,77 +48,116 @@ const ClientSettings = () => {
       }
     }
 
-    // TODO : appeler ton API pour sauvegarder
-    // puis afficher un toast / message de succès
+    // TODO : appel API pour sauvegarder les infos pro + mot de passe
+    // puis afficher un toast de succès
   };
 
   const handleForgotPassword = () => {
-    // TODO : rediriger vers ton flow “mot de passe oublié”
+    // TODO : rediriger vers ton flow “mot de passe oublié” pro
     navigate("/forgot-password");
   };
 
   return (
     <MobileLayout showNav={false}>
       <div className="py-6 animate-fade-in">
-        {/* Header comme ClientPaymentMethods */}
+        {/* Header */}
         <div className="flex items-center mb-2">
           <button
-            onClick={() => navigate("/client/profile")}
+            onClick={() => navigate("/pro/profile")}
             className="p-2"
           >
             <ChevronLeft size={24} className="text-foreground" />
           </button>
           <h1 className="font-display text-2xl font-semibold text-foreground ml-2">
-            Paramètres
+            Paramètres pro
           </h1>
         </div>
         <p className="text-muted-foreground text-sm mb-5">
-          Gère ton compte, tes infos et ta sécurité.
+          Gère ton profil, ton activité et ta sécurité sur Blyss.
         </p>
 
-        {/* SECTION : Infos personnelles */}
+        {/* SECTION : Profil pro */}
         <div className="space-y-4 mb-6">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Infos personnelles
+            Profil pro
           </h2>
 
           <div className="blyss-card flex flex-col gap-3">
             <div className="flex flex-col">
               <label className="text-xs text-muted-foreground mb-1">
-                Nom
+                Nom de ton activité
               </label>
               <input
                 type="text"
                 className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
-                placeholder="Ton nom"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Ex : Nails by Emma"
+                value={brandName}
+                onChange={(e) => setBrandName(e.target.value)}
               />
             </div>
 
             <div className="flex flex-col">
               <label className="text-xs text-muted-foreground mb-1">
-                Prénom
+                Ton prénom et nom
               </label>
               <input
                 type="text"
                 className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
-                placeholder="Ton prénom"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="Ex : Emma Bernard"
+                value={proName}
+                onChange={(e) => setProName(e.target.value)}
               />
             </div>
 
             <div className="flex flex-col">
               <label className="text-xs text-muted-foreground mb-1">
-                Date de naissance
+                Spécialité
               </label>
               <input
-                type="date"
-                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background appearance-none"
-                value={birthDate}
-                onChange={(e) => setBirthDate(e.target.value)}
+                type="text"
+                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
+                placeholder="Ex : Prothésiste ongulaire, nail art..."
+                value={specialty}
+                onChange={(e) => setSpecialty(e.target.value)}
               />
+            </div>
+          </div>
+        </div>
+
+        {/* SECTION : Localisation & réseaux */}
+        <div className="space-y-4 mb-6">
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
+            Localisation & réseaux
+          </h2>
+
+          <div className="blyss-card flex flex-col gap-3">
+            <div className="flex flex-col">
+              <label className="text-xs text-muted-foreground mb-1">
+                Ville / zone
+              </label>
+              <input
+                type="text"
+                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
+                placeholder="Ex : Paris 11e, Lyon centre..."
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+              />
+            </div>
+
+            <div className="flex flex-col">
+              <label className="text-xs text-muted-foreground mb-1">
+                Instagram (optionnel)
+              </label>
+              <input
+                type="text"
+                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
+                placeholder="@toncompte"
+                value={instagram}
+                onChange={(e) => setInstagram(e.target.value)}
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Ton compte pourra être affiché sur ton profil Blyss.
+              </p>
             </div>
           </div>
         </div>
@@ -202,4 +244,4 @@ const ClientSettings = () => {
   );
 };
 
-export default ClientSettings;
+export default ProSettings;

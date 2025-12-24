@@ -1,7 +1,16 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import MobileLayout from "@/components/MobileLayout";
-import { TrendingUp, TrendingDown, Plus, Ban, Eye, Calendar, Users, X } from "lucide-react";
+import {
+  TrendingUp,
+  TrendingDown,
+  Plus,
+  Ban,
+  Eye,
+  Calendar,
+  Users,
+  X
+} from "lucide-react";
 
 const ProDashboard = () => {
   const navigate = useNavigate();
@@ -13,7 +22,7 @@ const ProDashboard = () => {
   const weeklyStats = {
     services: 24,
     change: 12,
-    isUp: true,
+    isUp: true
   };
 
   const todayForecast = 320;
@@ -26,7 +35,7 @@ const ProDashboard = () => {
       time: "14:00",
       price: 65,
       status: "ongoing",
-      avatar: "MD",
+      avatar: "MD"
     },
     {
       id: 2,
@@ -35,7 +44,7 @@ const ProDashboard = () => {
       time: "15:30",
       price: 45,
       status: "upcoming",
-      avatar: "SM",
+      avatar: "SM"
     },
     {
       id: 3,
@@ -44,8 +53,8 @@ const ProDashboard = () => {
       time: "17:00",
       price: 35,
       status: "upcoming",
-      avatar: "EB",
-    },
+      avatar: "EB"
+    }
   ];
 
   const fillRate = 78;
@@ -54,7 +63,7 @@ const ProDashboard = () => {
   const topServices = [
     { name: "Pose gel", percentage: 45 },
     { name: "Remplissage", percentage: 30 },
-    { name: "Manucure", percentage: 25 },
+    { name: "Manucure", percentage: 25 }
   ];
 
   const weeklyRevenue = [
@@ -64,10 +73,24 @@ const ProDashboard = () => {
     { day: "Jeu", amount: 320 },
     { day: "Ven", amount: 280 },
     { day: "Sam", amount: 420 },
-    { day: "Dim", amount: 0 },
+    { day: "Dim", amount: 0 }
   ];
 
-  const maxRevenue = Math.max(...weeklyRevenue.map(d => d.amount));
+  const maxRevenue = useMemo(
+    () =>
+      Math.max(
+        1,
+        ...weeklyRevenue.map((d) => d.amount) // évite division par 0
+      ),
+    [weeklyRevenue]
+  );
+
+  const getBarHeight = (amount: number) => {
+    if (amount <= 0) return 8; // 8px mini pour les jours à 0
+    const minPct = 20; // au moins 20% de la hauteur visuelle
+    const rawPct = (amount / maxRevenue) * 100;
+    return Math.max(minPct, rawPct);
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -97,138 +120,201 @@ const ProDashboard = () => {
 
   return (
     <MobileLayout showNav={!(showSlotsModal || showBlockModal)}>
-      <div className="py-6 animate-fade-in">
+      <div className="py-6 animate-fade-in space-y-5">
         {/* Header */}
-        <div className="mb-5">
-          <p className="text-muted-foreground text-sm">Bonjour ✨</p>
-          <h1 className="text-2xl font-semibold text-foreground">
+        <header className="space-y-1">
+          <p className="text-xs text-muted-foreground">Bonjour ✨</p>
+          <h1 className="text-xl font-semibold text-foreground">
             Ton tableau de bord
           </h1>
-        </div>
+          <p className="text-[11px] text-muted-foreground">
+            Suis tes prestations, ton planning et tes revenus en un coup d’œil.
+          </p>
+        </header>
 
         {/* Weekly Performance Card */}
-        <div className="blyss-card gradient-primary mb-5 animate-slide-up">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-primary-foreground/80 text-sm">Cette semaine</p>
-              <p className="text-4xl font-bold text-primary-foreground mt-1">
-                {weeklyStats.services}
-              </p>
-              <p className="text-primary-foreground/80 text-sm">prestations</p>
-            </div>
+        <section className="blyss-card gradient-primary flex items-center justify-between animate-slide-up">
+          <div>
+            <p className="text-primary-foreground/80 text-xs">Cette semaine</p>
+            <p className="text-3xl font-bold text-primary-foreground mt-1">
+              {weeklyStats.services}
+            </p>
+            <p className="text-primary-foreground/80 text-xs">prestations</p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
             <div className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-primary-foreground/20">
               {weeklyStats.isUp ? (
-                <TrendingUp size={16} className="text-primary-foreground" />
+                <TrendingUp
+                  size={16}
+                  className="text-primary-foreground"
+                />
               ) : (
-                <TrendingDown size={16} className="text-primary-foreground" />
+                <TrendingDown
+                  size={16}
+                  className="text-primary-foreground"
+                />
               )}
-              <span className="text-primary-foreground font-medium text-sm">
-                {weeklyStats.isUp ? "+" : "-"}{weeklyStats.change}%
+              <span className="text-primary-foreground font-medium text-xs">
+                {weeklyStats.isUp ? "+" : "-"}
+                {weeklyStats.change}%
               </span>
             </div>
+            <p className="text-[11px] text-primary-foreground/80">
+              vs semaine dernière
+            </p>
           </div>
-        </div>
+        </section>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-3 gap-3 mb-5 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-          <button 
+        <section className="grid grid-cols-3 gap-3 animate-slide-up">
+          <button
             onClick={() => setShowSlotsModal(true)}
             className="blyss-card flex flex-col items-center justify-center py-4 active:scale-95 transition-transform"
           >
             <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center mb-2">
               <Plus size={20} className="text-primary" />
             </div>
-            <span className="text-xs text-muted-foreground text-center">Créneaux</span>
+            <span className="text-xs text-muted-foreground text-center">
+              Créneaux
+            </span>
           </button>
-          <button 
+          <button
             onClick={() => setShowBlockModal(true)}
             className="blyss-card flex flex-col items-center justify-center py-4 active:scale-95 transition-transform"
           >
             <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center mb-2">
               <Ban size={20} className="text-primary" />
             </div>
-            <span className="text-xs text-muted-foreground text-center">Bloquer</span>
+            <span className="text-xs text-muted-foreground text-center">
+              Bloquer
+            </span>
           </button>
-          <button 
+          <button
             onClick={() => navigate("/pro/calendar")}
             className="blyss-card flex flex-col items-center justify-center py-4 active:scale-95 transition-transform"
           >
             <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center mb-2">
               <Eye size={20} className="text-primary" />
             </div>
-            <span className="text-xs text-muted-foreground text-center">Planning</span>
+            <span className="text-xs text-muted-foreground text-center">
+              Planning
+            </span>
           </button>
-        </div>
+        </section>
 
         {/* Today's Forecast */}
-        <div className="blyss-card flex items-center justify-between mb-5 animate-slide-up" style={{ animationDelay: "0.15s" }}>
-          <span className="text-muted-foreground font-medium">Aujourd'hui</span>
-          <span className="text-2xl font-bold text-foreground">{todayForecast}€</span>
-        </div>
+        <section className="blyss-card flex items-center justify-between animate-slide-up">
+          <span className="text-xs text-muted-foreground font-medium">
+            Estimation du jour
+          </span>
+          <span className="text-2xl font-bold text-foreground">
+            {todayForecast}€
+          </span>
+        </section>
 
         {/* Upcoming Clients */}
-        <div className="mb-5 animate-slide-up" style={{ animationDelay: "0.2s" }}>
-          <h2 className="text-lg font-semibold text-foreground mb-3">
-            Prochaines clientes
-          </h2>
+        <section className="space-y-3 animate-slide-up">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-foreground">
+              Prochaines clientes
+            </h2>
+            <button
+              type="button"
+              onClick={() => navigate("/pro/calendar")}
+              className="text-[11px] text-primary"
+            >
+              Voir tout
+            </button>
+          </div>
           <div className="space-y-3">
             {upcomingClients.map((client) => (
-              <div key={client.id} className="client-card flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
-                  <span className="text-primary-foreground font-medium text-sm">
-                    {client.avatar}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between mb-1">
-                    <h3 className="font-semibold text-foreground truncate">
-                      {client.name}
-                    </h3>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(client.status)}`}>
-                      {getStatusLabel(client.status)}
-                    </span>
-                  </div>
-                  <p className="text-sm text-muted-foreground truncate">{client.service}</p>
-                  <div className="flex items-center justify-between mt-1">
-                    <span className="text-xs text-muted-foreground">{client.time}</span>
-                    <span className="text-sm font-semibold text-foreground">{client.price}€</span>
-                  </div>
-                </div>
+              <div
+          key={client.id}
+          className="client-card flex items-center gap-4"
+              >
+          <div className="w-11 h-11 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
+            <span className="text-primary-foreground font-medium text-xs">
+              {client.avatar}
+            </span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between mb-1 gap-2">
+              <h3 className="font-semibold text-sm text-foreground truncate">
+                {client.name}
+              </h3>
+              <span
+                className={`text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap ${getStatusColor(
+            client.status
+                )}`}
+              >
+                {getStatusLabel(client.status)}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground truncate text-left">
+              {client.service}
+            </p>
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-[11px] text-muted-foreground">
+                {client.time}
+              </span>
+              <span className="text-sm font-semibold text-foreground">
+                {client.price}€
+              </span>
+            </div>
+          </div>
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 gap-3 mb-5 animate-slide-up" style={{ animationDelay: "0.25s" }}>
+        <section className="grid grid-cols-2 gap-3 animate-slide-up">
           <div className="stat-card">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-1">
               <Calendar size={16} className="text-primary" />
-              <span className="text-xs text-muted-foreground">Taux de remplissage</span>
+              <span className="text-[11px] text-muted-foreground">
+                Taux de remplissage
+              </span>
             </div>
             <p className="text-3xl font-bold text-foreground">{fillRate}%</p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Sur tes créneaux ouverts cette semaine.
+            </p>
           </div>
           <div className="stat-card">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-1">
               <Users size={16} className="text-primary" />
-              <span className="text-xs text-muted-foreground">Clientes cette semaine</span>
+              <span className="text-[11px] text-muted-foreground">
+                Clientes cette semaine
+              </span>
             </div>
-            <p className="text-3xl font-bold text-foreground">{clientsThisWeek}</p>
+            <p className="text-3xl font-bold text-foreground">
+              {clientsThisWeek}
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Uniques ou récurrentes.
+            </p>
           </div>
-        </div>
+        </section>
 
         {/* Top Services */}
-        <div className="blyss-card mb-5 animate-slide-up" style={{ animationDelay: "0.3s" }}>
-          <h3 className="font-semibold text-foreground mb-4">Top prestations</h3>
+        <section className="blyss-card animate-slide-up">
+          <h3 className="font-semibold text-sm text-foreground mb-3">
+            Top prestations
+          </h3>
           <div className="space-y-3">
             {topServices.map((service, index) => (
               <div key={index}>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm text-muted-foreground">{service.name}</span>
-                  <span className="text-sm font-medium text-foreground">{service.percentage}%</span>
+                  <span className="text-xs text-muted-foreground">
+                    {service.name}
+                  </span>
+                  <span className="text-xs font-medium text-foreground">
+                    {service.percentage}%
+                  </span>
                 </div>
                 <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div 
+                  <div
                     className="h-full gradient-primary rounded-full transition-all duration-500"
                     style={{ width: `${service.percentage}%` }}
                   />
@@ -236,52 +322,61 @@ const ProDashboard = () => {
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
         {/* Weekly Revenue Graph */}
-        <div className="blyss-card animate-slide-up" style={{ animationDelay: "0.35s" }}>
-          <h3 className="font-semibold text-foreground mb-4">Revenus de la semaine</h3>
+        <section className="blyss-card animate-slide-up">
+          <h3 className="font-semibold text-sm text-foreground mb-3">
+            Revenus de la semaine
+          </h3>
           <div className="flex items-end justify-between gap-2 h-32">
             {weeklyRevenue.map((day, index) => (
-              <div key={index} className="flex-1 flex flex-col items-center gap-2">
-                <div 
-                  className={`w-full rounded-t-lg transition-all duration-300 ${
-                    day.amount > 0 ? "gradient-primary" : "bg-muted"
-                  }`}
-                  style={{ 
-                    height: day.amount > 0 ? `${(day.amount / maxRevenue) * 100}%` : "8px",
-                    minHeight: "8px"
+              <div
+                key={index}
+                className="flex-1 flex flex-col items-center gap-1"
+              >
+                <div
+                  className={`w-full rounded-t-lg transition-all duration-300 ${day.amount > 0 ? "gradient-primary" : "bg-muted"
+                    }`}
+                  style={{
+                    height: `${getBarHeight(day.amount)}%`
                   }}
                 />
-                <span className="text-xs text-muted-foreground">{day.day}</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {day.day}
+                </span>
               </div>
             ))}
           </div>
-        </div>
+        </section>
+
       </div>
 
       {/* Add Slots Modal */}
       {showSlotsModal && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
-          <div className="w-full max-w-[430px] bg-card rounded-t-3xl p-6 pb-10 animate-slide-up-modal">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-semibold text-foreground">Ajouter des créneaux</h3>
-              <button 
+          <div className="w-full max-w-[430px] bg-card rounded-t-3xl p-6 pb-8 animate-slide-up-modal">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-foreground">
+                Ajouter des créneaux
+              </h3>
+              <button
                 onClick={() => setShowSlotsModal(false)}
-                className="w-10 h-10 rounded-full bg-muted flex items-center justify-center z-0"
+                className="w-9 h-9 rounded-full bg-muted flex items-center justify-center"
               >
-                <X size={20} className="text-foreground" />
+                <X size={18} className="text-foreground" />
               </button>
             </div>
-            <p className="text-muted-foreground mb-6">
-              Sélectionnez les créneaux que vous souhaitez ouvrir à la réservation.
+            <p className="text-xs text-muted-foreground mb-5">
+              Ouvre de nouveaux créneaux pour la semaine à venir depuis ton
+              calendrier Blyss.
             </p>
             <button
               onClick={() => {
                 setShowSlotsModal(false);
                 navigate("/pro/calendar");
               }}
-              className="w-full py-4 rounded-2xl gradient-primary text-primary-foreground font-semibold active:scale-[0.98] transition-transform"
+              className="w-full py-3.5 rounded-2xl gradient-primary text-primary-foreground font-semibold active:scale-[0.98] transition-transform text-sm"
             >
               Aller au calendrier
             </button>
@@ -292,23 +387,26 @@ const ProDashboard = () => {
       {/* Block Day Modal */}
       {showBlockModal && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
-          <div className="w-full max-w-[430px] bg-card rounded-t-3xl p-6 pb-10 animate-slide-up-modal">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-semibold text-foreground">Bloquer une journée</h3>
-              <button 
+          <div className="w-full max-w-[430px] bg-card rounded-t-3xl p-6 pb-8 animate-slide-up-modal">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-foreground">
+                Bloquer une journée
+              </h3>
+              <button
                 onClick={() => setShowBlockModal(false)}
-                className="w-10 h-10 rounded-full bg-muted flex items-center justify-center"
+                className="w-9 h-9 rounded-full bg-muted flex items-center justify-center"
               >
-                <X size={20} className="text-foreground" />
+                <X size={18} className="text-foreground" />
               </button>
             </div>
-            <p className="text-muted-foreground mb-6">
-              Bloquez une journée pour ne plus recevoir de réservations.
+            <p className="text-xs text-muted-foreground mb-5">
+              Bloque une journée entière pour ne plus recevoir de réservations
+              sur ce créneau.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowBlockModal(false)}
-                className="flex-1 py-4 rounded-2xl bg-muted text-foreground font-semibold active:scale-[0.98] transition-transform"
+                className="flex-1 py-3.5 rounded-2xl bg-muted text-foreground font-semibold active:scale-[0.98] transition-transform text-sm"
               >
                 Annuler
               </button>
@@ -316,9 +414,9 @@ const ProDashboard = () => {
                 onClick={() => {
                   setToastMessage("Journée bloquée");
                   setShowBlockModal(false);
-                  setTimeout(() => setToastMessage(null), 2000); // auto-hide après 2s
+                  setTimeout(() => setToastMessage(null), 2000);
                 }}
-                className="flex-1 py-4 rounded-2xl bg-destructive text-destructive-foreground font-semibold active:scale-[0.98] transition-transform"
+                className="flex-1 py-3.5 rounded-2xl bg-destructive text-destructive-foreground font-semibold active:scale-[0.98] transition-transform text-sm"
               >
                 Bloquer
               </button>
@@ -329,7 +427,7 @@ const ProDashboard = () => {
 
       {toastMessage && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-card py-2 px-4 rounded-xl shadow-lg animate-fade-in-out z-[9999]">
-          <span className="text-foreground">{toastMessage}</span>
+          <span className="text-foreground text-sm">{toastMessage}</span>
         </div>
       )}
     </MobileLayout>

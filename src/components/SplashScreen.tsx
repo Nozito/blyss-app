@@ -6,61 +6,43 @@ interface SplashScreenProps {
 }
 
 const SplashScreen = ({ onComplete }: SplashScreenProps) => {
-  const [phase, setPhase] = useState<"initial" | "visible" | "exit">("initial");
+  const [phase, setPhase] = useState<"enter" | "hold" | "exit">("enter");
 
   useEffect(() => {
-    // Start visible phase
-    const visibleTimer = setTimeout(() => {
-      setPhase("visible");
-    }, 100);
-
-    // Start exit phase
-    const exitTimer = setTimeout(() => {
-      setPhase("exit");
-    }, 1400);
-
-    // Complete
-    const completeTimer = setTimeout(() => {
-      onComplete();
-    }, 1800);
+    const enterTimer = setTimeout(() => setPhase("hold"), 200);   // fade-in
+    const exitTimer = setTimeout(() => setPhase("exit"), 1100);   // fade-out
+    const completeTimer = setTimeout(() => onComplete(), 1400);   // remove
 
     return () => {
-      clearTimeout(visibleTimer);
+      clearTimeout(enterTimer);
       clearTimeout(exitTimer);
       clearTimeout(completeTimer);
     };
   }, [onComplete]);
 
+  const wrapperBase =
+    "fixed inset-0 z-[100] flex items-center justify-center bg-background transition-opacity duration-300 ease-out";
+  const wrapperState =
+    phase === "exit" ? "opacity-0" : "opacity-100";
+
+  const logoWrapperBase =
+    "flex flex-col items-center transition-transform transition-opacity duration-400 ease-out";
+  const logoWrapperState =
+    phase === "enter"
+      ? "opacity-0 scale-95"
+      : phase === "hold"
+      ? "opacity-100 scale-100"
+      : "opacity-0 scale-100";
+
   return (
-    <div
-      className={`fixed inset-0 z-[100] flex items-center justify-center bg-background transition-all duration-400 ease-out ${
-        phase === "exit" ? "opacity-0 scale-105" : "opacity-100 scale-100"
-      }`}
-    >
-      <div className="flex flex-col items-center">
-        <div
-          className={`transition-all duration-500 ease-out ${
-            phase === "initial"
-              ? "opacity-0 scale-90"
-              : "opacity-100 scale-100"
-          }`}
-        >
-          <img
-            src={logo}
-            alt="Blyss"
-            className={`w-24 h-24 object-contain ${
-              phase === "visible" ? "animate-logo-bounce" : ""
-            }`}
-          />
-        </div>
-        <h1
-          className={`text-3xl font-semibold text-foreground mt-3 transition-all duration-500 ease-out ${
-            phase === "initial"
-              ? "opacity-0 translate-y-4"
-              : "opacity-100 translate-y-0"
-          }`}
-          style={{ transitionDelay: "150ms" }}
-        >
+    <div className={`${wrapperBase} ${wrapperState}`}>
+      <div className={`${logoWrapperBase} ${logoWrapperState}`}>
+        <img
+          src={logo}
+          alt="Blyss"
+          className="w-20 h-20 object-contain rounded-2xl shadow-sm"
+        />
+        <h1 className="text-xl font-semibold text-foreground mt-3 tracking-wide">
           Blyss
         </h1>
       </div>

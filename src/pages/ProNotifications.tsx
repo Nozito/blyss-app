@@ -3,32 +3,34 @@ import { ChevronLeft, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 
-type NotificationKey =
-  | "reminders"
+type ProNotificationKey =
+  | "newBookings"
   | "changes"
-  | "messages"
-  | "late"
-  | "offers"
-  | "emailSummary";
+  | "todayReminders"
+  | "clientMessages"
+  | "paymentAlerts"
+  | "activitySummary";
 
-const ClientNotifications = () => {
+const ProNotifications = () => {
   const navigate = useNavigate();
 
-  const [preferences, setPreferences] = useState<Record<NotificationKey, boolean>>({
-    reminders: true,
+  const [preferences, setPreferences] = useState<
+    Record<ProNotificationKey, boolean>
+  >({
+    newBookings: true,
     changes: true,
-    messages: true,
-    late: true,
-    offers: true,
-    emailSummary: false
+    todayReminders: true,
+    clientMessages: true,
+    paymentAlerts: true,
+    activitySummary: false
   });
 
-  const togglePreference = (key: NotificationKey) => {
+  const togglePreference = (key: ProNotificationKey) => {
     setPreferences((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const goToSystemSettings = () => {
-    // Placeholder : à adapter côté natif si besoin
+    // À brancher côté natif (iOS/Android) si besoin
     // window.open("app-settings:", "_blank");
   };
 
@@ -38,65 +40,65 @@ const ClientNotifications = () => {
         {/* Header */}
         <div className="flex items-center mb-2">
           <button
-            onClick={() => navigate("/client/profile")}
+            onClick={() => navigate("/pro/profile")}
             className="p-2"
           >
             <ChevronLeft size={24} className="text-foreground" />
           </button>
           <h1 className="font-display text-2xl font-semibold text-foreground ml-2">
-            Notifications
+            Notifications pro
           </h1>
         </div>
         <p className="text-muted-foreground text-sm mb-5">
-          Choisis ce que tu souhaites recevoir de Blyss.
+          Choisis ce que tu souhaites recevoir pour ton activité Blyss.
         </p>
 
-        {/* Bloc info – icône à gauche, texte à droite */}
+        {/* Bloc info */}
         <div className="blyss-card flex items-center gap-3 mb-5">
           <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
             <Info size={16} className="text-primary" />
           </div>
           <div className="flex-1">
             <p className="text-sm font-medium text-foreground">
-              Rappels & messages importants
+              Nouveaux rendez-vous & changements
             </p>
             <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
-              Recommandé : garde activés les rappels de rendez-vous et les
-              messages de tes expertes pour éviter les oublis.
+              Recommandé : garde activées les notifications de réservations,
+              changements et messages clientes pour éviter les no‑shows.
             </p>
           </div>
         </div>
 
-        {/* SECTION : Blyss & rendez-vous */}
+        {/* SECTION : Rendez-vous & clientes */}
         <div className="space-y-3 mb-6">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Blyss & rendez-vous
+            Rendez-vous & clientes
           </h2>
 
-          {/* Confirmation + rappels */}
+          {/* Nouvelles réservations */}
           <div className="blyss-card flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="font-medium text-sm text-foreground">
-                Confirmation & rappels de rendez-vous
+                Nouvelles réservations
               </span>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
                   type="checkbox"
                   className="sr-only peer"
-                  checked={preferences.reminders}
-                  onChange={() => togglePreference("reminders")}
+                  checked={preferences.newBookings}
+                  onChange={() => togglePreference("newBookings")}
                 />
                 <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
                 <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
               </label>
             </div>
             <p className="text-xs text-muted-foreground">
-              Confirmation de réservation, rappel la veille, rappel 1h avant ton
-              rendez-vous.
+              Notification dès qu’une cliente réserve un nouveau créneau chez
+              toi.
             </p>
           </div>
 
-          {/* Changements / annulations */}
+          {/* Changements / annulations par les clientes */}
           <div className="blyss-card flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="font-medium text-sm text-foreground">
@@ -114,107 +116,105 @@ const ClientNotifications = () => {
               </label>
             </div>
             <p className="text-xs text-muted-foreground">
-              Notifications en cas de modification d’horaire ou d’annulation par
-              l’experte.
+              Alertes en cas de modification d’horaire ou d’annulation par la
+              cliente.
             </p>
           </div>
 
-          {/* Messages */}
+          {/* Rappels du jour pour la pro */}
           <div className="blyss-card flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="font-medium text-sm text-foreground">
-                Nouveaux messages
+                Rappels du jour
               </span>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
                   type="checkbox"
                   className="sr-only peer"
-                  checked={preferences.messages}
-                  onChange={() => togglePreference("messages")}
+                  checked={preferences.todayReminders}
+                  onChange={() => togglePreference("todayReminders")}
                 />
                 <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
                 <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
               </label>
             </div>
             <p className="text-xs text-muted-foreground">
-              Alertes quand une experte t’envoie un message ou répond à une
-              question.
+              Récap’ de tes rendez-vous du jour et premiers créneaux à venir.
             </p>
           </div>
 
-          {/* Retards & arrivée */}
+          {/* Messages clientes */}
           <div className="blyss-card flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="font-medium text-sm text-foreground">
-                Retard & arrivée de l’experte
+                Messages clientes
               </span>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
                   type="checkbox"
                   className="sr-only peer"
-                  checked={preferences.late}
-                  onChange={() => togglePreference("late")}
+                  checked={preferences.clientMessages}
+                  onChange={() => togglePreference("clientMessages")}
                 />
                 <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
                 <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
               </label>
             </div>
             <p className="text-xs text-muted-foreground">
-              Notification si ton rendez-vous prend du retard ou quand l’experte
-              arrive sur place (si activé par elle).
+              Notification quand une cliente t’écrit ou répond à un message.
             </p>
           </div>
         </div>
 
-        {/* SECTION : Offres & communication */}
+        {/* SECTION : Paiement & activité */}
         <div className="space-y-3 mb-6">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Offres & communication
+            Paiement & activité
           </h2>
 
-          {/* Offres / promos */}
+          {/* Alerte paiement / réservation garantie */}
           <div className="blyss-card flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="font-medium text-sm text-foreground">
-                Offres et promotions
+                Paiement & réservations garanties
               </span>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
                   type="checkbox"
                   className="sr-only peer"
-                  checked={preferences.offers}
-                  onChange={() => togglePreference("offers")}
+                  checked={preferences.paymentAlerts}
+                  onChange={() => togglePreference("paymentAlerts")}
                 />
                 <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
                 <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
               </label>
             </div>
             <p className="text-xs text-muted-foreground">
-              Bons plans Blyss, codes promo et offres de tes expertes
-              favorites.
+              Alertes quand un acompte est encaissé ou qu’une réservation est
+              garantie.
             </p>
           </div>
 
-          {/* Résumé email */}
+          {/* Résumé d’activité */}
           <div className="blyss-card flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="font-medium text-sm text-foreground">
-                Résumé par email
+                Résumé d’activité
               </span>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
                   type="checkbox"
                   className="sr-only peer"
-                  checked={preferences.emailSummary}
-                  onChange={() => togglePreference("emailSummary")}
+                  checked={preferences.activitySummary}
+                  onChange={() => togglePreference("activitySummary")}
                 />
                 <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
                 <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
               </label>
             </div>
             <p className="text-xs text-muted-foreground">
-              Un résumé occasionnel avec tes prochains rendez-vous et les
-              nouveautés Blyss.
+              Un résumé occasionnel (jour / semaine) avec ton nombre de
+              rendez-vous et ton CA estimé.
             </p>
           </div>
         </div>
@@ -245,4 +245,4 @@ const ClientNotifications = () => {
   );
 };
 
-export default ClientNotifications;
+export default ProNotifications;

@@ -1,27 +1,35 @@
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import MobileLayout from "@/components/MobileLayout";
-import { MapPin, Star, ChevronRight, Search } from "lucide-react";
+import {
+  MapPin,
+  Star,
+  ChevronRight,
+  Search,
+  Calendar
+} from "lucide-react";
 import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/AuthContext";
-import { specialistsApi } from "@/services/api";
 
 const ClientHome = () => {
   const navigate = useNavigate();
-  const { user, isAuthenticated } = useAuth();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const { user } = useAuth();
 
-  // Mock data - will be replaced with API data when backend is connected
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isLoading] = useState(false); // à brancher sur ton API plus tard
+
+  // MOCK DATA – à connecter à ton backend
   const [specialists] = useState([
     {
       id: 1,
       name: "Marie Beauté",
-      specialty: "Nail Artist",
+      specialty: "Pose gel & nail art",
       location: "Paris 11ème",
       rating: 4.9,
       reviews: 156,
-      avatar: "https://randomuser.me/api/portraits/women/1.jpg"
+      avatar: "https://randomuser.me/api/portraits/women/1.jpg",
+      cover:
+        "src/assets/banners/banner1.jpg"
     },
     {
       id: 2,
@@ -30,154 +38,285 @@ const ClientHome = () => {
       location: "Paris 9ème",
       rating: 4.8,
       reviews: 89,
-      avatar: "https://randomuser.me/api/portraits/women/2.jpg"
+      avatar: "https://randomuser.me/api/portraits/women/2.jpg",
+      cover:
+        "src/assets/banners/banner2.jpg"
     },
     {
       id: 3,
       name: "Emma Style",
-      specialty: "Nail Art Specialist",
+      specialty: "Nail art détaillé",
       location: "Paris 15ème",
       rating: 4.7,
       reviews: 124,
-      avatar: "https://randomuser.me/api/portraits/women/3.jpg"
+      avatar: "https://randomuser.me/api/portraits/women/3.jpg",
+      cover:
+        "src/assets/banners/banner3.jpg"
     },
     {
       id: 4,
       name: "Léa Chic",
-      specialty: "Manucure",
+      specialty: "Manucure classique",
       location: "Paris 5ème",
       rating: 4.6,
       reviews: 102,
-      avatar: "https://randomuser.me/api/portraits/women/4.jpg"
-    },
-    {
-      id: 5,
-      name: "Julie Glam",
-      specialty: "Pose gel",
-      location: "Paris 12ème",
-      rating: 4.9,
-      reviews: 98,
-      avatar: "https://randomuser.me/api/portraits/women/5.jpg"
-    },
-    {
-      id: 6,
-      name: "Camille Art",
-      specialty: "Nail Art Specialist",
-      location: "Paris 8ème",
-      rating: 4.5,
-      reviews: 87,
-      avatar: "https://randomuser.me/api/portraits/women/6.jpg"
+      avatar: "https://randomuser.me/api/portraits/women/4.jpg",
+      cover:
+        "src/assets/banners/banner4.jpg"
     }
   ]);
 
-  // Redirect to login if not authenticated (optional - depends on your app flow)
-  useEffect(() => {
-    // Uncomment this if you want to require authentication
-    // if (!isAuthenticated) {
-    //   navigate('/login');
-    // }
-  }, [isAuthenticated, navigate]);
+  // Prochains RDV (mock)
+  const upcomingAppointments: Array<{
+    id: number;
+    specialistName: string;
+    date: string;
+    time: string;
+    location: string;
+  }> = [];
 
-  const filteredSpecialists = searchQuery
-    ? specialists.filter(
-        (s) =>
-          s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          s.specialty.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          s.location.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : specialists;
+  const greeting = user?.firstName
+    ? `Salut ${user.firstName} 👋`
+    : "Bienvenue sur Blyss";
 
-  const greeting = user?.firstName ? `Salut ${user.firstName} 👋` : "Blyss";
+  const filteredSpecialists = useMemo(() => {
+    if (!searchQuery) return specialists;
+    const q = searchQuery.toLowerCase();
+    return specialists.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.specialty.toLowerCase().includes(q) ||
+        s.location.toLowerCase().includes(q)
+    );
+  }, [searchQuery, specialists]);
+
+  const Separator = () => (
+    <div className="h-px bg-border/50 my-5" aria-hidden="true" />
+  );
 
   return (
     <MobileLayout>
-      <div className="py-6 animate-fade-in">
-        {/* Header */}
-        <div className="pt-2 pb-4 animate-fade-in">
-          <div className="flex items-center gap-3 mb-1">
-            <img src={logo} alt="Blyss" className="w-12 h-12 object-contain" />
-            <h1 className="text-2xl font-semibold text-foreground">
-              {greeting}
-            </h1>
+      <div className="py-6 px-4 animate-fade-in space-y-6">
+        {/* HERO Blyss */}
+        <header className="flex flex-col items-center text-center space-y-2">
+          <img
+            src={logo}
+            alt="Blyss"
+            className="w-28 h-28 object-contain rounded-xl"
+          />
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">{greeting}</p>
+            <p className="text-sm font-semibold text-foreground">
+              Tes nails, sans prise de tête.
+            </p>
           </div>
-          <p className="text-muted-foreground text-sm">Trouve ta prochaine prestation</p>
-        </div>
+          <span className="inline-flex items-center px-4 py-1.5 rounded-full bg-muted text-[11px] text-muted-foreground">
+            Plateforme Blyss · Spécialistes nails vérifiées
+          </span>
+        </header>
 
-        {/* Search Bar */}
-        <div className="mb-6 animate-slide-up">
+        {/* RECHERCHE */}
+        <section className="space-y-2">
           <div className="relative">
-            <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Search
+              size={18}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Rechercher un spécialiste..."
-              className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-card shadow-card border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-shadow"
+              placeholder="Rechercher une experte, une prestation, un quartier..."
+              className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-card shadow-card border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-shadow"
             />
           </div>
-        </div>
+          <p className="text-[11px] text-muted-foreground">
+            Ex. : “pose gel République”, “Emma”, “manucure Paris 11”.
+          </p>
+        </section>
 
-        {/* Specialists List */}
-        <div className="animate-slide-up" style={{ animationDelay: "0.1s" }}>
-          <h2 className="text-lg font-semibold text-foreground mb-4">
-            À proximité
-          </h2>
+        <Separator />
+
+        {/* 1. TES NAILS À VENIR (RDV en premier) */}
+        <section className="space-y-2">
+          <div className="flex flex-col gap-0.5">
+            <h2 className="text-sm font-semibold text-foreground">
+              Tes nails à venir
+            </h2>
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              Retrouve ici tes prochains rendez-vous Blyss.
+            </p>
+          </div>
+
+          {upcomingAppointments.length === 0 ? (
+            <div className="px-4 py-3.5 rounded-2xl bg-muted text-[11px] text-muted-foreground flex items-center gap-2">
+              <Calendar size={14} className="text-muted-foreground" />
+              <span>
+                Aucun rendez-vous prévu pour l’instant. Choisis une experte et
+                réserve ton prochain Blyss.
+              </span>
+            </div>
+          ) : (
+            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
+              {upcomingAppointments.map((appt) => (
+                <button
+                  key={appt.id}
+                  type="button"
+                  onClick={() => navigate("/client/appointments")}
+                  className="min-w-[230px] bg-card rounded-2xl p-3.5 shadow-card text-left active:scale-[0.98] transition-transform"
+                >
+                  <div className="flex gap-3 items-start">
+                    <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
+                      <Calendar size={16} className="text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] text-muted-foreground mb-0.5">
+                        Rendez-vous à venir
+                      </p>
+                      <p className="text-xs font-semibold text-foreground truncate">
+                        {appt.specialistName}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {appt.date} · {appt.time}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+                        {appt.location}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <Separator />
+
+        {/* 2. SÉLECTION BLYSS (carrousel d’expertes avec bannière) */}
+        <section className="space-y-3 mb-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+              <h2 className="text-sm font-semibold text-foreground truncate">
+                Sélection Blyss
+              </h2>
+              <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">
+                Une sélection d’expertes nails bien notées, proche de toi.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="flex-shrink-0 text-[11px] text-primary"
+              onClick={() => navigate("/client/specialists")}
+            >
+              Tout voir
+            </button>
+          </div>
 
           {isLoading ? (
-            <div className="space-y-3">
+            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="bg-card rounded-2xl p-4 shadow-card animate-pulse">
-                  <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-2xl bg-muted" />
-                    <div className="flex-1">
-                      <div className="h-4 bg-muted rounded w-1/2 mb-2" />
-                      <div className="h-3 bg-muted rounded w-1/3" />
-                    </div>
+                <div
+                  key={i}
+                  className="min-w-[240px] bg-card rounded-3xl shadow-card animate-pulse"
+                >
+                  <div className="h-32 w-full bg-muted rounded-t-3xl" />
+                  <div className="px-4 py-3.5 space-y-2">
+                    <div className="h-4 bg-muted rounded w-2/3" />
+                    <div className="h-3 bg-muted rounded w-1/2" />
                   </div>
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredSpecialists.length > 0 ? (
-                filteredSpecialists.map((specialist, index) => (
-                  <button
-                    key={specialist.id}
-                    onClick={() => navigate(`/client/specialist/${specialist.id}`)}
-                    className="bg-card rounded-2xl p-4 shadow-card w-full text-left active:scale-[0.98] transition-transform"
-                    style={{ animationDelay: `${0.15 + index * 0.05}s` }}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="w-14 h-14 rounded-2xl gradient-gold flex items-center justify-center flex-shrink-0">
-                        <img src={specialist.avatar} alt={specialist.name} className="w-full h-full object-cover rounded-2xl" />
+          ) : filteredSpecialists.length > 0 ? (
+            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
+              {filteredSpecialists.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => navigate(`/client/specialist/${s.id}`)}
+                  className="min-w-[240px] max-w-[260px] bg-card rounded-3xl overflow-hidden shadow-card text-left active:scale-[0.98] transition-transform"
+                >
+                  {/* Bannière */}
+                  <div className="h-32 w-full relative">
+                    <img
+                      src={s.cover}
+                      alt={`Travaux de ${s.name}`}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent" />
+                    <div className="absolute bottom-2 left-3 right-3 flex items-center gap-2 text-white">
+                      <div className="w-9 h-9 rounded-2xl border border-white/40 overflow-hidden flex-shrink-0">
+                        <img
+                          src={s.avatar}
+                          alt={s.name}
+                          className="w-full h-full object-cover"
+                        />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-foreground">{specialist.name}</h3>
-                        <p className="text-sm text-muted-foreground">{specialist.specialty}</p>
-                        <div className="flex items-center gap-3 mt-1.5">
-                          <div className="flex items-center gap-1">
-                            <MapPin size={12} className="text-muted-foreground" />
-                            <span className="text-xs text-muted-foreground">{specialist.location}</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Star size={12} className="text-blyss-gold fill-blyss-gold" />
-                            <span className="text-xs font-medium text-foreground">{specialist.rating}</span>
-                            <span className="text-xs text-muted-foreground">({specialist.reviews})</span>
-                          </div>
-                        </div>
+                        <p className="text-[12px] font-semibold truncate">
+                          {s.name}
+                        </p>
+                        <p className="text-[11px] text-white/85 truncate">
+                          {s.specialty}
+                        </p>
                       </div>
-                      <ChevronRight size={20} className="text-muted-foreground flex-shrink-0" />
                     </div>
-                  </button>
-                ))
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  Aucun résultat trouvé
-                </div>
-              )}
+                  </div>
+
+                  {/* Infos */}
+                  <div className="px-4 py-3.5 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <MapPin size={11} className="text-muted-foreground" />
+                        <span className="text-[11px] text-muted-foreground truncate">
+                          {s.location}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Star
+                          size={11}
+                          className="text-blyss-gold fill-blyss-gold"
+                        />
+                        <span className="text-[11px] font-medium text-foreground">
+                          {s.rating}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          ({s.reviews})
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <p className="text-[11px] text-muted-foreground">
+                        Voir les créneaux disponibles
+                      </p>
+                      <ChevronRight
+                        size={16}
+                        className="text-muted-foreground"
+                      />
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-10 px-6 bg-card rounded-2xl shadow-card">
+              <p className="text-sm font-medium text-foreground mb-1">
+                Aucun résultat pour “{searchQuery}”
+              </p>
+              <p className="text-xs text-muted-foreground mb-3">
+                Essaie un autre quartier, une autre experte, ou efface la
+                recherche.
+              </p>
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="text-xs px-3 py-1.5 rounded-full bg-muted text-foreground active:scale-[0.98] transition-transform"
+              >
+                Effacer la recherche
+              </button>
             </div>
           )}
-        </div>
+        </section>
       </div>
     </MobileLayout>
   );

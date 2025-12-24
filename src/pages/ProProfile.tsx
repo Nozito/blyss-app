@@ -11,7 +11,7 @@ const ProProfile = () => {
 
   const menuItems = [
     { icon: Settings, label: "Paramètres", path: "/pro/settings" },
-    { icon: CreditCard, label: "Paiement", path: "/pro/payment" },
+    { icon: CreditCard, label: "Encaissements", path: "/pro/payment" },
     { icon: Bell, label: "Notifications", path: "/pro/notifications" },
     { icon: HelpCircle, label: "Aide", path: "/pro/help" },
   ];
@@ -99,9 +99,6 @@ const ProProfile = () => {
         {/* App Version */}
         <p className="text-center text-xs text-muted-foreground mt-8 animate-fade-in" style={{ animationDelay: "0.3s" }}>
           Blyss v1.0.0
-        </p>
-        <p className="text-center text-xs text-muted-foreground mt-2 animate-fade-in" style={{ animationDelay: "0.3s" }}>
-          Développé par Noah DEKEYZER
         </p>
       </div>
     </MobileLayout>

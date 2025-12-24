@@ -27,6 +27,10 @@ import ClientPayements from "./pages/ClientPayements";
 import NotFound from "./pages/NotFound";
 import "./index.css";
 import "./App.css";
+import ProSettings from "./pages/ProSettings";
+import ProNotifications from "./pages/ProNotifications";
+import ProHelp from "./pages/ProHelp";
+import ProPayments from "./pages/ProPayements";
 
 const queryClient = new QueryClient();
 
@@ -51,6 +55,10 @@ const App = () => {
               <Route path="/pro/calendar" element={<ProCalendar />} />
               <Route path="/pro/clients" element={<ProClients />} />
               <Route path="/pro/profile" element={<ProProfile />} />
+              <Route path="/pro/settings" element={<ProSettings />} />
+              <Route path="/pro/payment" element={<ProPayments />} />
+              <Route path="/pro/notifications" element={<ProNotifications />} />
+              <Route path="/pro/help" element={<ProHelp />} />
               <Route path="/client" element={<ClientHome />} />
               <Route path="/client/specialist/:id" element={<SpecialistProfile />} />
               <Route path="/client/booking" element={<ClientBooking />} />
