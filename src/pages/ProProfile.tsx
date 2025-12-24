@@ -2,9 +2,12 @@ import MobileLayout from "@/components/MobileLayout";
 import { useNavigate } from "react-router-dom";
 import { Settings, ChevronRight, CreditCard, Bell, HelpCircle, LogOut } from "lucide-react";
 import logo from "@/assets/logo.png";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const ProProfile = () => {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
 
   const menuItems = [
     { icon: Settings, label: "Paramètres", path: "/pro/settings" },
@@ -13,9 +16,13 @@ const ProProfile = () => {
     { icon: HelpCircle, label: "Aide", path: "/pro/help" },
   ];
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await logout();
+    toast.success("Déconnexion réussie");
     navigate("/");
   };
+
+  const displayName = user ? `${user.firstName} ${user.lastName}` : "Marie Beauté";
 
   return (
     <MobileLayout>
@@ -34,9 +41,12 @@ const ProProfile = () => {
           </div>
           <div className="flex-1">
             <h2 className="text-lg font-semibold text-foreground">
-              Marie Beauté
+              {displayName}
             </h2>
             <p className="text-sm text-muted-foreground">Nail Artist</p>
+            {user?.email && (
+              <p className="text-xs text-muted-foreground">{user.email}</p>
+            )}
             <p className="text-xs text-primary mt-1">Profil complété à 85%</p>
           </div>
         </div>

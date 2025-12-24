@@ -5,9 +5,12 @@ import logo from "@/assets/logo.png";
 import { useState } from "react";
 import Cropper from "react-easy-crop";
 import getCroppedImg from "@/utils/cropImage";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const ClientProfile = () => {
   const navigate = useNavigate();
+  const { user, logout, isAuthenticated } = useAuth();
   const [profileImage, setProfileImage] = useState(logo);
   const [tempProfileImage, setTempProfileImage] = useState<string | null>(null);
   const [showCropModal, setShowCropModal] = useState(false);
@@ -22,9 +25,13 @@ const ClientProfile = () => {
     { icon: HelpCircle, label: "Aide", path: "/client/help" },
   ];
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await logout();
+    toast.success("Déconnexion réussie");
     navigate("/");
   };
+
+  const displayName = user ? `${user.firstName} ${user.lastName}` : "Marie Dubois";
 
   return (
     <MobileLayout>
@@ -59,8 +66,11 @@ const ClientProfile = () => {
           </div>
           <div className="flex-1">
             <h2 className="text-lg font-semibold text-foreground">
-              Marie Dubois
+              {displayName}
             </h2>
+            {user?.email && (
+              <p className="text-sm text-muted-foreground">{user.email}</p>
+            )}
             <p className="text-xs text-primary mt-1">Profil complété à 95%</p>
           </div>
         </div>
@@ -69,7 +79,6 @@ const ClientProfile = () => {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
             <div className="bg-white rounded-3xl p-4 w-[90%] max-w-sm flex flex-col items-center">
               <h3 className="font-semibold text-foreground mb-4">Ajustez votre photo</h3>
-              {/* Ici on peut utiliser une librairie type react-easy-crop ou juste un aperçu */}
               <div className="relative w-full h-64 rounded-xl overflow-hidden mb-4">
                 <Cropper
                   image={tempProfileImage}
