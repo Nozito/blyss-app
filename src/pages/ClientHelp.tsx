@@ -119,7 +119,7 @@ const ClientHelp = () => {
 
   return (
     <MobileLayout showNav={false}>
-      <div className="py-6 animate-fade-in">
+      <div className="animate-fade-in">
         {/* Header aligné comme ClientPaymentMethods */}
         <div className="flex items-center mb-2">
           <button

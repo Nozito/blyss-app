@@ -12,7 +12,7 @@
     --blyss-cream: 30 33% 96%;
     
     /* Core Design System */
-    --background: 0 0% 100%;
+    --background: #f6e2e2;
     --foreground: 240 10% 10%;
     
     --card: 0 0% 100%;
@@ -74,6 +74,7 @@
     min-height: 100dvh;
     font-weight: 400;
     letter-spacing: -0.01em;
+    background-color: #f6e2e2;
   }
   
   h1, h2, h3, h4, h5, h6 {

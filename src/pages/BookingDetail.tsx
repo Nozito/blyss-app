@@ -50,7 +50,7 @@ const BookingDetail = () => {
 
   return (
     <MobileLayout showNav={false}>
-      <div className="py-6 animate-fade-in">
+      <div className="animate-fade-in">
         {/* Header */}
         <div className="flex items-center gap-4 mb-6">
           <button

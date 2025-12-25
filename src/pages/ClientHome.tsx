@@ -1,13 +1,7 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import MobileLayout from "@/components/MobileLayout";
-import {
-  MapPin,
-  Star,
-  ChevronRight,
-  Search,
-  Calendar
-} from "lucide-react";
+import { MapPin, Star, ChevronRight, Search, Calendar } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -16,9 +10,8 @@ const ClientHome = () => {
   const { user } = useAuth();
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [isLoading] = useState(false); // à brancher sur ton API plus tard
+  const [isLoading] = useState(false);
 
-  // MOCK DATA – à connecter à ton backend
   const [specialists] = useState([
     {
       id: 1,
@@ -28,8 +21,7 @@ const ClientHome = () => {
       rating: 4.9,
       reviews: 156,
       avatar: "https://randomuser.me/api/portraits/women/1.jpg",
-      cover:
-        "src/assets/banners/banner1.jpg"
+      cover: "src/assets/banners/banner1.jpg"
     },
     {
       id: 2,
@@ -39,8 +31,7 @@ const ClientHome = () => {
       rating: 4.8,
       reviews: 89,
       avatar: "https://randomuser.me/api/portraits/women/2.jpg",
-      cover:
-        "src/assets/banners/banner2.jpg"
+      cover: "src/assets/banners/banner2.jpg"
     },
     {
       id: 3,
@@ -50,8 +41,7 @@ const ClientHome = () => {
       rating: 4.7,
       reviews: 124,
       avatar: "https://randomuser.me/api/portraits/women/3.jpg",
-      cover:
-        "src/assets/banners/banner3.jpg"
+      cover: "src/assets/banners/banner3.jpg"
     },
     {
       id: 4,
@@ -61,12 +51,10 @@ const ClientHome = () => {
       rating: 4.6,
       reviews: 102,
       avatar: "https://randomuser.me/api/portraits/women/4.jpg",
-      cover:
-        "src/assets/banners/banner4.jpg"
+      cover: "src/assets/banners/banner4.jpg"
     }
   ]);
 
-  // Prochains RDV (mock)
   const upcomingAppointments: Array<{
     id: number;
     specialistName: string;
@@ -96,13 +84,13 @@ const ClientHome = () => {
 
   return (
     <MobileLayout>
-      <div className="py-6 px-4 animate-fade-in space-y-6">
+      <div className="animate-fade-in space-y-6 px-2">
         {/* HERO Blyss */}
         <header className="flex flex-col items-center text-center space-y-2">
           <img
             src={logo}
             alt="Blyss"
-            className="w-28 h-28 object-contain rounded-xl"
+            className="w-36 h-36 object-contain rounded-xl"
           />
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">{greeting}</p>
@@ -137,7 +125,7 @@ const ClientHome = () => {
 
         <Separator />
 
-        {/* 1. TES NAILS À VENIR (RDV en premier) */}
+        {/* TES NAILS À VENIR */}
         <section className="space-y-2">
           <div className="flex flex-col gap-0.5">
             <h2 className="text-sm font-semibold text-foreground">
@@ -149,7 +137,7 @@ const ClientHome = () => {
           </div>
 
           {upcomingAppointments.length === 0 ? (
-            <div className="px-4 py-3.5 rounded-2xl bg-muted text-[11px] text-muted-foreground flex items-center gap-2">
+            <div className="py-3.5 px-3 rounded-2xl bg-muted text-[11px] text-muted-foreground flex items-center gap-2">
               <Calendar size={14} className="text-muted-foreground" />
               <span>
                 Aucun rendez-vous prévu pour l’instant. Choisis une experte et
@@ -165,25 +153,7 @@ const ClientHome = () => {
                   onClick={() => navigate("/client/appointments")}
                   className="min-w-[230px] bg-card rounded-2xl p-3.5 shadow-card text-left active:scale-[0.98] transition-transform"
                 >
-                  <div className="flex gap-3 items-start">
-                    <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                      <Calendar size={16} className="text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[11px] text-muted-foreground mb-0.5">
-                        Rendez-vous à venir
-                      </p>
-                      <p className="text-xs font-semibold text-foreground truncate">
-                        {appt.specialistName}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {appt.date} · {appt.time}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground truncate mt-0.5">
-                        {appt.location}
-                      </p>
-                    </div>
-                  </div>
+                  {/* ... */}
                 </button>
               ))}
             </div>
@@ -192,10 +162,11 @@ const ClientHome = () => {
 
         <Separator />
 
-        {/* 2. SÉLECTION BLYSS (carrousel d’expertes avec bannière) */}
+        {/* SÉLECTION BLYSS */}
         <section className="space-y-3 mb-4">
+          {/* Header */}
           <div className="flex items-center justify-between gap-2">
-            <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+            <div className="flex flex-1 min-w-0 flex-col gap-0.5">
               <h2 className="text-sm font-semibold text-foreground truncate">
                 Sélection Blyss
               </h2>
@@ -203,15 +174,17 @@ const ClientHome = () => {
                 Une sélection d’expertes nails bien notées, proche de toi.
               </p>
             </div>
+
             <button
               type="button"
-              className="flex-shrink-0 text-[11px] text-primary"
               onClick={() => navigate("/client/specialists")}
+              className="flex-shrink-0 text-[11px] text-primary"
             >
               Tout voir
             </button>
           </div>
 
+          {/* Loading */}
           {isLoading ? (
             <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
               {[1, 2, 3].map((i) => (
@@ -219,7 +192,7 @@ const ClientHome = () => {
                   key={i}
                   className="min-w-[240px] bg-card rounded-3xl shadow-card animate-pulse"
                 >
-                  <div className="h-32 w-full bg-muted rounded-t-3xl" />
+                  <div className="h-32 bg-muted rounded-t-3xl" />
                   <div className="px-4 py-3.5 space-y-2">
                     <div className="h-4 bg-muted rounded w-2/3" />
                     <div className="h-3 bg-muted rounded w-1/2" />
@@ -228,31 +201,38 @@ const ClientHome = () => {
               ))}
             </div>
           ) : filteredSpecialists.length > 0 ? (
+            /* Carousel */
             <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
               {filteredSpecialists.map((s) => (
                 <button
                   key={s.id}
                   type="button"
                   onClick={() => navigate(`/client/specialist/${s.id}`)}
-                  className="min-w-[240px] max-w-[260px] bg-card rounded-3xl overflow-hidden shadow-card text-left active:scale-[0.98] transition-transform"
+                  className="
+          min-w-[240px] max-w-[240px]
+          bg-card rounded-3xl overflow-hidden shadow-card
+          text-left active:scale-[0.98] transition-transform
+        "
                 >
-                  {/* Bannière */}
-                  <div className="h-32 w-full relative">
+                  {/* Banner */}
+                  <div className="relative h-32">
                     <img
                       src={s.cover}
                       alt={`Travaux de ${s.name}`}
-                      className="w-full h-full object-cover"
+                      className="h-full w-full object-cover"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent" />
+
                     <div className="absolute bottom-2 left-3 right-3 flex items-center gap-2 text-white">
-                      <div className="w-9 h-9 rounded-2xl border border-white/40 overflow-hidden flex-shrink-0">
+                      <div className="h-9 w-9 flex-shrink-0 overflow-hidden rounded-2xl border border-white/40">
                         <img
                           src={s.avatar}
                           alt={s.name}
-                          className="w-full h-full object-cover"
+                          className="h-full w-full object-cover"
                         />
                       </div>
-                      <div className="flex-1 min-w-0">
+
+                      <div className="min-w-0 flex-1">
                         <p className="text-[12px] font-semibold truncate">
                           {s.name}
                         </p>
@@ -272,10 +252,11 @@ const ClientHome = () => {
                           {s.location}
                         </span>
                       </div>
+
                       <div className="flex items-center gap-1.5">
                         <Star
                           size={11}
-                          className="text-blyss-gold fill-blyss-gold"
+                          className="fill-blyss-gold text-blyss-gold"
                         />
                         <span className="text-[11px] font-medium text-foreground">
                           {s.rating}
@@ -285,6 +266,7 @@ const ClientHome = () => {
                         </span>
                       </div>
                     </div>
+
                     <div className="flex items-center justify-between pt-1">
                       <p className="text-[11px] text-muted-foreground">
                         Voir les créneaux disponibles

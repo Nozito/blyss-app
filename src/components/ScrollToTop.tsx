@@ -1,0 +1,19 @@
+// src/components/ScrollToTop.tsx
+import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
+
+const ScrollToTop = () => {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    window.scrollTo({
+      top: 0,
+      left: 0,
+      behavior: "instant" as ScrollBehavior, // ou "smooth" si tu veux une petite anim
+    });
+  }, [pathname]);
+
+  return null;
+};
+
+export default ScrollToTop;

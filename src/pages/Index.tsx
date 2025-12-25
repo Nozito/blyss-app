@@ -7,7 +7,7 @@ const Index = () => {
 
   return (
     <MobileLayout showNav={false}>
-        <div className="py-6 animate-fade-in">
+        <div className="animate-fade-in">
         <div className="flex flex-col items-center mt-12">
           <div className="animate-fade-in flex flex-col items-center">
             <img 

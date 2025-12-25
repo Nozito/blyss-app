@@ -109,7 +109,7 @@ const ClientBooking = () => {
     switch (step) {
       case 1:
         return (
-          <div className="py-6 animate-fade-in space-y-6">
+          <div className="animate-fade-in space-y-6">
             <div>
               <h1 className="font-display text-2xl font-semibold text-foreground mb-1">
                 Choisis ta prestation

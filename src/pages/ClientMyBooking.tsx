@@ -48,7 +48,7 @@ const ClientMyBooking = () => {
 
   return (
     <MobileLayout>
-      <div className="py-6 animate-fade-in">
+      <div className="animate-fade-in">
         {/* Header */}
         <div className="pt-2 pb-4 animate-fade-in">
           <h1 className="text-2xl font-semibold text-foreground">

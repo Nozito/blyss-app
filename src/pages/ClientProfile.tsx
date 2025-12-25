@@ -35,7 +35,7 @@ const ClientProfile = () => {
 
   return (
     <MobileLayout>
-      <div className="py-6 animate-fade-in">
+      <div className="animate-fade-in">
         {/* Header */}
         <div className="mb-5">
           <h1 className="text-2xl font-semibold text-foreground">
@@ -129,15 +129,15 @@ const ClientProfile = () => {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3 mb-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
           <div className="stat-card text-center">
-            <p className="text-2xl font-bold text-foreground">156</p>
+            <p className="text-2xl font-bold text-blyss-pink">156</p>
             <p className="text-xs text-muted-foreground">Réservations</p>
           </div>
           <div className="stat-card text-center">
-            <p className="text-2xl font-bold text-foreground">4.9</p>
+            <p className="text-2xl font-bold text-blyss-pink">4.9</p>
             <p className="text-xs text-muted-foreground">Note</p>
           </div>
           <div className="stat-card text-center">
-            <p className="text-2xl font-bold text-foreground">2 ans</p>
+            <p className="text-2xl font-bold text-blyss-pink">2 ans</p>
             <p className="text-xs text-muted-foreground">Sur Blyss</p>
           </div>
         </div>
