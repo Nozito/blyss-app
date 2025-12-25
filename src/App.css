@@ -2,11 +2,17 @@
   width: 100%;
   max-width: 100%;
   margin: 0;
-  padding: 0;
+  padding: 0 1rem;
   text-align: left;
   background-color: #f6e2e2;
   min-height: 100dvh;
   box-sizing: border-box;
+}
+
+/* Page ClientHome sans padding pour le carrousel */
+.page-client-home {
+  margin: 0 -1rem;
+  width: calc(100% + 2rem);
 }
 
 body {
