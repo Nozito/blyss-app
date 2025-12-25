@@ -186,7 +186,7 @@ const ClientBooking = () => {
                   const isSelected =
                     selectedDate &&
                     parseDate(d.date).toDateString() ===
-                      selectedDate.toDateString();
+                    selectedDate.toDateString();
                   return (
                     <button
                       key={d.date}
@@ -324,9 +324,8 @@ const ClientBooking = () => {
             <div className="space-y-3">
               <button
                 onClick={() => handlePayment("apple-pay")}
-                className="w-full py-4 rounded-xl bg-foreground text-background font-medium flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+                className="w-full py-4 rounded-xl bg-black text-white font-medium flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
               >
-                {/* Apple Pay icon simplifiée */}
                 <span className="text-sm"> Pay</span>
               </button>
               <button
@@ -435,18 +434,15 @@ const ClientBooking = () => {
 /* Helpers UI */
 
 const cnServiceCard = (selected: boolean) =>
-  `w-full bg-card rounded-2xl p-4 shadow-card text-left transition-all ${
-    selected ? "ring-2 ring-blyss-gold bg-blyss-gold-light/10" : ""
+  `w-full bg-card rounded-2xl p-4 shadow-card text-left transition-all ${selected ? "ring-2 ring-blyss-gold bg-blyss-gold-light/10" : ""
   }`;
 
 const cnDateButton = (selected: boolean) =>
-  `w-full rounded-xl px-4 py-3 text-base font-medium transition-all ${
-    selected ? "bg-blyss-gold text-white" : "bg-[#ececec] text-black"
+  `w-full rounded-xl px-4 py-3 text-base font-medium transition-all ${selected ? "bg-blyss-gold text-white" : "bg-[#ececec] text-black"
   }`;
 
 const cnTimeButton = (selected: boolean) =>
-  `rounded-xl px-4 py-3 text-sm font-medium shadow-card transition-all ${
-    selected ? "gradient-gold text-secondary-foreground" : "bg-card text-foreground"
+  `rounded-xl px-4 py-3 text-sm font-medium shadow-card transition-all ${selected ? "gradient-gold text-secondary-foreground" : "bg-card text-foreground"
   }`;
 
 type SummaryRowProps = {
@@ -491,9 +487,8 @@ const PaymentChoice = ({
 }: PaymentChoiceProps) => (
   <button
     onClick={onClick}
-    className={`w-full bg-card rounded-2xl p-4 shadow-card text-left flex items-center gap-4 transition-all ${
-      selected ? "ring-2 ring-blyss-gold bg-blyss-gold-light/10" : ""
-    }`}
+    className={`w-full bg-card rounded-2xl p-4 shadow-card text-left flex items-center gap-4 transition-all ${selected ? "ring-2 ring-blyss-gold bg-blyss-gold-light/10" : ""
+      }`}
   >
     <div className="w-10 h-10 rounded-full bg-blyss-gold-light flex items-center justify-center">
       {icon}

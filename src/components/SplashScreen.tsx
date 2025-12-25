@@ -48,7 +48,7 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
             />
             <div className="text-center">
               <motion.h1
-                className="text-2xl font-semibold text-pink-600 tracking-tight"
+                className="text-2xl font-semibold text-primary tracking-tight"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2, duration: 0.4 }}
