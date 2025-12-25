@@ -419,7 +419,7 @@ const ClientBooking = () => {
             <button
               onClick={handleNext}
               disabled={!isStepValid()}
-              className="w-full py-4 rounded-xl gradient-gold text-secondary-foreground font-semibold text-lg shadow-elevated disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
+              className="w-full py-3 mt-6 rounded-xl gradient-gold text-secondary-foreground font-semibold text-lg shadow-elevated disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
             >
               {step === 3 && paymentMethod === "on-site"
                 ? "Confirmer"

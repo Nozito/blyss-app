@@ -47,36 +47,37 @@ const MobileLayout = ({ children, showNav = true }: MobileLayoutProps) => {
         </main>
 
         {showNav && (
-          <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pb-[env(safe-area-inset-bottom,0px)]">
-            <div
-              className="
-                pointer-events-auto mb-3 h-14 w-full max-w-[380px]
-                glass-nav rounded-full px-2 py-1
-              "
+  <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pb-[env(safe-area-inset-bottom,0px)]">
+    <div
+      className="
+        pointer-events-auto mb-3 h-14 w-full max-w-[380px]
+        px-4  /* ← ajoute cette marge horizontale */
+        glass-nav rounded-full py-1
+      "
+    >
+      <div className="flex h-full items-center justify-around gap-0.5">
+        {navItems.map((item) => {
+          const isActive = location.pathname === item.path;
+          return (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              className="touch-button flex flex-1 items-center justify-center rounded-2xl p-2 transition-all duration-200"
             >
-              <div className="flex h-full items-center justify-around gap-0.5">
-                {navItems.map((item) => {
-                  const isActive = location.pathname === item.path;
-                  return (
-                    <NavLink
-                      key={item.path}
-                      to={item.path}
-                      className="touch-button flex flex-1 items-center justify-center rounded-2xl p-2 transition-all duration-200"
-                    >
-                      <item.icon
-                        size={24}
-                        className={
-                          isActive ? "text-primary" : "text-muted-foreground"
-                        }
-                        strokeWidth={isActive ? 2.5 : 2}
-                      />
-                    </NavLink>
-                  );
-                })}
-              </div>
-            </div>
-          </nav>
-        )}
+              <item.icon
+                size={24}
+                className={
+                  isActive ? "text-primary" : "text-muted-foreground"
+                }
+                strokeWidth={isActive ? 2.5 : 2}
+              />
+            </NavLink>
+          );
+        })}
+      </div>
+    </div>
+  </nav>
+)}
       </div>
     </div>
   );

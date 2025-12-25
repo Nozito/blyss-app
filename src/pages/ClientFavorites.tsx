@@ -21,8 +21,9 @@ const ClientFavorites = () => {
     <MobileLayout>
       <div className="animate-fade-in">
         {/* Header */}
-        <div className="pt-2 pb-4 animate-fade-in">
-          <h1 className="text-2xl font-semibold text-foreground">
+        {/* Header */}
+        <div className="pt-6 pb-4 animate-fade-in text-center">
+          <h1 className="text-2xl font-semibold text-foreground mb-1">
             Mes favoris
           </h1>
         </div>

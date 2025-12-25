@@ -122,7 +122,7 @@ const ProDashboard = () => {
     <MobileLayout showNav={!(showSlotsModal || showBlockModal)}>
       <div className="py-6 animate-fade-in space-y-5">
         {/* Header */}
-        <header className="space-y-1">
+        <header className="space-y-1 text-center">
           <p className="text-xs text-muted-foreground">Bonjour ✨</p>
           <h1 className="text-xl font-semibold text-foreground">
             Ton tableau de bord
@@ -229,39 +229,39 @@ const ProDashboard = () => {
           <div className="space-y-3">
             {upcomingClients.map((client) => (
               <div
-          key={client.id}
-          className="client-card flex items-center gap-4"
+                key={client.id}
+                className="client-card flex items-center gap-4"
               >
-          <div className="w-11 h-11 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
-            <span className="text-primary-foreground font-medium text-xs">
-              {client.avatar}
-            </span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between mb-1 gap-2">
-              <h3 className="font-semibold text-sm text-foreground truncate">
-                {client.name}
-              </h3>
-              <span
-                className={`text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap ${getStatusColor(
-            client.status
-                )}`}
-              >
-                {getStatusLabel(client.status)}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground truncate text-left">
-              {client.service}
-            </p>
-            <div className="flex items-center justify-between mt-1">
-              <span className="text-[11px] text-muted-foreground">
-                {client.time}
-              </span>
-              <span className="text-sm font-semibold text-foreground">
-                {client.price}€
-              </span>
-            </div>
-          </div>
+                <div className="w-11 h-11 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
+                  <span className="text-primary-foreground font-medium text-xs">
+                    {client.avatar}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1 gap-2">
+                    <h3 className="font-semibold text-sm text-foreground truncate">
+                      {client.name}
+                    </h3>
+                    <span
+                      className={`text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap ${getStatusColor(
+                        client.status
+                      )}`}
+                    >
+                      {getStatusLabel(client.status)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate text-left">
+                    {client.service}
+                  </p>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-[11px] text-muted-foreground">
+                      {client.time}
+                    </span>
+                    <span className="text-sm font-semibold text-foreground">
+                      {client.price}€
+                    </span>
+                  </div>
+                </div>
               </div>
             ))}
           </div>

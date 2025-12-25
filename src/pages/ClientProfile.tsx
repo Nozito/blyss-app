@@ -37,8 +37,8 @@ const ClientProfile = () => {
     <MobileLayout>
       <div className="animate-fade-in">
         {/* Header */}
-        <div className="mb-5">
-          <h1 className="text-2xl font-semibold text-foreground">
+        <div className="pt-6 pb-4 animate-fade-in text-center">
+          <h1 className="text-2xl font-semibold text-foreground mb-1">
             Mon profil
           </h1>
         </div>

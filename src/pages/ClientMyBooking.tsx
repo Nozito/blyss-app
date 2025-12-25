@@ -50,8 +50,8 @@ const ClientMyBooking = () => {
     <MobileLayout>
       <div className="animate-fade-in">
         {/* Header */}
-        <div className="pt-2 pb-4 animate-fade-in">
-          <h1 className="text-2xl font-semibold text-foreground">
+        <div className="pt-6 pb-4 animate-fade-in text-center">
+          <h1 className="text-2xl font-semibold text-foreground mb-1">
             Mes réservations
           </h1>
           <p className="text-muted-foreground text-sm">
@@ -94,8 +94,8 @@ const ClientMyBooking = () => {
                   </h3>
                   <span
                     className={`text-xs px-2 py-0.5 rounded-full ${booking.status === "upcoming"
-                        ? "bg-primary/10 text-primary"
-                        : "bg-muted text-muted-foreground"
+                      ? "bg-primary/10 text-primary"
+                      : "bg-muted text-muted-foreground"
                       }`}
                   >
                     {booking.status === "upcoming" ? "À venir" : "Passée"}
