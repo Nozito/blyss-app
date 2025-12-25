@@ -1,18 +1,23 @@
 // API Service for backend communication
 // Configure this with your backend URL
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 // Types
 export interface User {
   id: number;
-  firstName: string;
-  lastName: string;
+  first_name: string;
+  last_name: string;
+  phone_number: string;
   email: string;
-  phone: string;
-  birthDate: string;
+  birth_date: string;
+  is_verified: boolean;
   role: 'client' | 'pro';
-  createdAt?: string;
+  created_at: string;
+  activity_name?: string | null;
+  city?: string | null;
+  instagram_account?: string | null;
+  profile_photo?: string | null;
 }
 
 export interface LoginCredentials {
@@ -21,12 +26,16 @@ export interface LoginCredentials {
 }
 
 export interface SignupData {
-  firstName: string;
-  lastName: string;
+  first_name: string;
+  last_name: string;
   email: string;
   password: string;
-  phone: string;
-  birthDate: string;
+  phone_number: string;
+  birth_date: string;
+  role?: 'client' | 'pro';
+  activity_name?: string;
+  city?: string;
+  instagram_account?: string;
 }
 
 export interface ApiResponse<T> {
@@ -50,7 +59,7 @@ async function apiCall<T>(
       ...options.headers,
     };
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(`${API_BASE_URL}/api${endpoint}`, {
       ...options,
       headers,
     });
@@ -204,6 +213,23 @@ export const notificationsApi = {
       method: 'POST',
     });
   },
+};
+
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+// Exemple pour GET profile
+export const getProfile = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+  });
+  return response.json();
 };
 
 export default {

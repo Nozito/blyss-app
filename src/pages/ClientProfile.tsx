@@ -31,7 +31,7 @@ const ClientProfile = () => {
     navigate("/");
   };
 
-  const displayName = user ? `${user.firstName} ${user.lastName}` : "Marie Dubois";
+  const displayName = user ? `${user.first_name} ${user.last_name}` : "Marie Dubois";
 
   return (
     <MobileLayout>
@@ -112,10 +112,37 @@ const ClientProfile = () => {
                 <button
                   onClick={async () => {
                     if (!croppedAreaPixels) return;
-                    const croppedImage = await getCroppedImg(tempProfileImage, croppedAreaPixels);
-                    setProfileImage(croppedImage);
-                    setTempProfileImage(null);
-                    setShowCropModal(false);
+                    try {
+                      const croppedImage = await getCroppedImg(tempProfileImage, croppedAreaPixels);
+                      // Convert base64 image to blob
+                      const res = await fetch(croppedImage);
+                      const blob = await res.blob();
+                      // Prepare form data
+                      const formData = new FormData();
+                      formData.append("photo", blob, "profile.jpg");
+                      if (user && user.id) {
+                        formData.append("userId", user.id.toString());
+                      }
+                      // Upload to backend
+                      const response = await fetch("/api/users/upload-photo", {
+                        method: "POST",
+                        body: formData,
+                      });
+                      if (!response.ok) {
+                        throw new Error("Erreur lors de l'upload de la photo");
+                      }
+                      const data = await response.json();
+                      if (data.photoUrl) {
+                        setProfileImage(data.photoUrl);
+                        toast.success("Photo de profil mise à jour");
+                      } else {
+                        throw new Error("URL de la photo non reçue");
+                      }
+                      setTempProfileImage(null);
+                      setShowCropModal(false);
+                    } catch (error) {
+                      toast.error((error as Error).message || "Erreur lors de la mise à jour de la photo");
+                    }
                   }}
                   className="flex-1 py-3 rounded-xl bg-blyss-pink text-white font-medium"
                 >

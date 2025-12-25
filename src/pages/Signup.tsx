@@ -17,11 +17,15 @@ const Signup = () => {
     email: "",
     password: "",
     confirmPassword: "",
+    role: "client" as "client" | "pro",
+    activityName: "",
+    city: "",
+    instagramAccount: "",
   });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
 
-  const totalSteps = 5;
+  const totalSteps = formData.role === "pro" ? 8 : 6;
 
   const formatPhoneNumber = (value: string) => {
     const digits = value.replace(/\D/g, "");
@@ -61,7 +65,7 @@ const Signup = () => {
       }
     }
 
-    if (step === 5) {
+    if ((formData.role === "client" && step === 6) || (formData.role === "pro" && step === 8)) {
       if (formData.password !== formData.confirmPassword) {
         setError("Les mots de passe ne correspondent pas");
         return;
@@ -73,21 +77,30 @@ const Signup = () => {
 
       // Submit to API
       const response = await signup({
-        firstName: formData.firstName.trim(),
-        lastName: formData.lastName.trim(),
+        first_name: formData.firstName.trim(),
+        last_name: formData.lastName.trim(),
         email: formData.email.trim().toLowerCase(),
         password: formData.password,
-        phone: formData.phone.replace(/\s/g, ""),
-        birthDate: formData.birthDate,
+        phone_number: formData.phone.replace(/\s/g, ""),
+        birth_date: formData.birthDate,
+        role: formData.role,
+        ...(formData.role === "pro" && {
+          activity_name: formData.activityName.trim(),
+          city: formData.city.trim(),
+          instagram_account: formData.instagramAccount.trim(),
+        }),
       });
 
       if (response.success) {
-        toast.success("Compte créé avec succès !");
-        navigate("/client");
-      } else {
-        setError(response.error || "Erreur lors de la création du compte");
-      }
-      return;
+  toast.success("Compte créé avec succès !");
+  if (formData.role === "pro") {
+    navigate("/pro/dashboard");
+  } else {
+    navigate("/client");
+  }
+} else {
+  setError(response.error || "Erreur lors de la création du compte");
+}
     }
 
     setStep(step + 1);
@@ -115,6 +128,15 @@ const Signup = () => {
           getAgeFromBirthDate(formData.birthDate) >= 16
         );
       case 5:
+        return formData.role === "client" || formData.role === "pro";
+      case 6:
+        if (formData.role === "pro") {
+          return formData.activityName.trim().length > 0;
+        }
+        return formData.password.length >= 8 && formData.confirmPassword;
+      case 7:
+        return formData.city.trim().length > 0;
+      case 8:
         return formData.password.length >= 8 && formData.confirmPassword;
       default:
         return false;
@@ -226,6 +248,124 @@ const Signup = () => {
         return (
           <div className="animate-slide-up">
             <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
+              Tu es plutôt… 👀
+            </h1>
+            <p className="text-muted-foreground mb-8">
+              Choisis le type de compte
+            </p>
+
+            <div className="space-y-4">
+              <button
+                onClick={() => setFormData({ ...formData, role: "client" })}
+                className={`w-full py-4 rounded-xl border text-lg font-medium transition ${
+                  formData.role === "client"
+                    ? "border-primary bg-primary/10"
+                    : "border-muted"
+                }`}
+              >
+                🙋 Client
+              </button>
+
+              <button
+                onClick={() => setFormData({ ...formData, role: "pro" })}
+                className={`w-full py-4 rounded-xl border text-lg font-medium transition ${
+                  formData.role === "pro"
+                    ? "border-primary bg-primary/10"
+                    : "border-muted"
+                }`}
+              >
+                💼 Professionnel
+              </button>
+            </div>
+          </div>
+        );
+
+      case 6:
+        if (formData.role !== "pro") {
+          return (
+            <div className="animate-slide-up">
+              <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
+                Dernière étape ✨
+              </h1>
+              <p className="text-muted-foreground mb-8">Choisis ton mot de passe</p>
+
+              <div className="space-y-4">
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={formData.password}
+                    onChange={(e) => {
+                      setFormData({ ...formData, password: e.target.value });
+                      setError("");
+                    }}
+                    className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 pr-12"
+                    placeholder="Mot de passe (min. 8 caractères)"
+                    autoFocus
+                    disabled={isLoading}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground touch-button"
+                  >
+                    {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={formData.confirmPassword}
+                  onChange={(e) => {
+                    setFormData({ ...formData, confirmPassword: e.target.value });
+                    setError("");
+                  }}
+                  className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="Confirmer le mot de passe"
+                  disabled={isLoading}
+                />
+                {error && <p className="text-destructive text-sm mt-2">{error}</p>}
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div className="animate-slide-up">
+            <h1 className="font-display text-2xl font-semibold mb-2">
+              Ton activité 💼
+            </h1>
+            <input
+              value={formData.activityName}
+              onChange={(e) =>
+                setFormData({ ...formData, activityName: e.target.value })
+              }
+              className="w-full px-4 py-4 rounded-xl bg-muted"
+              placeholder="Nom de ton activité"
+            />
+          </div>
+        );
+
+      case 7:
+        if (formData.role !== "pro") return null;
+        return (
+          <div className="animate-slide-up">
+            <h1 className="font-display text-2xl font-semibold mb-2">
+              Ta ville 📍
+            </h1>
+            <input
+              value={formData.city}
+              onChange={(e) =>
+                setFormData({ ...formData, city: e.target.value })
+              }
+              className="w-full px-4 py-4 rounded-xl bg-muted"
+              placeholder="Ville"
+            />
+          </div>
+        );
+
+      case 8:
+        if (formData.role !== "pro") return null;
+        return (
+          <div className="animate-slide-up">
+            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
               Dernière étape ✨
             </h1>
             <p className="text-muted-foreground mb-8">Choisis ton mot de passe</p>
@@ -316,7 +456,12 @@ const Signup = () => {
             disabled={!isStepValid() || isLoading}
             className="w-full py-4 rounded-2xl gradient-primary text-primary-foreground font-medium text-lg shadow-soft touch-button disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? "Chargement..." : step === 5 ? "Créer mon compte" : "Continuer"}
+            {isLoading
+              ? "Chargement..."
+              : (formData.role === "client" && step === 6) ||
+                (formData.role === "pro" && step === 8)
+              ? "Créer mon compte"
+              : "Continuer"}
           </button>
         </div>
       </div>

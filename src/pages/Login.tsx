@@ -38,15 +38,22 @@ const Login = () => {
 
     const response = await login({ email: email.trim(), password });
 
-    if (response.success && response.data) {
-      toast.success("Connexion réussie !");
+    if (response.success && response.data && response.data.user) {
+      // Redirection selon rôle
       if (response.data.user.role === "pro") {
         navigate("/pro/dashboard");
       } else {
         navigate("/client");
       }
     } else {
-      setError(response.error || "Email ou mot de passe incorrect");
+      // Si l'utilisateur n'existe pas ou le mot de passe est incorrect
+      if (response.error === "user_not_found") {
+        setError("Compte inexistant");
+      } else if (response.error === "invalid_password") {
+        setError("Email ou mot de passe incorrect");
+      } else {
+        setError("Email ou mot de passe incorrect");
+      }
     }
   };
 

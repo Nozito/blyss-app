@@ -1,7 +1,7 @@
 import MobileLayout from "@/components/MobileLayout";
 import { ChevronLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const ProSettings = () => {
   const navigate = useNavigate();
@@ -20,6 +20,25 @@ const ProSettings = () => {
 
   const [errors, setErrors] = useState<string | null>(null);
 
+  useEffect(() => {
+    const fetchUserData = async () => {
+      try {
+        const response = await fetch("/api/users/me");
+        if (!response.ok) {
+          throw new Error("Failed to fetch user data");
+        }
+        const data = await response.json();
+        setBrandName(data.activity_name || "");
+        setProName(`${data.first_name || ""} ${data.last_name || ""}`.trim());
+        setCity(data.city || "");
+        setInstagram(data.instagram_account || "");
+      } catch (error) {
+        // Optionally handle errors here
+      }
+    };
+    fetchUserData();
+  }, []);
+
   const validatePassword = (pwd: string) => {
     const hasLength = pwd.length >= 8;
     const hasUpper = /[A-Z]/.test(pwd);
@@ -27,7 +46,7 @@ const ProSettings = () => {
     return hasLength && hasUpper && hasDigit;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setErrors(null);
 
     // Si la pro touche au mot de passe
@@ -48,8 +67,36 @@ const ProSettings = () => {
       }
     }
 
-    // TODO : appel API pour sauvegarder les infos pro + mot de passe
-    // puis afficher un toast de succès
+    try {
+      const response = await fetch("/api/pro/update-profile", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          brandName,
+          proName,
+          specialty,
+          city,
+          instagram,
+          currentPassword,
+          newPassword
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        setErrors(errorData.message || "Une erreur est survenue lors de la sauvegarde.");
+        return;
+      }
+
+      alert("Profil mis à jour avec succès !");
+      setCurrentPassword("");
+      setNewPassword("");
+      setNewPasswordConfirm("");
+    } catch (error) {
+      setErrors("Une erreur réseau est survenue. Veuillez réessayer.");
+    }
   };
 
   const handleForgotPassword = () => {

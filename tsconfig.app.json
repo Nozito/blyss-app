@@ -27,5 +27,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "db.ts"]
+  "include": ["src", "db.ts", "backend/api.ts"]
 }

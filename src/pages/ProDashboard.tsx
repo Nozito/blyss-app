@@ -1,6 +1,9 @@
-import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { NavigateFunction, useNavigate } from "react-router-dom";
 import MobileLayout from "@/components/MobileLayout";
+import { useAuth } from "@/contexts/AuthContext";
+
+
 import {
   TrendingUp,
   TrendingDown,
@@ -13,7 +16,14 @@ import {
 } from "lucide-react";
 
 const ProDashboard = () => {
-  const navigate = useNavigate();
+  const { user, isAuthenticated, isLoading } = useAuth();
+const navigate = useNavigate();
+
+useEffect(() => {
+  if (!isLoading && !isAuthenticated) {
+    navigate('/login');
+  }
+}, [isLoading, isAuthenticated, navigate]);
   const [showSlotsModal, setShowSlotsModal] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -123,7 +133,9 @@ const ProDashboard = () => {
       <div className="py-6 animate-fade-in space-y-5">
         {/* Header */}
         <header className="space-y-1 text-center">
-          <p className="text-xs text-muted-foreground">Bonjour ✨</p>
+          <p className="text-xs text-muted-foreground">
+            Bonjour {user?.first_name} {user?.last_name} ✨
+          </p>
           <h1 className="text-xl font-semibold text-foreground">
             Ton tableau de bord
           </h1>
@@ -435,3 +447,4 @@ const ProDashboard = () => {
 };
 
 export default ProDashboard;
+

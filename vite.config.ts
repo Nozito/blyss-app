@@ -11,6 +11,11 @@ export default defineConfig(({ mode }) => ({
     fs: {
       deny: [".git"],
     },
+    proxy: {
+      "/api": {
+        target: "http://localhost:3001",
+      },
+    },
   },
 
   plugins: [

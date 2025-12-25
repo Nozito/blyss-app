@@ -27,23 +27,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const token = localStorage.getItem('auth_token');
       const savedUser = localStorage.getItem('user');
 
-      if (token && savedUser) {
+      if (savedUser) {
         try {
-          // Verify token is still valid by fetching profile
+          // Immediately set user from localStorage to persist session
+          const parsedUser = JSON.parse(savedUser);
+          setUser(parsedUser);
+        } catch {
+          localStorage.removeItem('user');
+        }
+      }
+
+      if (token) {
+        try {
+          // Validate token in the background
           const response = await authApi.getProfile();
           if (response.success && response.data) {
             setUser(response.data);
             localStorage.setItem('user', JSON.stringify(response.data));
-          } else {
-            // Token invalid, clear storage
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('user');
-          }
+          } 
+          // If invalid token, don't immediately log out, just ignore
         } catch {
-          // If API fails, use cached user data
-          setUser(JSON.parse(savedUser));
+          // Ignore API errors, keep user from localStorage
         }
       }
+
       setIsLoading(false);
     };
 
@@ -88,17 +95,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = async (): Promise<void> => {
     await authApi.logout();
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user');
     setUser(null);
   };
 
   const updateUser = async (data: Partial<User>): Promise<ApiResponse<User>> => {
+    if (!user) {
+      return { success: false, message: 'No authenticated user' };
+    }
+
     const response = await authApi.updateProfile(data);
-    
+
     if (response.success && response.data) {
       setUser(response.data);
       localStorage.setItem('user', JSON.stringify(response.data));
     }
-    
+
     return response;
   };
 
