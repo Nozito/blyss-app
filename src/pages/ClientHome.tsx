@@ -162,10 +162,10 @@ const ClientHome = () => {
 
         <Separator />
 
-        {/* SÉLECTION BLYSS */}
-        <section className="space-y-3 mb-4">
+        {/* SÉLECTION BLYSS - Section pleine largeur pour carrousel */}
+        <section className="space-y-3 mb-4 page-client-home">
           {/* Header avec padding */}
-          <div className="flex items-center justify-between gap-2 px-4">
+          <div className="flex items-center justify-between gap-2 px-5">
             <div className="flex flex-1 min-w-0 flex-col gap-0.5">
               <h2 className="text-sm font-semibold text-foreground truncate">
                 Sélection Blyss
@@ -186,7 +186,7 @@ const ClientHome = () => {
 
           {/* Loading */}
           {isLoading ? (
-            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1 pl-4">
+            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1 pl-5">
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
@@ -201,8 +201,8 @@ const ClientHome = () => {
               ))}
             </div>
           ) : filteredSpecialists.length > 0 ? (
-            /* Carousel - edge to edge à droite, marge à gauche */
-            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1 pl-4 pr-4">
+            /* Carousel - edge to edge à droite */
+            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1 pl-5">
               {filteredSpecialists.map((s, index) => (
                 <button
                   key={s.id}
@@ -212,7 +212,7 @@ const ClientHome = () => {
                     min-w-[240px] max-w-[240px]
                     bg-card rounded-3xl overflow-hidden shadow-card
                     text-left active:scale-[0.98] transition-transform
-                    ${index === filteredSpecialists.length - 1 ? "mr-0" : ""}
+                    ${index === filteredSpecialists.length - 1 ? "mr-5" : ""}
                   `}
                 >
                   {/* Banner */}
@@ -282,7 +282,7 @@ const ClientHome = () => {
               ))}
             </div>
           ) : (
-            <div className="text-center py-10 px-6 bg-card rounded-2xl shadow-card mx-4">
+            <div className="text-center py-10 px-6 bg-card rounded-2xl shadow-card mx-5">
               <p className="text-sm font-medium text-foreground mb-1">
                 Aucun résultat pour "{searchQuery}"
               </p>
