@@ -12,7 +12,7 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsVisible(false);
-    }, 1000);
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, []);
@@ -22,7 +22,7 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
       {isVisible && (
         <motion.div
           className="fixed inset-0 z-[100] flex flex-col items-center justify-center"
-          style={{ backgroundColor: "#f6e2e2" }}
+          style={{ backgroundColor: "#FFFFFF" }}
           initial={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.4, ease: "easeOut" }}
@@ -48,7 +48,7 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
             />
             <div className="text-center">
               <motion.h1
-                className="text-2xl font-semibold text-foreground tracking-tight"
+                className="text-2xl font-semibold text-pink-600 tracking-tight"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2, duration: 0.4 }}

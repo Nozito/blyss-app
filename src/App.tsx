@@ -38,18 +38,15 @@ const queryClient = new QueryClient();
 const App = () => {
   const [showSplash, setShowSplash] = useState(true);
 
-  // Afficher le splash uniquement au premier chargement de la session
-  useEffect(() => {
-    const hasSeenSplash = sessionStorage.getItem("blyss_splash_seen");
-    if (hasSeenSplash) {
-      setShowSplash(false);
-    }
-  }, []);
+// Afficher le splash à chaque chargement
+useEffect(() => {
+  setShowSplash(true); // Toujours vrai au chargement
+}, []);
 
-  const handleSplashComplete = () => {
-    sessionStorage.setItem("blyss_splash_seen", "true");
-    setShowSplash(false);
-  };
+const handleSplashComplete = () => {
+  sessionStorage.setItem("blyss_splash_seen", "true"); // on garde la sauvegarde si besoin
+  setShowSplash(false);
+};
 
   return (
     <QueryClientProvider client={queryClient}>
