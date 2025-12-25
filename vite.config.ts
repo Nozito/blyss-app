@@ -7,8 +7,9 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    allowedHosts: ["app.blyssapp.fr"],
     fs: {
-      deny: ['.git'],
+      deny: [".git"],
     },
   },
 
@@ -24,6 +25,6 @@ export default defineConfig(({ mode }) => ({
   },
 
   optimizeDeps: {
-    exclude: ['.git'], 
+    exclude: [".git"],
   },
 }));
