@@ -79,14 +79,14 @@ const ClientHome = () => {
   }, [searchQuery, specialists]);
 
   const Separator = () => (
-    <div className="h-px bg-border/50 my-5" aria-hidden="true" />
+    <div className="h-px bg-border/50 my-5 mx-4" aria-hidden="true" />
   );
 
   return (
     <MobileLayout>
-      <div className="animate-fade-in space-y-6 px-2">
+      <div className="animate-fade-in space-y-6">
         {/* HERO Blyss */}
-        <header className="flex flex-col items-center text-center space-y-2">
+        <header className="flex flex-col items-center text-center space-y-2 px-4">
           <img
             src={logo}
             alt="Blyss"
@@ -104,7 +104,7 @@ const ClientHome = () => {
         </header>
 
         {/* RECHERCHE */}
-        <section className="space-y-2">
+        <section className="space-y-2 px-4">
           <div className="relative">
             <Search
               size={18}
@@ -119,14 +119,14 @@ const ClientHome = () => {
             />
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Ex. : “pose gel République”, “Emma”, “manucure Paris 11”.
+            Ex. : "pose gel République", "Emma", "manucure Paris 11".
           </p>
         </section>
 
         <Separator />
 
         {/* TES NAILS À VENIR */}
-        <section className="space-y-2">
+        <section className="space-y-2 px-4">
           <div className="flex flex-col gap-0.5">
             <h2 className="text-sm font-semibold text-foreground">
               Tes nails à venir
@@ -140,7 +140,7 @@ const ClientHome = () => {
             <div className="py-3.5 px-3 rounded-2xl bg-muted text-[11px] text-muted-foreground flex items-center gap-2">
               <Calendar size={14} className="text-muted-foreground" />
               <span>
-                Aucun rendez-vous prévu pour l’instant. Choisis une experte et
+                Aucun rendez-vous prévu pour l'instant. Choisis une experte et
                 réserve ton prochain Blyss.
               </span>
             </div>
@@ -164,14 +164,14 @@ const ClientHome = () => {
 
         {/* SÉLECTION BLYSS */}
         <section className="space-y-3 mb-4">
-          {/* Header */}
-          <div className="flex items-center justify-between gap-2">
+          {/* Header avec padding */}
+          <div className="flex items-center justify-between gap-2 px-4">
             <div className="flex flex-1 min-w-0 flex-col gap-0.5">
               <h2 className="text-sm font-semibold text-foreground truncate">
                 Sélection Blyss
               </h2>
               <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">
-                Une sélection d’expertes nails bien notées, proche de toi.
+                Une sélection d'expertes nails bien notées, proche de toi.
               </p>
             </div>
 
@@ -186,7 +186,7 @@ const ClientHome = () => {
 
           {/* Loading */}
           {isLoading ? (
-            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
+            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1 pl-4">
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
@@ -201,19 +201,19 @@ const ClientHome = () => {
               ))}
             </div>
           ) : filteredSpecialists.length > 0 ? (
-            /* Carousel - extends to edge */
-            <div className="-mr-4 pr-4">
-              <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
-              {filteredSpecialists.map((s) => (
+            /* Carousel - edge to edge à droite, marge à gauche */
+            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1 pl-4 pr-4">
+              {filteredSpecialists.map((s, index) => (
                 <button
                   key={s.id}
                   type="button"
                   onClick={() => navigate(`/client/specialist/${s.id}`)}
-                  className="
-          min-w-[240px] max-w-[240px]
-          bg-card rounded-3xl overflow-hidden shadow-card
-          text-left active:scale-[0.98] transition-transform
-        "
+                  className={`
+                    min-w-[240px] max-w-[240px]
+                    bg-card rounded-3xl overflow-hidden shadow-card
+                    text-left active:scale-[0.98] transition-transform
+                    ${index === filteredSpecialists.length - 1 ? "mr-0" : ""}
+                  `}
                 >
                   {/* Banner */}
                   <div className="relative h-32">
@@ -280,12 +280,11 @@ const ClientHome = () => {
                   </div>
                 </button>
               ))}
-              </div>
             </div>
           ) : (
-            <div className="text-center py-10 px-6 bg-card rounded-2xl shadow-card">
+            <div className="text-center py-10 px-6 bg-card rounded-2xl shadow-card mx-4">
               <p className="text-sm font-medium text-foreground mb-1">
-                Aucun résultat pour “{searchQuery}”
+                Aucun résultat pour "{searchQuery}"
               </p>
               <p className="text-xs text-muted-foreground mb-3">
                 Essaie un autre quartier, une autre experte, ou efface la
