@@ -201,8 +201,9 @@ const ClientHome = () => {
               ))}
             </div>
           ) : filteredSpecialists.length > 0 ? (
-            /* Carousel */
-            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
+            /* Carousel - extends to edge */
+            <div className="-mr-4 pr-4">
+              <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
               {filteredSpecialists.map((s) => (
                 <button
                   key={s.id}
@@ -279,6 +280,7 @@ const ClientHome = () => {
                   </div>
                 </button>
               ))}
+              </div>
             </div>
           ) : (
             <div className="text-center py-10 px-6 bg-card rounded-2xl shadow-card">
