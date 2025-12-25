@@ -4,7 +4,8 @@
   margin: 0;
   padding: 0 1rem;
   text-align: left;
-  background-color: #f6e2e2;
+  /* background-color: #f6e2e2; */
+  background-color: #F7F7F7;
   min-height: 100dvh;
   box-sizing: border-box;
 }

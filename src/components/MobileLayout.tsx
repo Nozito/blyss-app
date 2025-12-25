@@ -40,7 +40,7 @@ const MobileLayout = ({ children, showNav = true }: MobileLayoutProps) => {
   const navItems = isPro ? proNavItems : clientNavItems;
 
   return (
-    <div className="min-h-[100dvh] bg-background">
+    <div className="min-h-[100dvh]">
       <div className="relative mx-auto flex min-h-[100dvh] w-full flex-col">
         <main className="flex-1 pt-safe-top pb-3">
           {children}

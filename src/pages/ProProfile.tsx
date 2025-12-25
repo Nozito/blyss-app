@@ -54,15 +54,15 @@ const ProProfile = () => {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3 mb-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
           <div className="stat-card text-center">
-            <p className="text-2xl font-bold text-foreground">156</p>
+            <p className="text-2xl font-bold text-primary">156</p>
             <p className="text-xs text-muted-foreground">Clientes</p>
           </div>
           <div className="stat-card text-center">
-            <p className="text-2xl font-bold text-foreground">4.9</p>
+            <p className="text-2xl font-bold text-primary">4.9</p>
             <p className="text-xs text-muted-foreground">Note</p>
           </div>
           <div className="stat-card text-center">
-            <p className="text-2xl font-bold text-foreground">2 ans</p>
+            <p className="text-2xl font-bold text-primary">2 ans</p>
             <p className="text-xs text-muted-foreground">Sur Blyss</p>
           </div>
         </div>
