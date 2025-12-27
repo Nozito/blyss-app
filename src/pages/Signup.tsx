@@ -1,15 +1,18 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
+type Role = "client" | "pro";
+
 const Signup = () => {
   const navigate = useNavigate();
   const { signup, isLoading } = useAuth();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
+    role: "client" as Role,
     firstName: "",
     lastName: "",
     phone: "",
@@ -17,7 +20,6 @@ const Signup = () => {
     email: "",
     password: "",
     confirmPassword: "",
-    role: "client" as "client" | "pro",
     activityName: "",
     city: "",
     instagramAccount: "",
@@ -25,7 +27,11 @@ const Signup = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
 
-  const totalSteps = formData.role === "pro" ? 8 : 6;
+  // 6 étapes pour client, 9 pour pro
+  const totalSteps = useMemo(
+    () => (formData.role === "pro" ? 9 : 6),
+    [formData.role]
+  );
 
   const formatPhoneNumber = (value: string) => {
     const digits = value.replace(/\D/g, "");
@@ -50,14 +56,14 @@ const Signup = () => {
   const handleNext = async () => {
     setError("");
 
-    if (step === 3) {
+    if (step === 4) {
       if (!validateEmail(formData.email)) {
         setError("Email invalide");
         return;
       }
     }
 
-    if (step === 4) {
+    if (step === 5) {
       const age = getAgeFromBirthDate(formData.birthDate);
       if (isNaN(age) || age < 16) {
         setError("Tu dois avoir au moins 16 ans pour utiliser Blyss");
@@ -65,7 +71,11 @@ const Signup = () => {
       }
     }
 
-    if ((formData.role === "client" && step === 6) || (formData.role === "pro" && step === 8)) {
+    // step final : 6 pour client, 9 pour pro
+    const isClientLastStep = formData.role === "client" && step === 6;
+    const isProLastStep = formData.role === "pro" && step === 9;
+
+    if (isClientLastStep || isProLastStep) {
       if (formData.password !== formData.confirmPassword) {
         setError("Les mots de passe ne correspondent pas");
         return;
@@ -75,8 +85,7 @@ const Signup = () => {
         return;
       }
 
-      // Submit to API
-      const response = await signup({
+      const payload = {
         first_name: formData.firstName.trim(),
         last_name: formData.lastName.trim(),
         email: formData.email.trim().toLowerCase(),
@@ -84,291 +93,256 @@ const Signup = () => {
         phone_number: formData.phone.replace(/\s/g, ""),
         birth_date: formData.birthDate,
         role: formData.role,
-        ...(formData.role === "pro" && {
-          activity_name: formData.activityName.trim(),
-          city: formData.city.trim(),
-          instagram_account: formData.instagramAccount.trim(),
-        }),
-      });
+        activity_name:
+          formData.role === "pro" && formData.activityName.trim()
+            ? formData.activityName.trim()
+            : null,
+        city:
+          formData.role === "pro" && formData.city.trim()
+            ? formData.city.trim()
+            : null,
+        instagram_account:
+          formData.role === "pro" && formData.instagramAccount.trim()
+            ? formData.instagramAccount.trim()
+            : null,
+      };
+
+      const response = await signup(payload);
 
       if (response.success) {
-  toast.success("Compte créé avec succès !");
-  if (formData.role === "pro") {
-    navigate("/pro/dashboard");
-  } else {
-    navigate("/client");
-  }
-} else {
-  setError(response.error || "Erreur lors de la création du compte");
-}
+        toast.success("Compte créé avec succès !");
+        navigate(formData.role === "pro" ? "/pro/dashboard" : "/client");
+      } else {
+        setError(response.error || "Erreur lors de la création du compte");
+      }
+      return;
     }
 
-    setStep(step + 1);
+    setStep((prev) => prev + 1);
   };
 
   const handleBack = () => {
     if (step === 1) {
       navigate("/");
     } else {
-      setStep(step - 1);
+      setStep((prev) => prev - 1);
     }
   };
 
   const isStepValid = () => {
     switch (step) {
       case 1:
-        return formData.firstName.trim() && formData.lastName.trim();
+        return true; // choix rôle
       case 2:
-        return formData.phone.replace(/\s/g, "").length === 10;
+        return formData.firstName.trim() && formData.lastName.trim();
       case 3:
-        return validateEmail(formData.email.trim());
+        return formData.phone.replace(/\s/g, "").length === 10;
       case 4:
+        return validateEmail(formData.email.trim());
+      case 5:
         return (
           !!formData.birthDate &&
           getAgeFromBirthDate(formData.birthDate) >= 16
         );
-      case 5:
-        return formData.role === "client" || formData.role === "pro";
+      // steps 6–8 (pro) sont optionnels, 6 client = password (validé plus tard)
       case 6:
-        if (formData.role === "pro") {
-          return formData.activityName.trim().length > 0;
-        }
-        return formData.password.length >= 8 && formData.confirmPassword;
       case 7:
-        return formData.city.trim().length > 0;
       case 8:
-        return formData.password.length >= 8 && formData.confirmPassword;
+      case 9:
+        return true;
       default:
         return false;
     }
   };
 
   const renderStep = () => {
-    switch (step) {
-      case 1:
-        return (
-          <div className="animate-slide-up">
-            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
-              Enchanté, moi c'est Blyss 💖
-            </h1>
-            <p className="text-muted-foreground mb-8">Et toi ?</p>
+    // mapping :
+    // 1: rôle
+    // 2: nom/prénom
+    // 3: téléphone
+    // 4: email
+    // 5: date de naissance
+    // 6: client => mot de passe / pro => activité
+    // 7: pro => ville
+    // 8: pro => Instagram
+    // 9: pro => mot de passe
+    if (step === 1) {
+      return (
+        <div className="animate-slide-up space-y-6">
+          <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
+            Bienvenue sur Blyss 💖
+          </h1>
+          <p className="text-muted-foreground">
+            Tu utilises Blyss en tant que :
+          </p>
 
-            <div className="space-y-4">
-              <input
-                type="text"
-                value={formData.firstName}
-                onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                placeholder="Prénom"
-                autoFocus
-                disabled={isLoading}
-              />
-              <input
-                type="text"
-                value={formData.lastName}
-                onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                placeholder="Nom"
-                disabled={isLoading}
-              />
-            </div>
-          </div>
-        );
-
-      case 2:
-        return (
-          <div className="animate-slide-up">
-            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
-              Enchanté {formData.firstName} 🙂
-            </h1>
-            <p className="text-muted-foreground mb-8">Un 06 ?</p>
-
-            <input
-              type="tel"
-              value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: formatPhoneNumber(e.target.value) })}
-              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-              placeholder="06 12 34 56 78"
-              autoFocus
-              disabled={isLoading}
-            />
-          </div>
-        );
-
-      case 3:
-        return (
-          <div className="animate-slide-up">
-            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
-              Super ! ✉️
-            </h1>
-            <p className="text-muted-foreground mb-8">Ton email ?</p>
-
-            <input
-              type="email"
-              value={formData.email}
-              onChange={(e) => {
-                setFormData({ ...formData, email: e.target.value });
-                setError("");
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <button
+              type="button"
+              onClick={() => {
+                setFormData((prev) => ({ ...prev, role: "client" }));
+                setStep(2);
               }}
-              className="w-full max-w-lg px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-              placeholder="ton@email.com"
-              autoFocus
+              className={`rounded-2xl py-4 px-3 text-sm font-medium border text-left transition-all ${
+                formData.role === "client"
+                  ? "bg-primary text-primary-foreground border-primary shadow-soft"
+                  : "bg-muted text-foreground border-border"
+              }`}
               disabled={isLoading}
-            />
-            {error && <p className="text-destructive text-sm mt-2">{error}</p>}
+            >
+              <div className="font-semibold mb-1">Cliente</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setFormData((prev) => ({ ...prev, role: "pro" }));
+                setStep(2);
+              }}
+              className={`rounded-2xl py-4 px-3 text-sm font-medium border text-left transition-all ${
+                formData.role === "pro"
+                  ? "bg-primary text-primary-foreground border-primary shadow-soft"
+                  : "bg-muted text-foreground border-border"
+              }`}
+              disabled={isLoading}
+            >
+              <div className="font-semibold mb-1">Prothésiste (pro)</div>
+            </button>
           </div>
-        );
+        </div>
+      );
+    }
 
-      case 4:
-        return (
-          <div className="animate-slide-up">
-            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
-              Ta date de naissance 🎂
-            </h1>
-            <p className="text-muted-foreground mb-8">
-              Tu dois avoir au moins 16 ans
-            </p>
+    if (step === 2) {
+      return (
+        <div className="animate-slide-up">
+          <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
+            Enchanté, moi c&apos;est Blyss 💖
+          </h1>
+          <p className="text-muted-foreground mb-8">Et toi ?</p>
 
+          <div className="space-y-4">
             <input
-              type="date"
-              value={formData.birthDate}
+              type="text"
+              value={formData.firstName}
               onChange={(e) =>
-                setFormData({ ...formData, birthDate: e.target.value })
+                setFormData({ ...formData, firstName: e.target.value })
               }
-              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              placeholder="Prénom"
               autoFocus
               disabled={isLoading}
             />
-
-            {error && <p className="text-destructive text-sm mt-2">{error}</p>}
+            <input
+              type="text"
+              value={formData.lastName}
+              onChange={(e) =>
+                setFormData({ ...formData, lastName: e.target.value })
+              }
+              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              placeholder="Nom"
+              disabled={isLoading}
+            />
           </div>
-        );
+        </div>
+      );
+    }
 
-      case 5:
+    if (step === 3) {
+      return (
+        <div className="animate-slide-up">
+          <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
+            Enchanté {formData.firstName} 🙂
+          </h1>
+          <p className="text-muted-foreground mb-8">Un 06 ?</p>
+
+          <input
+            type="tel"
+            value={formData.phone}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                phone: formatPhoneNumber(e.target.value),
+              })
+            }
+            className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            placeholder="06 12 34 56 78"
+            autoFocus
+            disabled={isLoading}
+          />
+        </div>
+      );
+    }
+
+    if (step === 4) {
+      return (
+        <div className="animate-slide-up">
+          <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
+            Super ! ✉️
+          </h1>
+          <p className="text-muted-foreground mb-8">Ton email ?</p>
+
+          <input
+            type="email"
+            value={formData.email}
+            onChange={(e) => {
+              setFormData({ ...formData, email: e.target.value });
+              setError("");
+            }}
+            className="w-full max-w-lg px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            placeholder="ton@email.com"
+            autoFocus
+            disabled={isLoading}
+          />
+          {error && (
+            <p className="text-destructive text-sm mt-2">{error}</p>
+          )}
+        </div>
+      );
+    }
+
+    if (step === 5) {
+      return (
+        <div className="animate-slide-up">
+          <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
+            Ta date de naissance 🎂
+          </h1>
+          <p className="text-muted-foreground mb-8">
+            Tu dois avoir au moins 16 ans
+          </p>
+
+          <input
+            type="date"
+            value={formData.birthDate}
+            onChange={(e) =>
+              setFormData({ ...formData, birthDate: e.target.value })
+            }
+            className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            autoFocus
+            disabled={isLoading}
+          />
+
+          {error && (
+            <p className="text-destructive text-sm mt-2">{error}</p>
+          )}
+        </div>
+      );
+    }
+
+    // À partir d'ici, divergence client / pro
+    if (formData.role === "client") {
+      // client : step 6 = mot de passe
+      if (step === 6) {
         return (
-          <div className="animate-slide-up">
-            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
-              Tu es plutôt… 👀
-            </h1>
-            <p className="text-muted-foreground mb-8">
-              Choisis le type de compte
-            </p>
-
-            <div className="space-y-4">
-              <button
-                onClick={() => setFormData({ ...formData, role: "client" })}
-                className={`w-full py-4 rounded-xl border text-lg font-medium transition ${
-                  formData.role === "client"
-                    ? "border-primary bg-primary/10"
-                    : "border-muted"
-                }`}
-              >
-                🙋 Client
-              </button>
-
-              <button
-                onClick={() => setFormData({ ...formData, role: "pro" })}
-                className={`w-full py-4 rounded-xl border text-lg font-medium transition ${
-                  formData.role === "pro"
-                    ? "border-primary bg-primary/10"
-                    : "border-muted"
-                }`}
-              >
-                💼 Professionnel
-              </button>
-            </div>
-          </div>
-        );
-
-      case 6:
-        if (formData.role !== "pro") {
-          return (
-            <div className="animate-slide-up">
+          <div className="animate-slide-up space-y-6">
+            <div>
               <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
                 Dernière étape ✨
               </h1>
-              <p className="text-muted-foreground mb-8">Choisis ton mot de passe</p>
-
-              <div className="space-y-4">
-                <div className="relative">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={formData.password}
-                    onChange={(e) => {
-                      setFormData({ ...formData, password: e.target.value });
-                      setError("");
-                    }}
-                    className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 pr-12"
-                    placeholder="Mot de passe (min. 8 caractères)"
-                    autoFocus
-                    disabled={isLoading}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground touch-button"
-                  >
-                    {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                  </button>
-                </div>
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={formData.confirmPassword}
-                  onChange={(e) => {
-                    setFormData({ ...formData, confirmPassword: e.target.value });
-                    setError("");
-                  }}
-                  className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  placeholder="Confirmer le mot de passe"
-                  disabled={isLoading}
-                />
-                {error && <p className="text-destructive text-sm mt-2">{error}</p>}
-              </div>
+              <p className="text-muted-foreground">
+                Choisis ton mot de passe.
+              </p>
             </div>
-          );
-        }
-        return (
-          <div className="animate-slide-up">
-            <h1 className="font-display text-2xl font-semibold mb-2">
-              Ton activité 💼
-            </h1>
-            <input
-              value={formData.activityName}
-              onChange={(e) =>
-                setFormData({ ...formData, activityName: e.target.value })
-              }
-              className="w-full px-4 py-4 rounded-xl bg-muted"
-              placeholder="Nom de ton activité"
-            />
-          </div>
-        );
-
-      case 7:
-        if (formData.role !== "pro") return null;
-        return (
-          <div className="animate-slide-up">
-            <h1 className="font-display text-2xl font-semibold mb-2">
-              Ta ville 📍
-            </h1>
-            <input
-              value={formData.city}
-              onChange={(e) =>
-                setFormData({ ...formData, city: e.target.value })
-              }
-              className="w-full px-4 py-4 rounded-xl bg-muted"
-              placeholder="Ville"
-            />
-          </div>
-        );
-
-      case 8:
-        if (formData.role !== "pro") return null;
-        return (
-          <div className="animate-slide-up">
-            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
-              Dernière étape ✨
-            </h1>
-            <p className="text-muted-foreground mb-8">Choisis ton mot de passe</p>
 
             <div className="space-y-4">
               <div className="relative">
@@ -376,7 +350,10 @@ const Signup = () => {
                   type={showPassword ? "text" : "password"}
                   value={formData.password}
                   onChange={(e) => {
-                    setFormData({ ...formData, password: e.target.value });
+                    setFormData({
+                      ...formData,
+                      password: e.target.value,
+                    });
                     setError("");
                   }}
                   className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 pr-12"
@@ -396,27 +373,179 @@ const Signup = () => {
                 type={showPassword ? "text" : "password"}
                 value={formData.confirmPassword}
                 onChange={(e) => {
-                  setFormData({ ...formData, confirmPassword: e.target.value });
+                  setFormData({
+                    ...formData,
+                    confirmPassword: e.target.value,
+                  });
                   setError("");
                 }}
                 className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                 placeholder="Confirmer le mot de passe"
                 disabled={isLoading}
               />
-              {error && <p className="text-destructive text-sm mt-2">{error}</p>}
+              {error && (
+                <p className="text-destructive text-sm mt-2">{error}</p>
+              )}
             </div>
           </div>
         );
+      }
 
-      default:
-        return null;
+      return null;
     }
+
+    // Pro : steps 6–9
+    if (formData.role === "pro") {
+      if (step === 6) {
+        return (
+          <div className="animate-slide-up space-y-4">
+            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
+              Ton activité 💅
+            </h1>
+            <p className="text-muted-foreground mb-4 text-sm">
+              Nom de ton activité (facultatif). Tu pourras le modifier plus
+              tard.
+            </p>
+
+            <input
+              type="text"
+              value={formData.activityName}
+              onChange={(e) =>
+                setFormData({ ...formData, activityName: e.target.value })
+              }
+              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              placeholder="Ex. : Studio Blyss"
+              autoFocus
+              disabled={isLoading}
+            />
+          </div>
+        );
+      }
+
+      if (step === 7) {
+        return (
+          <div className="animate-slide-up space-y-4">
+            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
+              Où exerces-tu ? 📍
+            </h1>
+            <p className="text-muted-foreground mb-4 text-sm">
+              Ville ou quartier (facultatif).
+            </p>
+
+            <input
+              type="text"
+              value={formData.city}
+              onChange={(e) =>
+                setFormData({ ...formData, city: e.target.value })
+              }
+              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              placeholder="Ex. : Paris 11"
+              autoFocus
+              disabled={isLoading}
+            />
+          </div>
+        );
+      }
+
+      if (step === 8) {
+        return (
+          <div className="animate-slide-up space-y-4">
+            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
+              Ton Instagram 📸
+            </h1>
+            <p className="text-muted-foreground mb-4 text-sm">
+              Optionnel, mais ça aide les clientes à te découvrir.
+            </p>
+
+            <input
+              type="text"
+              value={formData.instagramAccount}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  instagramAccount: e.target.value,
+                })
+              }
+              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              placeholder="@ton_instagram (facultatif)"
+              autoFocus
+              disabled={isLoading}
+            />
+          </div>
+        );
+      }
+
+      if (step === 9) {
+        return (
+          <div className="animate-slide-up space-y-6">
+            <div>
+              <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
+                Dernière étape ✨
+              </h1>
+              <p className="text-muted-foreground">
+                Choisis ton mot de passe.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={formData.password}
+                  onChange={(e) => {
+                    setFormData({
+                      ...formData,
+                      password: e.target.value,
+                    });
+                    setError("");
+                  }}
+                  className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 pr-12"
+                  placeholder="Mot de passe (min. 8 caractères)"
+                  autoFocus
+                  disabled={isLoading}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground touch-button"
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
+              <input
+                type={showPassword ? "text" : "password"}
+                value={formData.confirmPassword}
+                onChange={(e) => {
+                  setFormData({
+                    ...formData,
+                    confirmPassword: e.target.value,
+                  });
+                  setError("");
+                }}
+                className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                placeholder="Confirmer le mot de passe"
+                disabled={isLoading}
+              />
+              {error && (
+                <p className="text-destructive text-sm mt-2">{error}</p>
+              )}
+            </div>
+          </div>
+        );
+      }
+    }
+
+    return null;
   };
+
+  const isLastStep =
+    (formData.role === "client" && step === 6) ||
+    (formData.role === "pro" && step === 9);
 
   return (
     <MobileLayout showNav={false}>
       <div className="relative flex flex-col flex-1 min-h-screen max-w-lg mx-auto w-full bg-background">
-        {/* Header with back button and progress - fixed at top */}
+        {/* Header with back button and progress */}
         <div className="fixed top-0 left-1/2 -translate-x-1/2 z-10 w-full max-w-lg bg-background">
           <div className="flex items-center justify-between px-6 pt-4 pb-2">
             <button
@@ -435,7 +564,7 @@ const Signup = () => {
           </div>
         </div>
 
-        {/* Form content centered vertically and horizontally, between header and button */}
+        {/* Form content */}
         <div
           className="flex flex-1 flex-col items-center justify-center px-6"
           style={{
@@ -449,7 +578,7 @@ const Signup = () => {
           </div>
         </div>
 
-        {/* Continue button fixed at bottom with safe padding */}
+        {/* Continue button */}
         <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-lg bg-background px-6 pb-4 pt-2 z-10">
           <button
             onClick={handleNext}
@@ -458,8 +587,7 @@ const Signup = () => {
           >
             {isLoading
               ? "Chargement..."
-              : (formData.role === "client" && step === 6) ||
-                (formData.role === "pro" && step === 8)
+              : isLastStep
               ? "Créer mon compte"
               : "Continuer"}
           </button>

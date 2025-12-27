@@ -1,9 +1,5 @@
-// API Service for backend communication
-// Configure this with your backend URL
-
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-// Types
 export interface User {
   id: number;
   first_name: string;
@@ -45,52 +41,34 @@ export interface ApiResponse<T> {
   error?: string;
 }
 
-// Helper function for API calls
-async function apiCall<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<ApiResponse<T>> {
+async function apiCall<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
   try {
     const token = localStorage.getItem('auth_token');
-    
+
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` }),
-      ...options.headers,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
     };
 
-    const response = await fetch(`${API_BASE_URL}/api${endpoint}`, {
-      ...options,
-      headers,
-    });
-
+    // <- Important: prepend API_BASE_URL to endpoint
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
     const data = await response.json();
 
     if (!response.ok) {
-      return {
-        success: false,
-        error: data.message || data.error || 'Une erreur est survenue',
-      };
+      return { success: false, error: data.message || data.error || 'Une erreur est survenue' };
     }
 
-    return {
-      success: true,
-      data: data.data || data,
-      message: data.message,
-    };
+    return { success: true, data: data.data ?? data, message: data.message };
   } catch (error) {
     console.error('API Error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Erreur de connexion au serveur',
-    };
+    return { success: false, error: error instanceof Error ? error.message : 'Erreur de connexion au serveur' };
   }
 }
 
-// Auth API
 export const authApi = {
   login: async (credentials: LoginCredentials): Promise<ApiResponse<{ user: User; token: string }>> => {
-    return apiCall('/auth/login', {
+    return apiCall('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials),
     });
@@ -109,19 +87,10 @@ export const authApi = {
     return { success: true };
   },
 
-  getProfile: async (): Promise<ApiResponse<User>> => {
-    return apiCall('/auth/profile');
-  },
-
-  updateProfile: async (data: Partial<User>): Promise<ApiResponse<User>> => {
-    return apiCall('/auth/profile', {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
-  },
+  getProfile: () => apiCall('/api/users'),
+  updateProfile: (data: Partial<User>) => apiCall('/api/users/update', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
-// Bookings API
 export const bookingsApi = {
   getAll: async (): Promise<ApiResponse<any[]>> => {
     return apiCall('/bookings');
@@ -152,7 +121,6 @@ export const bookingsApi = {
   },
 };
 
-// Specialists API
 export const specialistsApi = {
   getAll: async (query?: string): Promise<ApiResponse<any[]>> => {
     const params = query ? `?q=${encodeURIComponent(query)}` : '';
@@ -168,7 +136,6 @@ export const specialistsApi = {
   },
 };
 
-// Reviews API
 export const reviewsApi = {
   create: async (specialistId: string, data: { rating: number; comment: string }): Promise<ApiResponse<any>> => {
     return apiCall(`/specialists/${specialistId}/reviews`, {
@@ -182,7 +149,6 @@ export const reviewsApi = {
   },
 };
 
-// Favorites API
 export const favoritesApi = {
   getAll: async (): Promise<ApiResponse<any[]>> => {
     return apiCall('/favorites');
@@ -202,7 +168,6 @@ export const favoritesApi = {
   },
 };
 
-// Notifications API
 export const notificationsApi = {
   getAll: async (): Promise<ApiResponse<any[]>> => {
     return apiCall('/notifications');
@@ -213,23 +178,6 @@ export const notificationsApi = {
       method: 'POST',
     });
   },
-};
-
-const getAuthHeaders = () => {
-  const token = localStorage.getItem('auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
-
-// Exemple pour GET profile
-export const getProfile = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders(),
-    },
-  });
-  return response.json();
 };
 
 export default {

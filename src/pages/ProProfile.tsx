@@ -9,7 +9,7 @@ import Cropper from "react-easy-crop";
 import getCroppedImg from "@/utils/cropImage";
 
 const ProProfile = () => {
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading, logout } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -108,7 +108,6 @@ const ProProfile = () => {
   ];
 
   const handleLogout = async () => {
-    const { logout } = useAuth();
     await logout();
     toast.success("Déconnexion réussie");
     navigate("/");

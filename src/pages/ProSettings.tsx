@@ -2,16 +2,23 @@ import MobileLayout from "@/components/MobileLayout";
 import { ChevronLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
 const ProSettings = () => {
   const navigate = useNavigate();
 
   // Infos pro (à connecter à ton backend plus tard)
-  const [brandName, setBrandName] = useState("");
-  const [proName, setProName] = useState("");
-  const [specialty, setSpecialty] = useState(""); // ex : Prothésiste ongulaire
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [activityName, setActivityName] = useState("");
   const [city, setCity] = useState("");
-  const [instagram, setInstagram] = useState("");
+  const [instagramAccount, setInstagramAccount] = useState("");
+
+  const [initialFirstName, setInitialFirstName] = useState("");
+  const [initialLastName, setInitialLastName] = useState("");
+  const [initialActivityName, setInitialActivityName] = useState("");
+  const [initialCity, setInitialCity] = useState("");
+  const [initialInstagramAccount, setInitialInstagramAccount] = useState("");
 
   // Sécurité
   const [currentPassword, setCurrentPassword] = useState("");
@@ -21,23 +28,45 @@ const ProSettings = () => {
   const [errors, setErrors] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchUserData = async () => {
-      try {
-        const response = await fetch("/api/users/me");
-        if (!response.ok) {
-          throw new Error("Failed to fetch user data");
-        }
-        const data = await response.json();
-        setBrandName(data.activity_name || "");
-        setProName(`${data.first_name || ""} ${data.last_name || ""}`.trim());
-        setCity(data.city || "");
-        setInstagram(data.instagram_account || "");
-      } catch (error) {
-        // Optionally handle errors here
+  const fetchUserData = async () => {
+    try {
+      const token = localStorage.getItem("auth_token");
+      console.log("Token from localStorage:", token); // <-- debug token
+      if (!token) {
+        console.log("No token found, skipping fetch");
+        return;
       }
-    };
-    fetchUserData();
-  }, []);
+
+      const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+      console.log("Fetching from:", `${BASE_URL}/api/users`); // <-- debug URL
+
+      const response = await fetch(`${BASE_URL}/api/users`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      console.log("Response status:", response.status); // <-- debug status
+      const data = await response.json();
+      console.log("Fetched user data:", data); // <-- debug data
+
+      setActivityName(data.data.activity_name || "");
+      setFirstName(data.data.first_name || "");
+      setLastName(data.data.last_name || "");
+      setCity(data.data.city || "");
+      setInstagramAccount(data.data.instagram_account || "");
+
+      setInitialActivityName(data.data.activity_name || "");
+      setInitialFirstName(data.data.first_name || "");
+      setInitialLastName(data.data.last_name || "");
+      setInitialCity(data.data.city || "");
+      setInitialInstagramAccount(data.data.instagram_account || "");
+    } catch (error) {
+      console.error("Fetch error:", error); // <-- debug error
+    }
+  };
+  fetchUserData();
+}, []);
 
   const validatePassword = (pwd: string) => {
     const hasLength = pwd.length >= 8;
@@ -65,23 +94,33 @@ const ProSettings = () => {
         setErrors("Les deux nouveaux mots de passe ne correspondent pas.");
         return;
       }
+      if (newPassword && newPassword === currentPassword) {
+        setErrors("Le nouveau mot de passe doit être différent de l'ancien.");
+        return;
+      }
+    }
+
+    const payload: any = {};
+    if (firstName !== "") payload.first_name = firstName;
+    if (lastName !== "") payload.last_name = lastName;
+    if (activityName !== "") payload.activity_name = activityName;
+    if (city !== "") payload.city = city;
+    if (instagramAccount !== "") payload.instagram_account = instagramAccount;
+    if (currentPassword && newPassword) {
+      payload.currentPassword = currentPassword;
+      payload.newPassword = newPassword;
     }
 
     try {
-      const response = await fetch("/api/pro/update-profile", {
-        method: "POST",
+      const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+
+      const response = await fetch(`${BASE_URL}/api/users/update`, {
+        method: "PUT",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
         },
-        body: JSON.stringify({
-          brandName,
-          proName,
-          specialty,
-          city,
-          instagram,
-          currentPassword,
-          newPassword
-        })
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
@@ -90,7 +129,12 @@ const ProSettings = () => {
         return;
       }
 
-      alert("Profil mis à jour avec succès !");
+      const result = await response.json();
+      if (result?.data) {
+        localStorage.setItem("user", JSON.stringify(result.data));
+      }
+
+      toast.success("Profil mis à jour avec succès !");
       setCurrentPassword("");
       setNewPassword("");
       setNewPasswordConfirm("");
@@ -137,35 +181,35 @@ const ProSettings = () => {
               <input
                 type="text"
                 className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
-                placeholder="Ex : Nails by Emma"
-                value={brandName}
-                onChange={(e) => setBrandName(e.target.value)}
+                placeholder={initialActivityName || "Ex : Nails by Emma"}
+                value={activityName}
+                onChange={(e) => setActivityName(e.target.value)}
               />
             </div>
 
             <div className="flex flex-col">
               <label className="text-xs text-muted-foreground mb-1">
-                Ton prénom et nom
+                Ton prénom
               </label>
               <input
                 type="text"
                 className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
-                placeholder="Ex : Emma Bernard"
-                value={proName}
-                onChange={(e) => setProName(e.target.value)}
+                placeholder={initialFirstName || "Ex : Emma"}
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
               />
             </div>
 
             <div className="flex flex-col">
               <label className="text-xs text-muted-foreground mb-1">
-                Spécialité
+                Ton nom
               </label>
               <input
                 type="text"
                 className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
-                placeholder="Ex : Prothésiste ongulaire, nail art..."
-                value={specialty}
-                onChange={(e) => setSpecialty(e.target.value)}
+                placeholder={initialLastName || "Ex : Bernard"}
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
               />
             </div>
           </div>
@@ -185,7 +229,7 @@ const ProSettings = () => {
               <input
                 type="text"
                 className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
-                placeholder="Ex : Paris 11e, Lyon centre..."
+                placeholder={initialCity || "Ex : Paris 11e, Lyon centre..."}
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
               />
@@ -198,9 +242,9 @@ const ProSettings = () => {
               <input
                 type="text"
                 className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
-                placeholder="@toncompte"
-                value={instagram}
-                onChange={(e) => setInstagram(e.target.value)}
+                placeholder={initialInstagramAccount || "@toncompte"}
+                value={instagramAccount}
+                onChange={(e) => setInstagramAccount(e.target.value)}
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Ton compte pourra être affiché sur ton profil Blyss.
@@ -258,18 +302,18 @@ const ProSettings = () => {
               />
             </div>
 
-            <p className="text-[11px] text-muted-foreground">
-              Ton mot de passe doit contenir au moins 8 caractères, une
-              majuscule et un chiffre.
-            </p>
+<p className="text-[11px] text-muted-foreground">
+  Ton mot de passe doit contenir au moins 8 caractères, une
+  majuscule et un chiffre.
+</p>
 
-            <button
-              type="button"
-              onClick={handleForgotPassword}
-              className="self-start text-xs text-primary active:opacity-80"
-            >
-              Mot de passe oublié ?
-            </button>
+<button
+  type="button"
+  onClick={handleForgotPassword}
+  className="self-start text-xs text-primary active:opacity-80"
+>
+  Mot de passe oublié ?
+</button>
           </div>
 
           {errors && (

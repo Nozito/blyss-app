@@ -3,14 +3,45 @@ import cors from "cors";
 import bcrypt from "bcrypt";
 import mysql from "mysql2/promise";
 import dotenv from "dotenv";
-import multer from "multer";
+import multer, { FileFilterCallback } from "multer";
 import path from "path";
+import fs from "fs";
+import jwt from "jsonwebtoken";
 
 dotenv.config();
 
+if (!process.env.JWT_SECRET) {
+    console.error("JWT_SECRET is not defined. Exiting.");
+    process.exit(1);
+}
+
+interface AuthenticatedRequest extends Request {
+    user?: { id: number };
+    file?: Express.Multer.File;
+}
+
 const app = express();
-app.use(cors());
+app.use(cors({
+    origin: "http://localhost:8080",
+    credentials: true
+}));
 app.use(express.json());
+
+const authMiddleware = (req: AuthenticatedRequest, res: Response, next: Function) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    const token = authHeader.split(" ")[1];
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number };
+        req.user = { id: decoded.id };
+        next();
+    } catch (err) {
+        console.error(err);
+        return res.status(401).json({ success: false, message: "Invalid token" });
+    }
+};
 
 const db = mysql.createPool({
     host: process.env.DB_HOST,
@@ -52,7 +83,6 @@ interface User {
     profile_photo: string | null;
 }
 
-// 🔐 SIGNUP
 app.post("/api/auth/signup", async (req: Request<{}, {}, SignupRequestBody>, res: Response) => {
     try {
         const {
@@ -93,13 +123,12 @@ app.post("/api/auth/signup", async (req: Request<{}, {}, SignupRequestBody>, res
         );
 
         res.json({ success: true });
-    } catch (error) {
-        console.error("Signup error:", error);
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ success: false, message: "Signup failed due to server error" });
     }
 });
 
-// 🔑 LOGIN with debug logs and typed responses
 app.post("/api/auth/login", async (req: Request<{}, {}, LoginRequestBody>, res: Response) => {
     try {
         const { email, password } = req.body;
@@ -112,61 +141,165 @@ app.post("/api/auth/login", async (req: Request<{}, {}, LoginRequestBody>, res: 
         const user = (rows as User[])[0];
 
         if (!user) {
-            return res.status(200).json({ success: false, error: "user_not_found" });
+            return res.status(404).json({ success: false, error: "user_not_found" });
         }
 
         const isValid = await bcrypt.compare(password, user.password_hash);
 
         if (!isValid) {
-            return res.status(200).json({ success: false, error: "invalid_password" });
+            return res.status(401).json({ success: false, error: "invalid_password" });
         }
 
-        // Return user info excluding password_hash
         const { password_hash, ...userWithoutPassword } = user;
 
-        res.json({ success: true, data: { user: userWithoutPassword, role: user.role } });
+        const token = jwt.sign(
+            { id: user.id },
+            process.env.JWT_SECRET!,
+            { expiresIn: "7d" }
+        );
+
+        res.json({
+            success: true,
+            data: {
+                token : token,
+                user: userWithoutPassword,
+            },
+        });
     } catch (err) {
-        console.error("Login error:", err);
+        console.error(err);
         res.status(500).json({ success: false, error: "login_failed" });
     }
 });
 
-// Configurer le dossier de stockage
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, path.join(__dirname, "uploads/profile_photo"));
-  },
-  filename: function (req, file, cb) {
-    const ext = path.extname(file.originalname);
-    cb(null, `${req.body.userId}_${Date.now()}${ext}`);
-  },
+// Récupérer l'utilisateur connecté
+app.get("/api/users", authMiddleware, async (req: any, res: Response) => {
+    try {
+        const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [req.user.id]);
+        const user = (rows as User[])[0];
+        if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+        // Ne jamais renvoyer le hash de mot de passe
+        const { password_hash, ...userWithoutPassword } = user;
+
+        res.json({ success: true, data: userWithoutPassword });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: "Unable to fetch user" });
+    }
 });
 
-const upload = multer({ storage });
+const uploadDir = path.join(__dirname, "uploads/profile_photo");
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
 
-app.post("/api/users/upload-photo", upload.single("photo"), async (req, res) => {
-  try {
-    console.log("Received userId:", req.body.userId);
-    console.log("Received file:", req.file);
-    if (!req.file || !req.body.userId) {
-      return res.status(400).json({ success: false, message: "No file or userId provided" });
+const storage = multer.diskStorage({
+    destination: (_req, _file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req: AuthenticatedRequest, file, cb) => {
+        const ext = path.extname(file.originalname);
+        cb(null, `${req.user!.id}_${Date.now()}${ext}`);
+    },
+});
+
+const fileFilter = (_req: Express.Request, file: Express.Multer.File, cb: FileFilterCallback) => {
+    if (file.mimetype === "image/jpeg" || file.mimetype === "image/png") {
+        cb(null, true);
+    } else {
+        cb(new Error("Only JPEG and PNG files are allowed"));
     }
+};
 
-    const photoPath = `/uploads/profile_photo/${req.file.filename}`;
+const upload = multer({ storage, fileFilter });
 
-    const [result] = await db.execute(
-      "UPDATE users SET profile_photo = ? WHERE id = ?",
-      [photoPath, req.body.userId]
-    );
+app.post("/api/users/upload-photo", authMiddleware, upload.single("photo"), async (req: AuthenticatedRequest, res) => {
+    try {
+        if (!req.file || !req.user?.id) {
+            return res.status(400).json({ success: false, message: "No file or userId provided" });
+        }
 
-    console.log("Photo upload result:", result);
+        const photoPath = `/uploads/profile_photo/${req.file.filename}`;
 
-res.json({ success: true, photo: photoPath });
-  } catch (err) {
-    console.error("Upload error:", err);
-    res.status(500).json({ success: false, message: "Upload failed" });
-    console.log("Received body:", req.body);
-  }
+        await db.execute(
+            "UPDATE users SET profile_photo = ? WHERE id = ?",
+            [photoPath, req.user.id]
+        );
+
+        res.json({ success: true, photo: photoPath });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: "Upload failed" });
+    }
+});
+
+app.put("/api/users/update", authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const {
+            first_name,
+            last_name,
+            activity_name,
+            city,
+            instagram_account,
+            currentPassword,
+            newPassword,
+        } = req.body;
+
+        const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [req.user!.id]);
+        const user = (rows as User[])[0];
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        let passwordHash = user.password_hash;
+        if (newPassword) {
+            if (!currentPassword) {
+                return res.status(400).json({ success: false, message: "Current password required" });
+            }
+            const isValid = await bcrypt.compare(currentPassword, user.password_hash);
+            if (!isValid) {
+                return res.status(401).json({ success: false, message: "Invalid current password" });
+            }
+            if (currentPassword === newPassword) {
+                return res.status(400).json({
+                    success: false,
+                    message: "New password must be different from current password",
+                });
+            }
+            passwordHash = await bcrypt.hash(newPassword, 12);
+        }
+
+        const updatedFirstName = first_name !== undefined ? first_name : user.first_name;
+        const updatedLastName = last_name !== undefined ? last_name : user.last_name;
+        const updatedActivityName = user.role === "pro" ? (activity_name !== undefined ? activity_name : user.activity_name) : null;
+        const updatedCity = user.role === "pro" ? (city !== undefined ? city : user.city) : null;
+        const updatedInstagramAccount = user.role === "pro" ? (instagram_account !== undefined ? instagram_account : user.instagram_account) : null;
+
+        await db.execute(
+            `UPDATE users
+       SET first_name = ?, last_name = ?, activity_name = ?, city = ?, instagram_account = ?, password_hash = ?
+       WHERE id = ?`,
+            [
+                updatedFirstName,
+                updatedLastName,
+                updatedActivityName,
+                updatedCity,
+                updatedInstagramAccount,
+                passwordHash,
+                req.user!.id,
+            ]
+        );
+
+        const [updatedRows] = await db.execute("SELECT * FROM users WHERE id = ?", [req.user!.id]);
+        const updatedUser = (updatedRows as User[])[0];
+        const { password_hash, ...userWithoutPassword } = updatedUser;
+
+        res.json({ success: true, data: userWithoutPassword });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: "Update failed" });
+    }
 });
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
