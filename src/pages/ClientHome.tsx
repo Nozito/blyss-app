@@ -63,8 +63,8 @@ const ClientHome = () => {
     location: string;
   }> = [];
 
-  const greeting = user?.firstName
-    ? `Salut ${user.firstName} 👋`
+  const greeting = user?.first_name
+    ? `Salut ${user.first_name} 👋`
     : "Bienvenue sur Blyss";
 
   const filteredSpecialists = useMemo(() => {
