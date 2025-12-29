@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_API_URL;
 
 export interface User {
   id: number;
@@ -87,9 +87,9 @@ export const authApi = {
     return { success: true };
   },
 
-  getProfile: () => apiCall<User>('/api/users/me'),
+  getProfile: () => apiCall<User>('/api/users'),
   
-  updateProfile: (data: Partial<User>) => apiCall<User>('/api/users/me', { 
+  updateProfile: (data: Partial<User>) => apiCall<User>('/api/users', { 
     method: 'PUT', 
     body: JSON.stringify(data) 
   }),

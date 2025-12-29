@@ -5,10 +5,11 @@ import { Home, Calendar, Heart, User } from "lucide-react";
 interface MobileLayoutProps {
   children: React.ReactNode;
   showNav?: boolean;
+  hideNav?: boolean;
 }
 
 const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
-  ({ children, showNav = true }, ref) => {
+  ({ children, showNav = true, hideNav }, ref) => {
     const location = useLocation();
     const isPro = location.pathname.startsWith("/pro");
 
@@ -33,28 +34,41 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
       document.documentElement.scrollTo({
         top: 0,
         left: 0,
-        behavior: "instant",
+        behavior: "auto",
       });
     }, [location.pathname]);
 
     return (
-      <div ref={ref} className="min-h-[100dvh] pb-20 relative px-4">
-        <main className="flex-1 pt-safe-top">{children}</main>
+      <div
+        ref={ref}
+        className="
+          relative
+          w-full
+          min-h-[100dvh]
+          bg-background
+          px-4
+          pb-[96px]
+        "
+      >
+        <main className="pt-safe-top">{children}</main>
 
-        {showNav && (
-          <nav
-            className="fixed inset-x-0 bottom-0 z-50 flex justify-center pointer-events-none pb-[env(safe-area-inset-bottom,0px)]"
-            role="navigation"
-            aria-label="Navigation principale"
-          >
+        {showNav && !hideNav && (
+          <nav className="fixed inset-x-0 bottom-0 z-50 flex justify-center pointer-events-none">
             <div
               className="
-                pointer-events-auto mb-3 h-16 w-full max-w-[380px]
-                px-5
-                bg-background/80 backdrop-blur-xl border border-border/50
-                rounded-full py-2
-                flex items-center justify-around gap-2
-                shadow-lg
+                pointer-events-auto
+                mb-3
+                h-12
+                w-full max-w-[260px]
+                px-3
+                flex items-center justify-around gap-1.5
+
+                rounded-[999px]
+                bg-white/10
+                dark:bg-zinc-900/40
+                border border-white/20 dark:border-white/10
+                shadow-[0_14px_40px_rgba(0,0,0,0.45)]
+                backdrop-blur-xl backdrop-saturate-150
               "
             >
               {navItems.map((item) => {
@@ -63,19 +77,32 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
                   <NavLink
                     key={item.path}
                     to={item.path}
-                    aria-label={item.label}
-                    aria-current={isActive ? "page" : undefined}
-                    className={`
-                      flex flex-1 items-center justify-center rounded-2xl p-2 transition-all duration-200
-                      focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2
-                      ${isActive ? "bg-primary/10" : "hover:bg-muted active:bg-muted"}
-                    `}
+                    className="
+                      flex flex-1 items-center justify-center
+                      transition-all duration-200
+                    "
                   >
-                    <item.icon
-                      size={26}
-                      className={isActive ? "text-primary" : "text-muted-foreground"}
-                      strokeWidth={isActive ? 2.5 : 2}
-                    />
+                    <div
+                      className={`
+                        flex items-center justify-center
+                        h-9 w-9
+                        rounded-full
+                        transition-all duration-200
+                        ${
+                          isActive
+                            ? "bg-white/30 shadow-sm"
+                            : "bg-white/6 hover:bg-white/14 active:bg-white/18"
+                        }
+                      `}
+                    >
+                      <item.icon
+                        size={17}
+                        className={
+                          isActive ? "text-primary" : "text-muted-foreground"
+                        }
+                        strokeWidth={isActive ? 2.3 : 2}
+                      />
+                    </div>
                   </NavLink>
                 );
               })}
@@ -86,7 +113,5 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
     );
   }
 );
-
-MobileLayout.displayName = "MobileLayout";
 
 export default MobileLayout;
