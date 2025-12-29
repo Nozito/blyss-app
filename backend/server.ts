@@ -11,7 +11,7 @@ import jwt from "jsonwebtoken";
 const envFile = process.env.NODE_ENV === 'production' ? '.env.prod' : '.env.dev';
 
 dotenv.config({
-  path: path.resolve(__dirname, envFile.startsWith('.') ? `../${envFile}` : envFile),
+  path: path.resolve(__dirname, envFile),
 });
 
 
@@ -30,6 +30,24 @@ app.use(cors({
     origin: "http://localhost:8080",
     credentials: true
 }));
+
+const allowedOrigins = [
+  'http://localhost:5173',      
+  'http://localhost:8080',      
+  'https://app.blyssapp.fr'     
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
+
 app.use(express.json());
 
 const authMiddleware = (req: AuthenticatedRequest, res: Response, next: Function) => {
@@ -309,6 +327,8 @@ app.put("/api/users/update", authMiddleware, async (req: AuthenticatedRequest, r
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-app.listen(3001, () => {
-    console.log("🚀 Backend running on http://localhost:3001");
+const PORT = process.env.PORT || 3001;
+
+app.listen(PORT, () => {
+  console.log(`🚀 Backend running on http://localhost:${PORT}`);
 });
