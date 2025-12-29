@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL;
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export interface User {
   id: number;
@@ -51,7 +51,6 @@ async function apiCall<T>(endpoint: string, options: RequestInit = {}): Promise<
       ...(options.headers || {}),
     };
 
-    // <- Important: prepend API_BASE_URL to endpoint
     const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
     const data = await response.json();
 
