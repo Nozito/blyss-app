@@ -8,7 +8,12 @@ import path from "path";
 import fs from "fs";
 import jwt from "jsonwebtoken";
 
-dotenv.config();
+const envFile = process.env.NODE_ENV === 'production' ? '.env.prod' : '.env.dev';
+
+dotenv.config({
+  path: path.resolve(__dirname, envFile.startsWith('.') ? `../${envFile}` : envFile),
+});
+
 
 if (!process.env.JWT_SECRET) {
     console.error("JWT_SECRET is not defined. Exiting.");
