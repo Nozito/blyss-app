@@ -37,6 +37,7 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
     if (!validateForm()) return;
 
     const response = await login({ email: email.trim(), password });
+      console.log('handleLogin result =', response);
 
     if (response.success && response.data && response.data.user) {
       // Redirection selon rôle
