@@ -1,33 +1,66 @@
 import MobileLayout from "@/components/MobileLayout";
 import { ChevronLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const ClientSettings = () => {
   const navigate = useNavigate();
+  const { user, updateUser, isAuthenticated, isLoading } = useAuth();
 
-  // Exemple de state local (à connecter plus tard à ton backend / contexte)
-  const [lastName, setLastName] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [birthDate, setBirthDate] = useState("");
+  // Redirect if not authenticated
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      navigate("/login");
+    }
+  }, [isLoading, isAuthenticated, navigate]);
+
+  // Pre-fill with user data
+  const [lastName, setLastName] = useState(user?.last_name || "");
+  const [firstName, setFirstName] = useState(user?.first_name || "");
+  const [birthDate, setBirthDate] = useState(user?.birth_date || "");
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
 
   const [errors, setErrors] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Update local state when user changes
+  useEffect(() => {
+    if (user) {
+      setLastName(user.last_name || "");
+      setFirstName(user.first_name || "");
+      setBirthDate(user.birth_date || "");
+    }
+  }, [user]);
 
   const validatePassword = (pwd: string) => {
-    // Exemple simple : 8+ caractères, 1 maj, 1 chiffre
     const hasLength = pwd.length >= 8;
     const hasUpper = /[A-Z]/.test(pwd);
     const hasDigit = /\d/.test(pwd);
     return hasLength && hasUpper && hasDigit;
   };
 
-  const handleSave = () => {
+  const sanitizeInput = (input: string) => {
+    return input.trim().slice(0, 100);
+  };
+
+  const handleSave = async () => {
     setErrors(null);
 
+    // Validate name inputs
+    const cleanFirstName = sanitizeInput(firstName);
+    const cleanLastName = sanitizeInput(lastName);
+
+    if (!cleanFirstName || !cleanLastName) {
+      setErrors("Le prénom et le nom sont requis.");
+      return;
+    }
+
+    // Password validation
     if (newPassword || newPasswordConfirm || currentPassword) {
       if (!currentPassword) {
         setErrors("Renseigne ton ancien mot de passe pour le modifier.");
@@ -45,23 +78,44 @@ const ClientSettings = () => {
       }
     }
 
-    // TODO : appeler ton API pour sauvegarder
-    // puis afficher un toast / message de succès
+    setIsSaving(true);
+
+    try {
+      const response = await updateUser({
+        first_name: cleanFirstName,
+        last_name: cleanLastName,
+        birth_date: birthDate,
+      });
+
+      if (response.success) {
+        toast.success("Modifications enregistrées");
+        // Reset password fields on success
+        setCurrentPassword("");
+        setNewPassword("");
+        setNewPasswordConfirm("");
+      } else {
+        setErrors(response.message || "Erreur lors de la sauvegarde");
+      }
+    } catch {
+      setErrors("Erreur lors de la sauvegarde");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleForgotPassword = () => {
-    // TODO : rediriger vers ton flow “mot de passe oublié”
     navigate("/forgot-password");
   };
 
   return (
     <MobileLayout showNav={false}>
       <div className="animate-fade-in">
-        {/* Header comme ClientPaymentMethods */}
+        {/* Header */}
         <div className="flex items-center mb-2">
           <button
             onClick={() => navigate("/client/profile")}
-            className="p-2"
+            className="p-2 -ml-2"
+            aria-label="Retour au profil"
           >
             <ChevronLeft size={24} className="text-foreground" />
           </button>
@@ -81,12 +135,14 @@ const ClientSettings = () => {
 
           <div className="blyss-card flex flex-col gap-3">
             <div className="flex flex-col">
-              <label className="text-xs text-muted-foreground mb-1">
+              <label htmlFor="lastName" className="text-xs text-muted-foreground mb-1">
                 Nom
               </label>
               <input
+                id="lastName"
                 type="text"
-                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
+                maxLength={100}
+                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
                 placeholder="Ton nom"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
@@ -94,12 +150,14 @@ const ClientSettings = () => {
             </div>
 
             <div className="flex flex-col">
-              <label className="text-xs text-muted-foreground mb-1">
+              <label htmlFor="firstName" className="text-xs text-muted-foreground mb-1">
                 Prénom
               </label>
               <input
+                id="firstName"
                 type="text"
-                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
+                maxLength={100}
+                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
                 placeholder="Ton prénom"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
@@ -107,12 +165,13 @@ const ClientSettings = () => {
             </div>
 
             <div className="flex flex-col">
-              <label className="text-xs text-muted-foreground mb-1">
+              <label htmlFor="birthDate" className="text-xs text-muted-foreground mb-1">
                 Date de naissance
               </label>
               <input
+                id="birthDate"
                 type="date"
-                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background appearance-none"
+                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
                 value={birthDate}
                 onChange={(e) => setBirthDate(e.target.value)}
               />
@@ -128,13 +187,14 @@ const ClientSettings = () => {
 
           <div className="blyss-card flex flex-col gap-3">
             <div className="flex flex-col">
-              <label className="text-xs text-muted-foreground mb-1">
+              <label htmlFor="currentPassword" className="text-xs text-muted-foreground mb-1">
                 Ancien mot de passe
               </label>
               <input
+                id="currentPassword"
                 type="password"
                 autoComplete="current-password"
-                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
+                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
                 placeholder="Ton mot de passe actuel"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
@@ -142,13 +202,14 @@ const ClientSettings = () => {
             </div>
 
             <div className="flex flex-col">
-              <label className="text-xs text-muted-foreground mb-1">
+              <label htmlFor="newPassword" className="text-xs text-muted-foreground mb-1">
                 Nouveau mot de passe
               </label>
               <input
+                id="newPassword"
                 type="password"
                 autoComplete="new-password"
-                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
+                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
                 placeholder="Nouveau mot de passe"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
@@ -156,13 +217,14 @@ const ClientSettings = () => {
             </div>
 
             <div className="flex flex-col">
-              <label className="text-xs text-muted-foreground mb-1">
+              <label htmlFor="newPasswordConfirm" className="text-xs text-muted-foreground mb-1">
                 Confirme le nouveau mot de passe
               </label>
               <input
+                id="newPasswordConfirm"
                 type="password"
                 autoComplete="new-password"
-                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background"
+                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
                 placeholder="Répète le nouveau mot de passe"
                 value={newPasswordConfirm}
                 onChange={(e) => setNewPasswordConfirm(e.target.value)}
@@ -177,25 +239,29 @@ const ClientSettings = () => {
             <button
               type="button"
               onClick={handleForgotPassword}
-              className="self-start text-xs text-primary active:opacity-80"
+              className="self-start text-xs text-primary active:opacity-80 focus:outline-none focus-visible:underline"
             >
               Mot de passe oublié ?
             </button>
           </div>
 
           {errors && (
-            <p className="text-[11px] text-destructive px-1">
-              {errors}
-            </p>
+            <div 
+              role="alert"
+              className="p-3 rounded-xl bg-destructive/10 border border-destructive/20"
+            >
+              <p className="text-[11px] text-destructive">{errors}</p>
+            </div>
           )}
         </div>
 
         {/* Bouton Enregistrer */}
         <button
           onClick={handleSave}
-          className="w-full py-3 rounded-xl gradient-gold text-secondary-foreground font-medium mt-2 active:scale-[0.98] transition-transform"
+          disabled={isSaving}
+          className="w-full py-3 rounded-xl gradient-gold text-secondary-foreground font-medium mt-2 active:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Enregistrer les modifications
+          {isSaving ? "Enregistrement..." : "Enregistrer les modifications"}
         </button>
       </div>
     </MobileLayout>

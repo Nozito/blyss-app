@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, forwardRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
@@ -7,7 +7,7 @@ import { toast } from "sonner";
 
 type Role = "client" | "pro";
 
-const Signup = () => {
+const Signup = forwardRef<HTMLDivElement>((_, ref) => {
   const navigate = useNavigate();
   const { signup, isLoading } = useAuth();
   const [step, setStep] = useState(1);
@@ -595,6 +595,8 @@ const Signup = () => {
       </div>
     </MobileLayout>
   );
-};
+});
+
+Signup.displayName = "Signup";
 
 export default Signup;

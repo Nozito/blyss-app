@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, forwardRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import logo from "@/assets/logo.png";
@@ -6,7 +6,7 @@ import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
-const Login = () => {
+const Login = forwardRef<HTMLDivElement>((_, ref) => {
   const navigate = useNavigate();
   const { login, isLoading } = useAuth();
   const [email, setEmail] = useState("");
@@ -184,6 +184,8 @@ const Login = () => {
       </div>
     </MobileLayout>
   );
-};
+});
+
+Login.displayName = "Login";
 
 export default Login;
