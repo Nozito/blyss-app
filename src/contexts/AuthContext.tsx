@@ -78,25 +78,31 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setIsLoading(true);
     try {
       const response = await authApi.login(credentials);
+      console.log('login response =', response);
 
       if (response.success && response.data) {
         try {
           const { user: respUser, token } = response.data;
-          localStorage.setItem("auth_token", token);
+          console.log('storing token =', token, 'user =', respUser);
+          localStorage.setItem('auth_token', token);
           setUser(respUser);
+          console.log('user state after setUser =', respUser);
         } catch (err) {
-          console.error("Error storing token or setting user:", err);
+          console.error('Error storing token or setting user:', err);
         }
+      } else {
+        console.warn('login failed at API level:', response);
       }
 
       return response;
     } catch (err) {
-      console.error("Login error:", err);
-      return { success: false, message: "Login failed" };
+      console.error('Login error (catch):', err);
+      return { success: false, message: 'Login failed' };
     } finally {
       setIsLoading(false);
     }
   };
+
 
   const signup = async (data: SignupData): Promise<ApiResponse<{ user: User; token: string }>> => {
     setIsLoading(true);
