@@ -10,11 +10,14 @@ import jwt from "jsonwebtoken";
 
 const envFile = process.env.NODE_ENV === 'production' ? '.env.prod' : '.env.dev';
 
+const envPath = path.resolve(__dirname, '..', envFile);
+console.log('Loading env from:', envPath);
+
 dotenv.config({
-  path: path.resolve(__dirname, '..', envFile),
+  path: envPath,
 });
 
-
+console.log('JWT_SECRET after dotenv =', process.env.JWT_SECRET);
 
 if (!process.env.JWT_SECRET) {
     console.error("JWT_SECRET is not defined. Exiting.");
