@@ -163,141 +163,149 @@ const ClientHome = () => {
         <Separator />
 
         {/* SÉLECTION BLYSS */}
-        <section className="space-y-3 mb-4 page-client-home pl-9">
-  {/* Header avec padding à gauche */}
-  <div className="flex items-center justify-between gap-2 pr-5">
-    <div className="flex flex-1 min-w-0 flex-col gap-0.5">
-      <h2 className="text-sm font-semibold text-foreground truncate">
-        Sélection Blyss
-      </h2>
-      <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">
-        Une sélection d'expertes nails bien notées, proche de toi.
-      </p>
-    </div>
-
-    <button
-      type="button"
-      onClick={() => navigate("/client/specialists")}
-      className="flex-shrink-0 text-[11px] text-primary"
-    >
-      Tout voir
-    </button>
-  </div>
-
-  {/* Loading */}
-  {isLoading ? (
-    <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
-      {[1, 2, 3].map((i) => (
-        <div
-          key={i}
-          className="min-w-[240px] bg-card rounded-3xl shadow-card animate-pulse"
-        >
-          <div className="h-32 bg-muted rounded-t-3xl" />
-          <div className="px-4 py-3.5 space-y-2">
-            <div className="h-4 bg-muted rounded w-2/3" />
-            <div className="h-3 bg-muted rounded w-1/2" />
-          </div>
-        </div>
-      ))}
-    </div>
-  ) : filteredSpecialists.length > 0 ? (
-    <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
-      {filteredSpecialists.map((s, index) => (
-        <button
-          key={s.id}
-          type="button"
-          onClick={() => navigate(`/client/specialist/${s.id}`)}
-          className={`
-            min-w-[240px] max-w-[240px]
-            bg-card rounded-3xl overflow-hidden shadow-card
-            text-left active:scale-[0.98] transition-transform
-            ${index === filteredSpecialists.length - 1 ? "mr-5" : ""}
-          `}
-        >
-          {/* Banner */}
-          <div className="relative h-32">
-            <img
-              src={s.cover}
-              alt={`Travaux de ${s.name}`}
-              className="h-full w-full object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent" />
-
-            <div className="absolute bottom-2 left-3 right-3 flex items-center gap-2 text-white">
-              <div className="h-9 w-9 flex-shrink-0 overflow-hidden rounded-2xl border border-white/40">
-                <img
-                  src={s.avatar}
-                  alt={s.name}
-                  className="h-full w-full object-cover"
-                />
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <p className="text-[12px] font-semibold truncate">
-                  {s.name}
-                </p>
-                <p className="text-[11px] text-white/85 truncate">
-                  {s.specialty}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Infos */}
-          <div className="px-4 py-3.5 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <MapPin size={11} className="text-muted-foreground" />
-                <span className="text-[11px] text-muted-foreground truncate">
-                  {s.location}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-1.5">
-                <Star
-                  size={11}
-                  className="fill-blyss-gold text-blyss-gold"
-                />
-                <span className="text-[11px] font-medium text-foreground">
-                  {s.rating}
-                </span>
-                <span className="text-[10px] text-muted-foreground">
-                  ({s.reviews})
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-1">
-              <p className="text-[11px] text-muted-foreground">
-                Voir les créneaux disponibles
+        <section className="space-y-3 mb-4">
+          {/* Header avec padding normal */}
+          <div className="flex items-center justify-between gap-2 px-4">
+            <div className="flex flex-1 min-w-0 flex-col gap-0.5">
+              <h2 className="text-sm font-semibold text-foreground truncate">
+                Sélection Blyss
+              </h2>
+              <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">
+                Une sélection d'expertes nails bien notées, proche de toi.
               </p>
-              <ChevronRight
-                size={16}
-                className="text-muted-foreground"
-              />
             </div>
+
+            <button
+              type="button"
+              onClick={() => navigate("/client/specialists")}
+              className="flex-shrink-0 text-[11px] text-primary font-medium"
+              aria-label="Voir toutes les expertes"
+            >
+              Tout voir
+            </button>
           </div>
-        </button>
-      ))}
-    </div>
-  ) : (
-    <div className="text-center py-10 px-6 bg-card rounded-2xl shadow-card mx-5">
-      <p className="text-sm font-medium text-foreground mb-1">
-        Aucun résultat pour "{searchQuery}"
-      </p>
-      <p className="text-xs text-muted-foreground mb-3">
-        Essaie un autre quartier, une autre experte, ou efface la recherche.
-      </p>
-      <button
-        type="button"
-        onClick={() => setSearchQuery("")}
-        className="text-xs px-3 py-1.5 rounded-full bg-muted text-foreground active:scale-[0.98] transition-transform"
-      >
-        Effacer la recherche
-      </button>
-    </div>
-  )}
-</section>
+
+          {/* Carousel container - déborde à droite */}
+          <div className="-mr-4">
+            {/* Loading */}
+            {isLoading ? (
+              <div className="flex gap-3 overflow-x-auto no-scrollbar py-1 pl-4 pr-4">
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="min-w-[240px] bg-card rounded-3xl shadow-card animate-pulse"
+                  >
+                    <div className="h-32 bg-muted rounded-t-3xl" />
+                    <div className="px-4 py-3.5 space-y-2">
+                      <div className="h-4 bg-muted rounded w-2/3" />
+                      <div className="h-3 bg-muted rounded w-1/2" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : filteredSpecialists.length > 0 ? (
+              <div className="flex gap-3 overflow-x-auto no-scrollbar py-1 pl-4 pr-4">
+                {filteredSpecialists.map((s, index) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => navigate(`/client/specialist/${s.id}`)}
+                    aria-label={`Voir le profil de ${s.name}`}
+                    className={`
+                      min-w-[240px] max-w-[240px]
+                      bg-card rounded-3xl overflow-hidden shadow-card
+                      text-left active:scale-[0.98] transition-transform
+                      focus:outline-none focus-visible:ring-2 focus-visible:ring-primary
+                      ${index === filteredSpecialists.length - 1 ? "mr-4" : ""}
+                    `}
+                  >
+                    {/* Banner */}
+                    <div className="relative h-32">
+                      <img
+                        src={s.cover}
+                        alt={`Travaux de ${s.name}`}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent" />
+
+                      <div className="absolute bottom-2 left-3 right-3 flex items-center gap-2 text-white">
+                        <div className="h-9 w-9 flex-shrink-0 overflow-hidden rounded-2xl border border-white/40">
+                          <img
+                            src={s.avatar}
+                            alt={s.name}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[12px] font-semibold truncate">
+                            {s.name}
+                          </p>
+                          <p className="text-[11px] text-white/85 truncate">
+                            {s.specialty}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Infos */}
+                    <div className="px-4 py-3.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <MapPin size={11} className="text-muted-foreground" />
+                          <span className="text-[11px] text-muted-foreground truncate">
+                            {s.location}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <Star
+                            size={11}
+                            className="fill-blyss-gold text-blyss-gold"
+                          />
+                          <span className="text-[11px] font-medium text-foreground">
+                            {s.rating}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            ({s.reviews})
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <p className="text-[11px] text-muted-foreground">
+                          Voir les créneaux disponibles
+                        </p>
+                        <ChevronRight
+                          size={16}
+                          className="text-muted-foreground"
+                        />
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-10 px-6 bg-card rounded-2xl shadow-card mx-4">
+                <p className="text-sm font-medium text-foreground mb-1">
+                  Aucun résultat pour "{searchQuery}"
+                </p>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Essaie un autre quartier, une autre experte, ou efface la recherche.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="text-xs px-3 py-1.5 rounded-full bg-muted text-foreground active:scale-[0.98] transition-transform"
+                >
+                  Effacer la recherche
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     </MobileLayout>
   );

@@ -75,7 +75,7 @@ export const authApi = {
   },
 
   signup: async (data: SignupData): Promise<ApiResponse<{ user: User; token: string }>> => {
-    return apiCall('/auth/signup', {
+    return apiCall('/api/auth/signup', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -87,35 +87,39 @@ export const authApi = {
     return { success: true };
   },
 
-  getProfile: () => apiCall('/api/users'),
-  updateProfile: (data: Partial<User>) => apiCall('/api/users/update', { method: 'PUT', body: JSON.stringify(data) }),
+  getProfile: () => apiCall<User>('/api/users/me'),
+  
+  updateProfile: (data: Partial<User>) => apiCall<User>('/api/users/me', { 
+    method: 'PUT', 
+    body: JSON.stringify(data) 
+  }),
 };
 
 export const bookingsApi = {
   getAll: async (): Promise<ApiResponse<any[]>> => {
-    return apiCall('/bookings');
+    return apiCall('/api/bookings');
   },
 
   getById: async (id: string): Promise<ApiResponse<any>> => {
-    return apiCall(`/bookings/${id}`);
+    return apiCall(`/api/bookings/${id}`);
   },
 
   create: async (data: any): Promise<ApiResponse<any>> => {
-    return apiCall('/bookings', {
+    return apiCall('/api/bookings', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
   update: async (id: string, data: any): Promise<ApiResponse<any>> => {
-    return apiCall(`/bookings/${id}`, {
+    return apiCall(`/api/bookings/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   },
 
   cancel: async (id: string): Promise<ApiResponse<void>> => {
-    return apiCall(`/bookings/${id}/cancel`, {
+    return apiCall(`/api/bookings/${id}/cancel`, {
       method: 'POST',
     });
   },
@@ -124,45 +128,45 @@ export const bookingsApi = {
 export const specialistsApi = {
   getAll: async (query?: string): Promise<ApiResponse<any[]>> => {
     const params = query ? `?q=${encodeURIComponent(query)}` : '';
-    return apiCall(`/specialists${params}`);
+    return apiCall(`/api/specialists${params}`);
   },
 
   getById: async (id: string): Promise<ApiResponse<any>> => {
-    return apiCall(`/specialists/${id}`);
+    return apiCall(`/api/specialists/${id}`);
   },
 
   getAvailability: async (id: string, date: string): Promise<ApiResponse<any[]>> => {
-    return apiCall(`/specialists/${id}/availability?date=${date}`);
+    return apiCall(`/api/specialists/${id}/availability?date=${encodeURIComponent(date)}`);
   },
 };
 
 export const reviewsApi = {
   create: async (specialistId: string, data: { rating: number; comment: string }): Promise<ApiResponse<any>> => {
-    return apiCall(`/specialists/${specialistId}/reviews`, {
+    return apiCall(`/api/specialists/${specialistId}/reviews`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
   getBySpecialist: async (specialistId: string): Promise<ApiResponse<any[]>> => {
-    return apiCall(`/specialists/${specialistId}/reviews`);
+    return apiCall(`/api/specialists/${specialistId}/reviews`);
   },
 };
 
 export const favoritesApi = {
   getAll: async (): Promise<ApiResponse<any[]>> => {
-    return apiCall('/favorites');
+    return apiCall('/api/favorites');
   },
 
   add: async (specialistId: string): Promise<ApiResponse<void>> => {
-    return apiCall('/favorites', {
+    return apiCall('/api/favorites', {
       method: 'POST',
       body: JSON.stringify({ specialistId }),
     });
   },
 
   remove: async (specialistId: string): Promise<ApiResponse<void>> => {
-    return apiCall(`/favorites/${specialistId}`, {
+    return apiCall(`/api/favorites/${specialistId}`, {
       method: 'DELETE',
     });
   },
@@ -170,11 +174,11 @@ export const favoritesApi = {
 
 export const notificationsApi = {
   getAll: async (): Promise<ApiResponse<any[]>> => {
-    return apiCall('/notifications');
+    return apiCall('/api/notifications');
   },
 
   markAsRead: async (id: string): Promise<ApiResponse<void>> => {
-    return apiCall(`/notifications/${id}/read`, {
+    return apiCall(`/api/notifications/${id}/read`, {
       method: 'POST',
     });
   },
