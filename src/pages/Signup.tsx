@@ -166,49 +166,93 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
     // 7: pro => ville
     // 8: pro => Instagram
     // 9: pro => mot de passe
-    if (step === 1) {
-      return (
-        <div className="animate-slide-up space-y-6">
-          <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
-            Bienvenue sur Blyss 💖
-          </h1>
-          <p className="text-muted-foreground">
-            Tu utilises Blyss en tant que :
-          </p>
 
-          <div className="grid grid-cols-2 gap-3 mt-4">
+    if (step === 1) {
+      const canContinue = !!formData.role;
+
+      return (
+        <div className="animate-slide-up space-y-8">
+          <div>
+            <h1 className="font-display text-2xl font-semibold text-foreground mb-2">
+              Bienvenue sur Blyss 💖
+            </h1>
+            <p className="text-muted-foreground text-sm">
+              Choisis comment tu utilises Blyss. Tu pourras ajuster certains réglages plus tard.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
             <button
               type="button"
-              onClick={() => {
-                setFormData((prev) => ({ ...prev, role: "client" }));
-                setStep(2);
-              }}
-              className={`rounded-2xl py-4 px-3 text-sm font-medium border text-left transition-all ${
-                formData.role === "client"
-                  ? "bg-primary text-primary-foreground border-primary shadow-soft"
-                  : "bg-muted text-foreground border-border"
-              }`}
+              onClick={() =>
+                setFormData((prev) => ({ ...prev, role: "client" as Role }))
+              }
+              className={`flex items-center gap-3 rounded-2xl px-4 py-4 border transition-all text-left ${formData.role === "client"
+                ? "bg-primary/10 border-primary shadow-soft"
+                : "bg-muted border-border hover:bg-muted/80"
+                }`}
               disabled={isLoading}
             >
-              <div className="font-semibold mb-1">Cliente</div>
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-foreground">
+                  Cliente
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Je réserve des prestations manucure sur Blyss.
+                </p>
+              </div>
+              <div
+                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${formData.role === "client"
+                  ? "border-primary"
+                  : "border-muted-foreground/40"
+                  }`}
+              >
+                {formData.role === "client" && (
+                  <div className="w-2 h-2 rounded-full bg-primary" />
+                )}
+              </div>
             </button>
 
             <button
               type="button"
-              onClick={() => {
-                setFormData((prev) => ({ ...prev, role: "pro" }));
-                setStep(2);
-              }}
-              className={`rounded-2xl py-4 px-3 text-sm font-medium border text-left transition-all ${
-                formData.role === "pro"
-                  ? "bg-primary text-primary-foreground border-primary shadow-soft"
-                  : "bg-muted text-foreground border-border"
-              }`}
+              onClick={() =>
+                setFormData((prev) => ({ ...prev, role: "pro" as Role }))
+              }
+              className={`flex items-center gap-3 rounded-2xl px-4 py-4 border transition-all text-left ${formData.role === "pro"
+                ? "bg-primary/10 border-primary shadow-soft"
+                : "bg-muted border-border hover:bg-muted/80"
+                }`}
               disabled={isLoading}
             >
-              <div className="font-semibold mb-1">Prothésiste (pro)</div>
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-foreground">
+                  Prothésiste
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Je propose mes prestations et gère mes clientes sur Blyss.
+                </p>
+              </div>
+              <div
+                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${formData.role === "pro"
+                  ? "border-primary"
+                  : "border-muted-foreground/40"
+                  }`}
+              >
+                {formData.role === "pro" && (
+                  <div className="w-2 h-2 rounded-full bg-primary" />
+                )}
+              </div>
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setStep(2)}
+            disabled={!canContinue || isLoading}
+            className="w-full mt-2 py-3 rounded-xl gradient-primary text-primary-foreground font-medium text-sm shadow-soft disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Valider mon choix
+          </button>
         </div>
       );
     }
@@ -259,12 +303,14 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
           <input
             type="tel"
             value={formData.phone}
-            onChange={(e) =>
+            onChange={(e) => {
+              const raw = e.target.value.replace(/\D/g, ""); // seulement les chiffres
+              const limited = raw.slice(0, 10);              // max 10 chiffres
               setFormData({
                 ...formData,
-                phone: formatPhoneNumber(e.target.value),
-              })
-            }
+                phone: formatPhoneNumber(limited),
+              });
+            }}
             className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
             placeholder="06 12 34 56 78"
             autoFocus
@@ -329,9 +375,8 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
       );
     }
 
-    // À partir d'ici, divergence client / pro
+    // CLIENT : step 6 = mot de passe
     if (formData.role === "client") {
-      // client : step 6 = mot de passe
       if (step === 6) {
         return (
           <div className="animate-slide-up space-y-6">
@@ -394,7 +439,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
       return null;
     }
 
-    // Pro : steps 6–9
+    // PRO : steps 6–9
     if (formData.role === "pro") {
       if (step === 6) {
         return (
@@ -403,8 +448,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               Ton activité 💅
             </h1>
             <p className="text-muted-foreground mb-4 text-sm">
-              Nom de ton activité (facultatif). Tu pourras le modifier plus
-              tard.
+              Nom de ton activité. Tu pourras le modifier plus tard.
             </p>
 
             <input
@@ -429,7 +473,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               Où exerces-tu ? 📍
             </h1>
             <p className="text-muted-foreground mb-4 text-sm">
-              Ville ou quartier (facultatif).
+              Ville ou quartier. Tu pourras préciser plus tard.
             </p>
 
             <input
@@ -454,7 +498,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               Ton Instagram 📸
             </h1>
             <p className="text-muted-foreground mb-4 text-sm">
-              Optionnel, mais ça aide les clientes à te découvrir.
+              Ça aide les clientes à te découvrir.
             </p>
 
             <input
@@ -467,7 +511,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
                 })
               }
               className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-              placeholder="@ton_instagram (facultatif)"
+              placeholder="@ton_instagram"
               autoFocus
               disabled={isLoading}
             />
@@ -542,6 +586,26 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
     (formData.role === "client" && step === 6) ||
     (formData.role === "pro" && step === 9);
 
+  const isProOptionalStep =
+    formData.role === "pro" && (step === 6 || step === 7 || step === 8);
+
+  const currentOptionalFieldValue =
+    formData.role === "pro" && step === 6
+      ? formData.activityName
+      : formData.role === "pro" && step === 7
+        ? formData.city
+        : formData.role === "pro" && step === 8
+          ? formData.instagramAccount
+          : "";
+
+  const primaryButtonLabel = isLoading
+    ? "Chargement..."
+    : isLastStep
+      ? "Créer mon compte"
+      : isProOptionalStep && !currentOptionalFieldValue.trim()
+        ? "Remplir plus tard"
+        : "Continuer";
+
   return (
     <MobileLayout showNav={false}>
       <div className="relative flex flex-col flex-1 min-h-screen max-w-lg mx-auto w-full bg-background">
@@ -578,20 +642,22 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
           </div>
         </div>
 
-        {/* Continue button */}
-        <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-lg bg-background px-6 pb-4 pt-2 z-10">
-          <button
-            onClick={handleNext}
-            disabled={!isStepValid() || isLoading}
-            className="w-full py-4 rounded-2xl gradient-primary text-primary-foreground font-medium text-lg shadow-soft touch-button disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isLoading
-              ? "Chargement..."
-              : isLastStep
-              ? "Créer mon compte"
-              : "Continuer"}
-          </button>
-        </div>
+        {/* Barre d’action en bas (sauf step 1) */}
+        {step !== 1 && (
+          <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-lg px-6 pb-4 pt-2 bg-background/90 backdrop-blur-sm">
+            <button
+              onClick={handleNext}
+              disabled={!isStepValid() || isLoading}
+              className="w-full py-4 rounded-2xl gradient-primary text-primary-foreground font-medium text-lg shadow-soft touch-button disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {primaryButtonLabel}
+            </button>
+          </div>
+        )}
+
+
+
+
       </div>
     </MobileLayout>
   );

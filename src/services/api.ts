@@ -183,6 +183,25 @@ export const notificationsApi = {
   },
 };
 
+export interface PaymentsSettings {
+  bankaccountname: string | null;
+  IBAN: string | null;
+  accept_online_payment: 0 | 1;
+}
+
+export const paymentsApi = {
+  updateProPayments: async (data: {
+    bankaccountname: string;
+    IBAN: string;
+    accept_online_payment: boolean;
+  }): Promise<ApiResponse<PaymentsSettings>> => {
+    return apiCall('/api/users/payments', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
 export default {
   auth: authApi,
   bookings: bookingsApi,
@@ -190,4 +209,5 @@ export default {
   reviews: reviewsApi,
   favorites: favoritesApi,
   notifications: notificationsApi,
+  payments: paymentsApi,
 };

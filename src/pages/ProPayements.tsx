@@ -1,14 +1,14 @@
 import MobileLayout from "@/components/MobileLayout";
-import { ChevronLeft, CreditCard, Banknote, Info } from "lucide-react";
+import { ChevronLeft, Banknote, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
+import { paymentsApi } from "@/services/api";
 
 type OnlineMode = "none" | "optional" | "deposit" | "full";
 
 const ProPayments = () => {
   const navigate = useNavigate();
 
-  // Mock local state – à connecter à ton backend plus tard
   const [iban, setIban] = useState("");
   const [accountHolder, setAccountHolder] = useState("");
   const [onlineEnabled, setOnlineEnabled] = useState(true);
@@ -16,9 +16,12 @@ const ProPayments = () => {
   const [depositPercent, setDepositPercent] = useState("30");
 
   const [errors, setErrors] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setErrors(null);
+    setSuccess(null);
 
     if (onlineEnabled) {
       if (!iban.trim() || !accountHolder.trim()) {
@@ -27,15 +30,42 @@ const ProPayments = () => {
       }
     }
 
-    if (onlineMode === "deposit") {
-      const value = Number(depositPercent);
-      if (isNaN(value) || value <= 0 || value > 100) {
-        setErrors("Le pourcentage d’acompte doit être entre 1% et 100%.");
+    // Si plus tard tu réactives l'acompte :
+    // if (onlineEnabled && onlineMode === "deposit") {
+    //   const value = Number(depositPercent);
+    //   if (isNaN(value) || value <= 0 || value > 100) {
+    //     setErrors("Le pourcentage d’acompte doit être entre 1% et 100%.");
+    //     return;
+    //   }
+    // }
+
+    try {
+      setSaving(true);
+
+      const res = await paymentsApi.updateProPayments({
+        bankaccountname: accountHolder,
+        IBAN: iban,
+        accept_online_payment: onlineEnabled,
+      });
+
+      if (!res.success) {
+        setErrors(res.message || res.error || "Impossible d’enregistrer les paramètres de paiement.");
         return;
       }
-    }
 
-    // TODO : appel API pour sauvegarder les paramètres de paiement
+      setSuccess("Paramètres de paiement enregistrés.");
+      // Optionnel : si l’API renvoie des valeurs normalisées (IBAN masqué, etc.) :
+      // if (res.data) {
+      //   setAccountHolder(res.data.bankaccountname ?? "");
+      //   setIban(res.data.IBAN ?? "");
+      //   setOnlineEnabled(res.data.accept_online_payment === 1);
+      // }
+    } catch (e) {
+      console.error(e);
+      setErrors("Erreur de connexion au serveur.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -148,115 +178,6 @@ const ProPayments = () => {
               </label>
             </div>
 
-            {/* Modes de paiement en ligne */}
-            {onlineEnabled && (
-              <div className="space-y-2 pt-1 border-t border-border/60 mt-2 pt-3">
-                <p className="text-[11px] text-muted-foreground mb-1">
-                  Choisis comment tu souhaites utiliser les paiements en ligne.
-                </p>
-
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setOnlineMode("optional")}
-                    className={`flex items-start justify-between rounded-xl px-3 py-2 text-left border ${
-                      onlineMode === "optional"
-                        ? "border-primary bg-primary/5"
-                        : "border-border bg-muted/60"
-                    }`}
-                  >
-                    <div className="flex flex-col pr-3">
-                      <span className="text-xs font-medium text-foreground">
-                        Paiement en ligne facultatif
-                      </span>
-                      <span className="text-[11px] text-muted-foreground">
-                        La cliente peut payer en ligne ou sur place au rendez‑vous.
-                      </span>
-                    </div>
-                    <div
-                      className={`w-3 h-3 rounded-full border ${
-                        onlineMode === "optional"
-                          ? "border-primary bg-primary"
-                          : "border-muted-foreground"
-                      }`}
-                    />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setOnlineMode("deposit")}
-                    className={`flex items-start justify-between rounded-xl px-3 py-2 text-left border ${
-                      onlineMode === "deposit"
-                        ? "border-primary bg-primary/5"
-                        : "border-border bg-muted/60"
-                    }`}
-                  >
-                    <div className="flex flex-col pr-3">
-                      <span className="text-xs font-medium text-foreground">
-                        Acompte obligatoire
-                      </span>
-                      <span className="text-[11px] text-muted-foreground">
-                        Une partie du montant est réglée en ligne pour limiter
-                        les annulations et no‑shows.
-                      </span>
-                      {onlineMode === "deposit" && (
-                        <div className="mt-2 flex items-center gap-2">
-                          <span className="text-[11px] text-muted-foreground">
-                            Pourcentage d’acompte :
-                          </span>
-                          <input
-                            type="number"
-                            min={1}
-                            max={100}
-                            className="w-16 h-8 border border-muted rounded-lg px-2 text-xs bg-background"
-                            value={depositPercent}
-                            onChange={(e) => setDepositPercent(e.target.value)}
-                          />
-                          <span className="text-[11px] text-muted-foreground">
-                            %
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    <div
-                      className={`w-3 h-3 rounded-full border ${
-                        onlineMode === "deposit"
-                          ? "border-primary bg-primary"
-                          : "border-muted-foreground"
-                      }`}
-                    />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setOnlineMode("full")}
-                    className={`flex items-start justify-between rounded-xl px-3 py-2 text-left border ${
-                      onlineMode === "full"
-                        ? "border-primary bg-primary/5"
-                        : "border-border bg-muted/60"
-                    }`}
-                  >
-                    <div className="flex flex-col pr-3">
-                      <span className="text-xs font-medium text-foreground">
-                        Paiement complet obligatoire
-                      </span>
-                      <span className="text-[11px] text-muted-foreground">
-                        Le montant total est payé en ligne pour confirmer la
-                        réservation.
-                      </span>
-                    </div>
-                    <div
-                      className={`w-3 h-3 rounded-full border ${
-                        onlineMode === "full"
-                          ? "border-primary bg-primary"
-                          : "border-muted-foreground"
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* Paiement sur place seulement */}
             {!onlineEnabled && (
               <p className="text-[11px] text-muted-foreground">
@@ -267,39 +188,25 @@ const ProPayments = () => {
           </div>
         </div>
 
-        {/* SECTION : Autres infos (placeholder si tu ajoutes plus tard) */}
-        <div className="space-y-2">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Autres paramètres
-          </h2>
-
-          <div className="blyss-card flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <CreditCard size={16} className="text-primary" />
-              <span className="text-xs text-muted-foreground">
-                Détails des frais et délais de versement disponibles dans ton
-                espace pro.
-              </span>
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              Blyss s’appuie sur un prestataire de paiement sécurisé pour gérer
-              les encaissements et les versements.
-            </p>
-          </div>
-        </div>
-
         {errors && (
           <p className="text-[11px] text-destructive mt-1 px-1">
             {errors}
           </p>
         )}
 
+        {success && (
+          <p className="text-[11px] text-emerald-600 mt-1 px-1">
+            {success}
+          </p>
+        )}
+
         {/* Bouton Enregistrer */}
         <button
           onClick={handleSave}
-          className="w-full mt-3 py-3 rounded-xl gradient-gold text-secondary-foreground font-medium active:scale-[0.98] transition-transform text-sm"
+          disabled={saving}
+          className="w-full mt-3 py-3 rounded-xl gradient-gold text-secondary-foreground font-medium active:scale-[0.98] transition-transform text-sm disabled:opacity-50"
         >
-          Enregistrer les paramètres de paiement
+          {saving ? "Enregistrement..." : "Enregistrer les paramètres de paiement"}
         </button>
       </div>
     </MobileLayout>

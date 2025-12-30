@@ -52,6 +52,7 @@
     "embla-carousel-react": "^8.6.0",
     "express": "^5.2.1",
     "framer-motion": "^12.23.26",
+    "ibantools": "^4.5.1",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.462.0",
     "mysql2": "^3.16.0",

@@ -25,7 +25,6 @@ dist-ssr
 backend/.env
 backend/.env.dev
 .gitignore
-backend/.env.prod
 .env.devlopment
 .env.production
 backend/.env.prod

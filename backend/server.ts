@@ -7,6 +7,10 @@ import multer, { FileFilterCallback } from "multer";
 import path from "path";
 import fs from "fs";
 import jwt from "jsonwebtoken";
+import { isValidIBAN, electronicFormatIBAN } from 'ibantools';
+import crypto from 'crypto';
+
+
 
 const envFile = process.env.NODE_ENV === 'production' ? '.env.prod' : '.env.dev';
 
@@ -40,6 +44,37 @@ const allowedOrigins = [
   'http://localhost:8080',      
   'https://app.blyssapp.fr'     
 ];
+
+const IBAN_KEY = Buffer.from(process.env.IBAN_ENC_KEY || '', 'hex');
+const IBAN_IV = Buffer.from(process.env.IBAN_ENC_IV || '', 'hex');
+
+if (IBAN_KEY.length !== 32) {
+  console.error('IBAN_ENC_KEY must be 32 bytes (64 hex chars).');
+  process.exit(1);
+}
+if (![12, 16].includes(IBAN_IV.length)) {
+  console.error('IBAN_ENC_IV must be 12 or 16 bytes.');
+  process.exit(1);
+}
+
+function encryptIban(plain: string): string {
+  const cipher = crypto.createCipheriv('aes-256-gcm', IBAN_KEY, IBAN_IV);
+  const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  // on stocke ciphertext + tag en base64, séparés
+  return `${encrypted.toString('base64')}:${authTag.toString('base64')}`;
+}
+
+function decryptIban(stored: string): string {
+  const [cipherTextB64, tagB64] = stored.split(':');
+  const encrypted = Buffer.from(cipherTextB64, 'base64');
+  const authTag = Buffer.from(tagB64, 'base64');
+
+  const decipher = crypto.createDecipheriv('aes-256-gcm', IBAN_KEY, IBAN_IV);
+  decipher.setAuthTag(authTag);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return decrypted.toString('utf8');
+}
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -108,6 +143,12 @@ interface User {
     city: string | null;
     instagram_account: string | null;
     profile_photo: string | null;
+}
+
+interface UpdatePaymentsBody {
+  bankaccountname?: string;
+  IBAN?: string;
+  accept_online_payment?: boolean;
 }
 
 app.post("/api/auth/signup", async (req: Request<{}, {}, SignupRequestBody>, res: Response) => {
@@ -327,6 +368,89 @@ app.put("/api/users/update", authMiddleware, async (req: AuthenticatedRequest, r
         console.error(err);
         res.status(500).json({ success: false, message: "Update failed" });
     }
+});
+
+app.put('/api/users/payments', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const { bankaccountname, IBAN, accept_online_payment } = req.body as UpdatePaymentsBody;
+
+    if (accept_online_payment) {
+      if (!bankaccountname || !bankaccountname.trim()) {
+        return res.status(400).json({ success: false, message: 'Le titulaire du compte est requis.' });
+      }
+      if (!IBAN || !IBAN.trim()) {
+        return res.status(400).json({ success: false, message: 'L’IBAN est requis.' });
+      }
+
+      const formattedIban = electronicFormatIBAN(IBAN);
+      if (!isValidIBAN(formattedIban)) {
+        return res.status(400).json({ success: false, message: 'IBAN invalide.' });
+      }
+
+      // Chiffrement IBAN
+      const encryptedIban = encryptIban(formattedIban);
+
+      // Vérifier unicité : soit tu laisses la contrainte MySQL faire le boulot,
+      // soit tu testes toi-même sur la colonne chiffrée (unique_user_iban) :
+      const [existing] = await db.execute(
+        'SELECT id FROM users WHERE IBAN = ? AND id != ?',
+        [encryptedIban, userId]
+      );
+      if ((existing as any[]).length > 0) {
+        return res.status(409).json({ success: false, message: 'Cet IBAN est déjà utilisé par un autre compte.' });
+      }
+
+      await db.execute(
+        `
+          UPDATE users
+          SET bankaccountname = ?, IBAN = ?, accept_online_payment = 1
+          WHERE id = ?
+        `,
+        [bankaccountname.trim(), encryptedIban, userId]
+      );
+    } else {
+      // Pas de paiement en ligne
+      await db.execute(
+        `
+          UPDATE users
+          SET accept_online_payment = 0
+          WHERE id = ?
+        `,
+        [userId]
+      );
+    }
+
+    // Retourner les infos mises à jour (sans déchiffrer IBAN côté API si tu ne veux pas)
+    const [rows] = await db.execute(
+      'SELECT bankaccountname, IBAN, accept_online_payment FROM users WHERE id = ?',
+      [userId]
+    );
+    const record = (rows as any[])[0];
+
+    // Pour ne pas exposer l’IBAN brut chiffré, tu peux renvoyer null ou une version masquée
+    let maskedIban: string | null = null;
+    if (record.IBAN) {
+      try {
+        const plain = decryptIban(record.IBAN as string);
+        maskedIban = plain.replace(/.(?=.{4})/g, '•'); // masque tout sauf les 4 derniers
+      } catch {
+        maskedIban = null;
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        bankaccountname: record.bankaccountname,
+        IBAN: maskedIban,
+        accept_online_payment: record.accept_online_payment,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Erreur lors de la mise à jour des paiements.' });
+  }
 });
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
