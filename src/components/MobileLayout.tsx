@@ -29,7 +29,6 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
 
     const navItems = isPro ? proNavItems : clientNavItems;
 
-    // Scroll en haut à chaque changement de route
     useEffect(() => {
       document.documentElement.scrollTo({
         top: 0,
@@ -46,10 +45,16 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
           w-full
           min-h-[100dvh]
           bg-background
-          // on ne met plus de padding-bottom ici, c'est le nav qui gère la safe area
         "
       >
-        <main className="pt-safe-top px-4 pb-4">{children}</main>
+        <main
+          className="px-4 pb-4"
+          style={{
+            paddingTop: "calc(8px + env(safe-area-inset-top, 0px))"
+          }}
+        >
+          {children}
+        </main>
 
         {showNav && !hideNav && (
           <nav className="fixed inset-x-0 bottom-0 z-50 flex justify-center pointer-events-none">

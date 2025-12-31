@@ -105,7 +105,6 @@ const ProProfile = () => {
     { icon: Settings, label: "Paramètres", path: "/pro/settings" },
     { icon: CreditCard, label: "Encaissements", path: "/pro/payment" },
     { icon: Bell, label: "Notifications", path: "/pro/notifications" },
-    { icon: CreditCard, label: "Abonnement", path: "/pro/subscription-settings" },
     { icon: HelpCircle, label: "Aide", path: "/pro/help" },
   ];
 
@@ -272,7 +271,7 @@ const ProProfile = () => {
 
          {/* ENCARDS ABONNEMENT */}
         <div
-          className="blyss-card flex items-center gap-4 animate-slide-up active:scale-[0.99] transition-all cursor-pointer"
+          className="blyss-card flex items-center gap-4 animate-slide-up active:scale-[0.99] transition-all cursor-pointer mb-6"
           style={{ animationDelay: "0.12s" }}
           onClick={() => navigate("/pro/subscription")}
         >
@@ -282,11 +281,11 @@ const ProProfile = () => {
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-semibold text-foreground truncate">
-                Mon abonnement
+          Mon abonnement
               </p>
               <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 text-[10px] px-2 py-0.5">
-                <BadgeCheck size={12} className="mr-1" />
-                Actif
+          <BadgeCheck size={12} className="mr-1" />
+          Actif
               </span>
             </div>
             <p className="text-[12px] text-muted-foreground mt-0.5">
