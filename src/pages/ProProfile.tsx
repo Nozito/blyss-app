@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Cropper from "react-easy-crop";
 import getCroppedImg from "@/utils/cropImage";
+import { BadgeCheck } from "lucide-react";
 
 const ProProfile = () => {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
@@ -104,6 +105,7 @@ const ProProfile = () => {
     { icon: Settings, label: "Paramètres", path: "/pro/settings" },
     { icon: CreditCard, label: "Encaissements", path: "/pro/payment" },
     { icon: Bell, label: "Notifications", path: "/pro/notifications" },
+    { icon: CreditCard, label: "Abonnement", path: "/pro/subscription-settings" },
     { icon: HelpCircle, label: "Aide", path: "/pro/help" },
   ];
 
@@ -114,6 +116,10 @@ const ProProfile = () => {
   };
 
   const displayName = user ? `${user?.first_name} ${user?.last_name}` : "Marie Beauté";
+
+  const currentPlanLabel = "Formule Sérénité";
+  const currentBillingLabel = "Mensuel";
+  const nextBillingDate = "15 janvier 2026";
 
   return (
     <MobileLayout>
@@ -263,6 +269,36 @@ const ProProfile = () => {
             <p className="text-xs text-muted-foreground">Sur Blyss</p>
           </div>
         </div>
+
+         {/* ENCARDS ABONNEMENT */}
+        <div
+          className="blyss-card flex items-center gap-4 animate-slide-up active:scale-[0.99] transition-all cursor-pointer"
+          style={{ animationDelay: "0.12s" }}
+          onClick={() => navigate("/pro/subscription")}
+        >
+          <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center">
+            <CreditCard size={20} className="text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-foreground truncate">
+                Mon abonnement
+              </p>
+              <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 text-[10px] px-2 py-0.5">
+                <BadgeCheck size={12} className="mr-1" />
+                Actif
+              </span>
+            </div>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              {currentPlanLabel} · {currentBillingLabel}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Prochain prélèvement le {nextBillingDate}
+            </p>
+          </div>
+          <ChevronRight size={18} className="text-muted-foreground flex-shrink-0" />
+        </div>
+
 
         {/* Menu Items */}
         <div className="blyss-card p-0 overflow-hidden mb-6 animate-slide-up" style={{ animationDelay: "0.15s" }}>

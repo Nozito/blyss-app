@@ -23,6 +23,7 @@ import ProNotifications from "./pages/ProNotifications";
 import ProHelp from "./pages/ProHelp";
 import ProPayments from "./pages/ProPayements";
 import ProSubscription from "./pages/ProSubscription";
+import ProSubscriptionSettings from "./pages/ProSubscriptionSettings";
 
 import ClientHome from "./pages/ClientHome";
 import ClientBooking from "./pages/ClientBooking";
@@ -80,6 +81,7 @@ const App = () => {
               
               {/* PRO */}
               <Route path="/pro/subscription" element={<ProSubscription />} />
+              <Route path="/pro/subscription-settings" element={<ProSubscriptionSettings />} />
               <Route path="/pro/help" element={<ProHelp />} />
               <Route path="/pro/notifications" element={<ProNotifications />} />
               <Route path="/pro/payments" element={<ProPayments />} />
