@@ -107,11 +107,17 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
             : null,
       };
 
+
       const response = await signup(payload);
 
       if (response.success) {
         toast.success("Compte créé avec succès !");
-        navigate(formData.role === "pro" ? "/pro/dashboard" : "/client");
+        // Si pro : on l’envoie sur la page d’abonnement
+        if (formData.role === "pro") {
+          navigate("/pro/abonnement"); // adapte le chemin à ta route réelle (ex: "/pro/subscription")
+        } else {
+          navigate("/client");
+        }
       } else {
         setError(response.error || "Erreur lors de la création du compte");
       }

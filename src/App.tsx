@@ -22,6 +22,7 @@ import ProSettings from "./pages/ProSettings";
 import ProNotifications from "./pages/ProNotifications";
 import ProHelp from "./pages/ProHelp";
 import ProPayments from "./pages/ProPayements";
+import ProSubscription from "./pages/ProSubscription";
 
 import ClientHome from "./pages/ClientHome";
 import ClientBooking from "./pages/ClientBooking";
@@ -76,6 +77,20 @@ const App = () => {
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
+              
+              {/* PRO */}
+              <Route path="/pro/subscription" element={<ProSubscription />} />
+              <Route path="/pro/help" element={<ProHelp />} />
+              <Route path="/pro/notifications" element={<ProNotifications />} />
+              <Route path="/pro/payments" element={<ProPayments />} />
+              <Route path="/pro/settings" element={<ProSettings />} />
+
+              {/* CLIENT */}
+              <Route path="/client/help" element={<ClientHelp />} />
+              <Route path="/client/notifications" element={<ClientNotifications />} />
+              <Route path="/client/payments" element={<ClientPayements />} />
+              <Route path="/client/settings" element={<ClientSettings />} />
+
 
               {/* CLIENT */}
               <Route
@@ -176,6 +191,14 @@ const App = () => {
               />
 
               {/* PRO */}
+              <Route
+                path="/pro/subscription"
+                element={
+                  <MobileLayout showNav={!showSplash}>
+                    <ProSubscription />
+                  </MobileLayout>
+                }
+              />
               <Route
                 path="/pro/dashboard"
                 element={

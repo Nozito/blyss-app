@@ -151,6 +151,17 @@ interface UpdatePaymentsBody {
   accept_online_payment?: boolean;
 }
 
+interface CreateSubscriptionBody {
+  plan: "start" | "serenite" | "signature";
+  billingType: "monthly" | "one_time";
+  monthlyPrice: number;
+  totalPrice?: number | null;
+  commitmentMonths?: number | null;
+  startDate: string; // "YYYY-MM-DD"
+  endDate?: string | null;
+}
+
+
 app.post("/api/auth/signup", async (req: Request<{}, {}, SignupRequestBody>, res: Response) => {
     try {
         const {
@@ -369,6 +380,92 @@ app.put("/api/users/update", authMiddleware, async (req: AuthenticatedRequest, r
         res.status(500).json({ success: false, message: "Update failed" });
     }
 });
+
+// Création d'un abonnement pro + activation pro_status
+app.post(
+  "/api/subscriptions",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+
+      const {
+        plan,
+        billingType,
+        monthlyPrice,
+        totalPrice,
+        commitmentMonths,
+        startDate,
+        endDate
+      } = req.body as CreateSubscriptionBody;
+
+      if (!plan || !billingType || !monthlyPrice || !startDate) {
+        return res.status(400).json({
+          success: false,
+          message: "Missing required fields"
+        });
+      }
+
+      const connection = await db.getConnection();
+      try {
+        await connection.beginTransaction();
+
+        // 1) Insert dans subscriptions
+        const [result] = await connection.execute(
+          `
+          INSERT INTO subscriptions
+            (client_id, plan, billing_type, monthly_price, total_price, commitment_months, start_date, end_date, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+          `,
+          [
+            req.user.id,
+            plan,
+            billingType,
+            monthlyPrice,
+            totalPrice ?? null,
+            commitmentMonths ?? null,
+            startDate,
+            endDate ?? null
+          ]
+        );
+
+        // 2) Passer l'utilisateur en pro_status = 'active'
+        await connection.execute(
+          `UPDATE users SET pro_status = 'active' WHERE id = ?`,
+          [req.user.id]
+        );
+
+        await connection.commit();
+
+        // @ts-ignore
+        const subscriptionId = (result as any).insertId;
+
+        res.status(201).json({
+          success: true,
+          data: { subscriptionId }
+        });
+      } catch (err) {
+        await connection.rollback();
+        console.error("Error creating subscription:", err);
+        res.status(500).json({
+          success: false,
+          message: "Failed to create subscription"
+        });
+      } finally {
+        connection.release();
+      }
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error"
+      });
+    }
+  }
+);
+
 
 app.put('/api/users/payments', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
