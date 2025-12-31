@@ -17,14 +17,14 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
       { icon: Home, path: "/pro/dashboard", label: "Accueil" },
       { icon: Calendar, path: "/pro/calendar", label: "Calendrier" },
       { icon: Heart, path: "/pro/clients", label: "Clients" },
-      { icon: User, path: "/pro/profile", label: "Profil" },
+      { icon: User, path: "/pro/profile", label: "Profil" }
     ];
 
     const clientNavItems = [
       { icon: Home, path: "/client", label: "Accueil" },
       { icon: Calendar, path: "/client/my-booking", label: "Mes réservations" },
       { icon: Heart, path: "/client/favorites", label: "Favoris" },
-      { icon: User, path: "/client/profile", label: "Profil" },
+      { icon: User, path: "/client/profile", label: "Profil" }
     ];
 
     const navItems = isPro ? proNavItems : clientNavItems;
@@ -34,7 +34,7 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
       document.documentElement.scrollTo({
         top: 0,
         left: 0,
-        behavior: "auto",
+        behavior: "auto"
       });
     }, [location.pathname]);
 
@@ -46,11 +46,10 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
           w-full
           min-h-[100dvh]
           bg-background
-          px-4
-          pb-[96px]
+          // on ne met plus de padding-bottom ici, c'est le nav qui gère la safe area
         "
       >
-        <main className="pt-safe-top">{children}</main>
+        <main className="pt-safe-top px-4 pb-4">{children}</main>
 
         {showNav && !hideNav && (
           <nav className="fixed inset-x-0 bottom-0 z-50 flex justify-center pointer-events-none">
@@ -58,18 +57,21 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
               className="
                 pointer-events-auto
                 mb-3
-                h-12
-                w-full max-w-[260px]
+                h-[56px]
+                w-full max-w-[280px]
                 px-3
                 flex items-center justify-around gap-1.5
 
                 rounded-[999px]
-                bg-white/10
-                dark:bg-zinc-900/40
-                border border-white/20 dark:border-white/10
+                bg-white/90
+                dark:bg-zinc-900/90
+                border border-white/40 dark:border-white/10
                 shadow-[0_14px_40px_rgba(0,0,0,0.45)]
                 backdrop-blur-xl backdrop-saturate-150
               "
+              style={{
+                paddingBottom: "calc(4px + env(safe-area-inset-bottom, 0px))"
+              }}
             >
               {navItems.map((item) => {
                 const isActive = location.pathname === item.path;
@@ -85,22 +87,22 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
                     <div
                       className={`
                         flex items-center justify-center
-                        h-9 w-9
+                        h-10 w-10
                         rounded-full
                         transition-all duration-200
                         ${
                           isActive
-                            ? "bg-white/30 shadow-sm"
-                            : "bg-white/6 hover:bg-white/14 active:bg-white/18"
+                            ? "bg-primary/10 shadow-sm"
+                            : "bg-transparent hover:bg-white/40 dark:hover:bg-zinc-800/80 active:bg-white/60"
                         }
                       `}
                     >
                       <item.icon
-                        size={17}
+                        size={20}
                         className={
                           isActive ? "text-primary" : "text-muted-foreground"
                         }
-                        strokeWidth={isActive ? 2.3 : 2}
+                        strokeWidth={isActive ? 2.2 : 2}
                       />
                     </div>
                   </NavLink>
@@ -113,5 +115,7 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
     );
   }
 );
+
+MobileLayout.displayName = "MobileLayout";
 
 export default MobileLayout;
