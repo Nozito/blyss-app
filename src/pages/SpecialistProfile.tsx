@@ -2,7 +2,6 @@ import { useState, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, MapPin, Star, Clock, Heart } from "lucide-react";
 import ReviewsSection from "@/components/ReviewsSection";
-import MobileLayout from "@/components/MobileLayout";
 import { useFavorites } from "@/hooks/useFavorites";
 
 import banner1 from "@/assets/banners/banner1.jpg";
@@ -161,7 +160,6 @@ const SpecialistProfile = () => {
 
   const handleSubmitReview = () => {
     if (rating === 0) return;
-    // TODO: intégrer avec ton backend
     console.log("Review submitted:", { rating, comment });
     setShowReviewModal(false);
     setRating(0);
@@ -172,21 +170,38 @@ const SpecialistProfile = () => {
 
   return (
     <>
-      <MobileLayout showNav={false}>
-        {/* Hero / Banner avec coins arrondis en haut */}
+      <div
+        className="
+          relative
+          min-h-[100dvh]
+          w-full
+          bg-background
+          text-foreground
+          pt-0
+          -mt-[env(safe-area-inset-top,0px)]
+        "
+        style={{
+          // pas de padding top / latéral ici
+          paddingTop: 0,
+          paddingLeft: 0,
+          paddingRight: 0,
+          paddingBottom: "calc(16px + env(safe-area-inset-bottom, 0px))"
+        }}
+      >
+        {/* Bannière sans arrondis, collée aux bords */}
         <div className="relative">
-          <div className="h-52 overflow-hidden rounded-t-3xl">
-            <img
-              src={bannerSrc}
-              alt="Bannière"
-              className="w-full h-full object-cover"
-            />
+          <div className="h-52 w-screen max-w-none -mx-[calc((100vw-100%)/2)] overflow-hidden">
+        <img
+          src={bannerSrc}
+          alt="Bannière"
+          className="w-full h-full object-cover"
+        />
           </div>
 
           {/* Back button */}
           <button
             onClick={() => navigate(-1)}
-            className="absolute top-safe-top left-4 mt-4 w-10 h-10 rounded-full 
+            className="absolute left-4 top-4 w-10 h-10 rounded-full 
              bg-white/12 border border-white/30 
              backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.25)]
              flex items-center justify-center z-10 
@@ -198,22 +213,23 @@ const SpecialistProfile = () => {
           {/* Favorite button */}
           <button
             onClick={handleToggleFavorite}
-            className={`absolute top-safe-top right-4 mt-4 w-10 h-10 rounded-full 
+            className={`absolute right-4 top-4 w-10 h-10 rounded-full 
               bg-white/12 border border-white/30 
               backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.25)]
               flex items-center justify-center z-10 
-              active:scale-95 transition-all duration-200 ${isAnimating ? "scale-115" : "scale-100"
+              active:scale-95 transition-all duration-200 ${
+                isAnimating ? "scale-115" : "scale-100"
               }`}
           >
             <Heart
               size={20}
-              className={`drop-shadow transition-colors duration-200 ${isFav ? "text-primary fill-primary" : "text-white"
-                }`}
+              className={`drop-shadow transition-colors duration-200 ${
+                isFav ? "text-primary fill-primary" : "text-white"
+              }`}
             />
           </button>
 
-
-          {/* Avatar centré chevauchant la bannière */}
+          {/* Avatar chevauchant le bas de la bannière */}
           <div className="absolute -bottom-12 left-1/2 -translate-x-1/2 z-20">
             <div className="w-24 h-24 rounded-full bg-card shadow-elevated flex items-center justify-center border-4 border-blyss-gold-light">
               <img
@@ -225,8 +241,8 @@ const SpecialistProfile = () => {
           </div>
         </div>
 
-        {/* Contenu */}
-        <div className="px-5 pt-16 pb-32 space-y-6">
+        {/* Contenu (padding interne seulement) */}
+        <div className="pt-16 pb-8 space-y-6 px-4">
           {/* Header infos */}
           <section className="text-center animate-fade-in space-y-2">
             <div>
@@ -313,8 +329,11 @@ const SpecialistProfile = () => {
             </div>
           </section>
 
-          {/* CTA principal proche des prestations */}
-          <section className="animate-slide-up" style={{ animationDelay: "0.08s" }}>
+          {/* CTA principal */}
+          <section
+            className="animate-slide-up"
+            style={{ animationDelay: "0.08s" }}
+          >
             <button
               onClick={() => navigate("/client/booking")}
               className="w-full py-3.5 rounded-2xl gradient-gold text-secondary-foreground font-semibold text-base shadow-elevated active:scale-[0.98] transition-transform"
@@ -335,14 +354,17 @@ const SpecialistProfile = () => {
               {specialist.portfolio.map((id) => (
                 <div
                   key={id}
-                  className="aspect-square rounded-xl bg-gradient-to-br from-blyss-pink-light to-blyss-gold-light"
+                  className="aspect-square rounded-xl bg-muted border border-border"
                 />
               ))}
             </div>
           </section>
 
           {/* Avis */}
-          <section className="animate-slide-up" style={{ animationDelay: "0.16s" }}>
+          <section
+            className="animate-slide-up"
+            style={{ animationDelay: "0.16s" }}
+          >
             <ReviewsSection reviews={REVIEWS_MOCK} />
             <button
               onClick={() => setShowReviewModal(true)}
@@ -352,11 +374,11 @@ const SpecialistProfile = () => {
             </button>
           </section>
         </div>
-      </MobileLayout>
+      </div>
 
-      {/* Modal avis */}
+      {/* Modal avis au-dessus de la navbar */}
       {showReviewModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40">
           <div className="w-full max-w-[430px] bg-card rounded-t-3xl p-6 pb-10 animate-slide-up-modal">
             <div className="w-12 h-1 bg-muted rounded-full mx-auto mb-6" />
 
@@ -374,10 +396,11 @@ const SpecialistProfile = () => {
                 >
                   <Star
                     size={32}
-                    className={`transition-colors ${star <= rating
+                    className={`transition-colors ${
+                      star <= rating
                         ? "text-blyss-gold fill-blyss-gold"
                         : "text-muted-foreground"
-                      }`}
+                    }`}
                   />
                 </button>
               ))}

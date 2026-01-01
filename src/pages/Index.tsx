@@ -33,7 +33,7 @@ const Index = () => {
             
             <button
               onClick={() => navigate("/signup")}
-              className="w-full py-4 rounded-2xl bg-muted text-foreground font-medium text-lg touch-button"
+              className="w-full py-4 rounded-2xl bg-white text-foreground font-medium text-lg touch-button shadow-soft"
             >
               Créer un compte
             </button>
