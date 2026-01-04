@@ -278,7 +278,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               onChange={(e) =>
                 setFormData({ ...formData, firstName: e.target.value })
               }
-              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full px-4 py-4 rounded-xl bg-white border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               placeholder="Prénom"
               autoFocus
               disabled={isLoading}
@@ -289,7 +289,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               onChange={(e) =>
                 setFormData({ ...formData, lastName: e.target.value })
               }
-              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full px-4 py-4 rounded-xl bg-white border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               placeholder="Nom"
               disabled={isLoading}
             />
@@ -317,7 +317,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
                 phone: formatPhoneNumber(limited),
               });
             }}
-            className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="w-full px-4 py-4 rounded-xl bg-white border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
             placeholder="06 12 34 56 78"
             autoFocus
             disabled={isLoading}
@@ -341,7 +341,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               setFormData({ ...formData, email: e.target.value });
               setError("");
             }}
-            className="w-full max-w-lg px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="w-full max-w-lg px-4 py-4 rounded-xl bg-white border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
             placeholder="ton@email.com"
             autoFocus
             disabled={isLoading}
@@ -369,7 +369,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
             onChange={(e) =>
               setFormData({ ...formData, birthDate: e.target.value })
             }
-            className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="w-full px-4 py-4 rounded-xl bg-white border-0 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
             autoFocus
             disabled={isLoading}
           />
@@ -407,7 +407,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
                     });
                     setError("");
                   }}
-                  className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 pr-12"
+                  className="w-full px-4 py-4 rounded-xl bg-white border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 pr-12"
                   placeholder="Mot de passe (min. 8 caractères)"
                   autoFocus
                   disabled={isLoading}
@@ -430,7 +430,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
                   });
                   setError("");
                 }}
-                className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                className="w-full px-4 py-4 rounded-xl bg-white border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                 placeholder="Confirmer le mot de passe"
                 disabled={isLoading}
               />
@@ -463,7 +463,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               onChange={(e) =>
                 setFormData({ ...formData, activityName: e.target.value })
               }
-              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full px-4 py-4 rounded-xl bg-white border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               placeholder="Ex. : Studio Blyss"
               autoFocus
               disabled={isLoading}
@@ -488,7 +488,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               onChange={(e) =>
                 setFormData({ ...formData, city: e.target.value })
               }
-              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full px-4 py-4 rounded-xl bg-white border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               placeholder="Ex. : Paris 11"
               autoFocus
               disabled={isLoading}
@@ -516,7 +516,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
                   instagramAccount: e.target.value,
                 })
               }
-              className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full px-4 py-4 rounded-xl bg-white border-0 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               placeholder="@ton_instagram"
               autoFocus
               disabled={isLoading}
@@ -549,7 +549,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
                     });
                     setError("");
                   }}
-                  className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 pr-12"
+                  className="w-full px-4 py-4 rounded-xl bg-white border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 pr-12"
                   placeholder="Mot de passe (min. 8 caractères)"
                   autoFocus
                   disabled={isLoading}
@@ -572,7 +572,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
                   });
                   setError("");
                 }}
-                className="w-full px-4 py-4 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                className="w-full px-4 py-4 rounded-xl bg-white border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                 placeholder="Confirmer le mot de passe"
                 disabled={isLoading}
               />
