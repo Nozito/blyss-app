@@ -46,7 +46,7 @@ const ClientEditModal = ({ client, isOpen, onClose, onSave }: ClientEditModalPro
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="font-display text-xl font-semibold text-foreground">
-            Modifier cliente
+            Modifier
           </h2>
           <button
             onClick={onClose}
@@ -64,6 +64,7 @@ const ClientEditModal = ({ client, isOpen, onClose, onSave }: ClientEditModalPro
             </span>
           </div>
           <div>
+            <p className="text-foreground font-semibold text-lg">{client.name}</p>
             <p className="text-muted-foreground text-sm">{client.totalVisits} visites</p>
             <p className="text-muted-foreground text-xs">{client.lastVisit}</p>
           </div>
@@ -71,30 +72,6 @@ const ClientEditModal = ({ client, isOpen, onClose, onSave }: ClientEditModalPro
 
         {/* Form */}
         <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium text-muted-foreground mb-2 block">
-              Nom
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-muted-foreground mb-2 block">
-              Téléphone
-            </label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl bg-muted border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
-          </div>
-
           <div>
             <label className="text-sm font-medium text-muted-foreground mb-2 block flex items-center gap-2">
               <MessageSquare size={14} />

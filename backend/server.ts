@@ -839,6 +839,212 @@ app.get(
   }
 );
 
+app.get(
+  "/api/pro/calendar",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const { from, to } = req.query as { from?: string; to?: string };
+
+      console.log("[CALENDAR] proId =", proId, "from =", from, "to =", to);
+
+      connection = await db.getConnection();
+
+      const params: any[] = [proId];
+      let where = "r.pro_id = ? AND r.status IN ('confirmed','completed')";
+
+      if (from) {
+        where += " AND DATE(r.start_datetime) >= ?";
+        params.push(from);
+      }
+      if (to) {
+        where += " AND DATE(r.start_datetime) <= ?";
+        params.push(to);
+      }
+
+      console.log("[CALENDAR] where =", where, "params =", params);
+
+      const [rows] = (await connection.query(
+        `
+        SELECT
+          r.id,
+          DATE(r.start_datetime) AS date,
+          DATE_FORMAT(r.start_datetime, '%H:%i') AS time,
+          TIMESTAMPDIFF(MINUTE, r.start_datetime, r.end_datetime) AS duration_minutes,
+          r.price,
+          u.first_name,
+          u.last_name,
+          p.name AS prestation_name
+        FROM reservations r
+        JOIN users u ON u.id = r.client_id
+        JOIN prestations p ON p.id = r.prestation_id
+        WHERE ${where}
+        ORDER BY r.start_datetime ASC
+        `,
+        params
+      )) as [{
+        id: number;
+        date: string;
+        time: string;
+        duration_minutes: number;
+        price: number;
+        first_name: string;
+        last_name: string;
+        prestation_name: string;
+      }[], any];
+
+      console.log("[CALENDAR] rows length =", rows.length);
+      if (rows.length) {
+        console.log("[CALENDAR] first row =", rows[0]);
+      }
+
+      const data = rows.map((r) => ({
+        id: r.id,
+        date: r.date,
+        time: r.time,
+        duration:
+          r.duration_minutes >= 60
+            ? `${Math.floor(r.duration_minutes / 60)}h${r.duration_minutes % 60 ? r.duration_minutes % 60 : ""
+              }`.trim()
+            : `${r.duration_minutes}min`,
+        price: Number(r.price),
+        client_name: `${r.first_name} ${r.last_name}`,
+        prestation_name: r.prestation_name,
+      }));
+
+      res.json(data);
+    } catch (err) {
+      console.error("[CALENDAR] error =", err);
+      res.status(500).json({ message: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+app.get(
+  "/api/pro/clients",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+
+      connection = await db.getConnection();
+
+      const [rows] = (await connection.query(
+        `
+        SELECT
+          c.id,
+          CONCAT(c.first_name, ' ', c.last_name) AS name,
+          c.phone_number AS phone,
+          MAX(r.start_datetime) AS last_visit,
+          COUNT(*) AS total_visits,
+          n.notes
+        FROM reservations r
+        JOIN users c ON c.id = r.client_id
+        LEFT JOIN pro_client_notes n
+          ON n.pro_id = r.pro_id
+         AND n.client_id = c.id
+        WHERE r.pro_id = ?
+          AND r.status IN ('confirmed','completed')
+        GROUP BY c.id, c.first_name, c.last_name, c.phone_number, n.notes
+        ORDER BY last_visit DESC
+        `,
+        [proId]
+      )) as [{
+        id: number;
+        name: string;
+        phone: string | null;
+        last_visit: Date;
+        total_visits: number;
+        notes: string | null;
+      }[], any];
+
+      const now = new Date();
+
+      const data = rows.map((r) => {
+        const last = new Date(r.last_visit);
+        const diffMs = now.getTime() - last.getTime();
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+        let lastVisitLabel = "";
+        if (diffDays === 0) lastVisitLabel = "Aujourd'hui";
+        else if (diffDays === 1) lastVisitLabel = "Il y a 1 jour";
+        else lastVisitLabel = `Il y a ${diffDays} jours`;
+
+        const initials = r.name
+          .split(" ")
+          .filter(Boolean)
+          .map((p) => p[0]?.toUpperCase())
+          .join("")
+          .slice(0, 2);
+
+        return {
+          id: r.id,
+          name: r.name,
+          phone: r.phone || "",
+          lastVisit: lastVisitLabel,
+          totalVisits: Number(r.total_visits),
+          notes: r.notes || "",           // <-- utilise ce qui vient de la BDD
+          avatar: initials,
+        };
+      });
+
+      res.json({ success: true, data });
+    } catch (err) {
+      console.error(err);
+      res
+        .status(500)
+        .json({ success: false, message: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+
+app.put(
+  "/api/pro/clients/:clientId/notes",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const clientId = Number(req.params.clientId);
+      const { notes } = req.body as { notes: string };
+
+      if (!clientId || Number.isNaN(clientId)) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Client invalide" });
+      }
+
+      connection = await db.getConnection();
+
+      await connection.query(
+        `
+        INSERT INTO pro_client_notes (pro_id, client_id, notes)
+        VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE notes = VALUES(notes)
+        `,
+        [proId, clientId, notes]
+      );
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Update client notes error:", err);
+      res
+        .status(500)
+        .json({ success: false, message: "Erreur lors de la mise à jour des notes" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
 const PORT = process.env.PORT || 3001;
 
 app.listen(PORT, () => {

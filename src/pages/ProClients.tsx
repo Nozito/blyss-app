@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import MobileLayout from "@/components/MobileLayout";
 import ClientEditModal from "@/components/ClientEditModal";
-import { Search, ChevronRight, Edit2 } from "lucide-react";
+import { Search, Edit2 } from "lucide-react";
+import api from "@/services/api";
 
 interface Client {
   id: number;
@@ -18,57 +19,38 @@ const ProClients = () => {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-  const [clients, setClients] = useState<Client[]>([
-    {
-      id: 1,
-      name: "Marie Dupont",
-      phone: "06 12 34 56 78",
-      lastVisit: "Il y a 2 jours",
-      totalVisits: 12,
-      notes: "Préfère les couleurs nude",
-      avatar: "MD",
-    },
-    {
-      id: 2,
-      name: "Sophie Martin",
-      phone: "06 23 45 67 89",
-      lastVisit: "Il y a 1 semaine",
-      totalVisits: 8,
-      notes: "Allergique au gel",
-      avatar: "SM",
-    },
-    {
-      id: 3,
-      name: "Emma Bernard",
-      phone: "06 34 56 78 90",
-      lastVisit: "Il y a 3 jours",
-      totalVisits: 15,
-      notes: "",
-      avatar: "EB",
-    },
-    {
-      id: 4,
-      name: "Claire Petit",
-      phone: "06 45 67 89 01",
-      lastVisit: "Il y a 2 semaines",
-      totalVisits: 5,
-      notes: "Aime le nail art",
-      avatar: "CP",
-    },
-    {
-      id: 5,
-      name: "Julie Moreau",
-      phone: "06 56 78 90 12",
-      lastVisit: "Aujourd'hui",
-      totalVisits: 20,
-      notes: "Cliente fidèle",
-      avatar: "JM",
-    },
-  ]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const filteredClients = clients.filter(client =>
-    client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    client.phone.includes(searchQuery)
+  useEffect(() => {
+    const fetchClients = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await api.pro.getClients();
+        if (!res.success) {
+          throw new Error(res.error || "Erreur serveur");
+        }
+        setClients(res.data || []);
+      } catch (e: any) {
+        setError(e.message ?? "Erreur inattendue");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchClients();
+  }, []);
+
+  const filteredClients = useMemo(
+    () =>
+      clients.filter(
+        (client) =>
+          client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          client.phone.includes(searchQuery)
+      ),
+    [clients, searchQuery]
   );
 
   const handleEditClient = (client: Client) => {
@@ -76,22 +58,46 @@ const ProClients = () => {
     setIsEditModalOpen(true);
   };
 
-  const handleSaveClient = (updatedClient: Client) => {
-    setClients(clients.map(c => c.id === updatedClient.id ? updatedClient : c));
+  const handleSaveClient = async (updatedClient: Client) => {
+    try {
+      // persistance en bdd
+      await api.pro.updateClientNotes(updatedClient.id, updatedClient.notes);
+
+      // mise à jour du state local
+      setClients((prev) =>
+        prev.map((c) =>
+          c.id === updatedClient.id
+            ? { ...c, notes: updatedClient.notes }
+            : c
+        )
+      );
+    } catch (e) {
+      console.error("Erreur sauvegarde notes:", e);
+      // optionnel: afficher un toast d'erreur
+    }
   };
+
+  const clientsThisWeek = useMemo(() => {
+    return clients.filter(
+      (c) =>
+        c.lastVisit.includes("Aujourd'hui") ||
+        c.lastVisit.includes("Il y a")
+    ).length;
+  }, [clients]);
 
   return (
     <MobileLayout showNav={!isEditModalOpen}>
-      {/* Header - Removed Add Client Button */}
       <div className="py-6 animate-fade-in">
         <h1 className="font-display text-2xl font-semibold text-foreground">
           Mes clientes
         </h1>
       </div>
 
-      {/* Search */}
       <div className="relative mb-5 animate-slide-up">
-        <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <Search
+          size={20}
+          className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
+        />
         <input
           type="text"
           value={searchQuery}
@@ -101,80 +107,105 @@ const ProClients = () => {
         />
       </div>
 
-      {/* Stats */}
-      <div className="blyss-card mb-5 animate-slide-up" style={{ animationDelay: "0.1s" }}>
+      <div
+        className="blyss-card mb-5 animate-slide-up"
+        style={{ animationDelay: "0.1s" }}
+      >
         <div className="flex items-center justify-between">
           <div className="text-center flex-1">
-            <p className="text-2xl font-bold text-foreground">{clients.length}</p>
+            <p className="text-2xl font-bold text-foreground">
+              {clients.length}
+            </p>
             <p className="text-xs text-muted-foreground">Total</p>
           </div>
           <div className="w-px h-10 bg-border" />
           <div className="text-center flex-1">
-            <p className="text-2xl font-bold text-foreground">3</p>
+            <p className="text-2xl font-bold text-foreground">
+              {clientsThisWeek}
+            </p>
             <p className="text-xs text-muted-foreground">Cette semaine</p>
           </div>
           <div className="w-px h-10 bg-border" />
           <div className="text-center flex-1">
-            <p className="text-2xl font-bold text-foreground">12</p>
+            <p className="text-2xl font-bold text-foreground">
+              {clients.length}
+            </p>
             <p className="text-xs text-muted-foreground">Ce mois</p>
           </div>
         </div>
       </div>
 
-      {/* Client List */}
-      <div className="space-y-3 animate-slide-up" style={{ animationDelay: "0.15s" }}>
-        {filteredClients.map((client, index) => (
-          <div
-            key={client.id}
-            className="blyss-card flex items-center gap-4"
-            style={{ animationDelay: `${0.2 + index * 0.05}s` }}
-          >
-            <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
-              <span className="text-primary-foreground font-medium text-sm">
-                {client.avatar}
-              </span>
-            </div>
-            <div className="flex-1 min-w-0 flex flex-col justify-center items-start">
-              <h3 className="font-semibold text-foreground text-left">{client.name}</h3>
-              <p className="text-sm text-muted-foreground text-left">{client.phone}</p>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-xs text-muted-foreground">{client.lastVisit}</span>
-                <span className="text-xs text-muted-foreground">•</span>
-                <span className="text-xs text-primary font-medium">{client.totalVisits} visites</span>
-              </div>
-              {client.notes && (
-                <p className="text-xs text-muted-foreground mt-1 truncate italic">
-                  "{client.notes}"
-                </p>
-              )}
-            </div>
-            <button
-              onClick={() => handleEditClient(client)}
-              className="w-10 h-10 rounded-full bg-accent flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
-            >
-              <Edit2 size={16} className="text-primary" />
-            </button>
+      <div
+        className="space-y-3 animate-slide-up"
+        style={{ animationDelay: "0.15s" }}
+      >
+        {loading ? (
+          <div className="text-center py-12 text-muted-foreground">
+            Chargement des clientes...
           </div>
-        ))}
+        ) : error ? (
+          <div className="text-center py-12 text-destructive">{error}</div>
+        ) : filteredClients.length > 0 ? (
+          filteredClients.map((client, index) => (
+            <div
+              key={client.id}
+              className="blyss-card flex items-center gap-4"
+              style={{ animationDelay: `${0.2 + index * 0.05}s` }}
+            >
+              <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
+                <span className="text-primary-foreground font-medium text-sm">
+                  {client.avatar}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0 flex flex-col justify-center items-start">
+                <h3 className="font-semibold text-foreground text-left">
+                  {client.name}
+                </h3>
+                <p className="text-sm text-muted-foreground text-left">
+                  {client.phone}
+                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-muted-foreground">
+                    {client.lastVisit}
+                  </span>
+                  <span className="text-xs text-muted-foreground">•</span>
+                  <span className="text-xs text-primary font-medium">
+                    {client.totalVisits} visites
+                  </span>
+                </div>
+                {client.notes && (
+                  <p className="text-xs text-muted-foreground mt-1 truncate italic">
+                    "{client.notes}"
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => handleEditClient(client)}
+                className="w-10 h-10 rounded-full bg-accent flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
+              >
+                <Edit2 size={16} className="text-primary" />
+              </button>
+            </div>
+          ))
+        ) : (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">Aucune cliente trouvée</p>
+          </div>
+        )}
       </div>
 
-      {filteredClients.length === 0 && (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground">Aucune cliente trouvée</p>
-        </div>
-      )}
-
-      {/* Edit Modal */}
       {selectedClient && (
-        <ClientEditModal
-          client={selectedClient}
-          isOpen={isEditModalOpen}
-          onClose={() => {
-            setIsEditModalOpen(false);
-            setSelectedClient(null);
-          }}
-          onSave={handleSaveClient}
-        />
+        <div className="fixed inset-0 z-[9999]">
+          <ClientEditModal
+            client={selectedClient}
+            isOpen={isEditModalOpen}
+            onClose={() => {
+              setIsEditModalOpen(false);
+              setSelectedClient(null);
+            }}
+            onSave={handleSaveClient}
+          />
+        </div>
       )}
     </MobileLayout>
   );

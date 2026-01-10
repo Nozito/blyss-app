@@ -187,6 +187,23 @@ export const proApi = {
   getDashboard: async (): Promise<ApiResponse<any>> => {
     return apiCall('/api/pro/dashboard');
   },
+
+  getCalendar: async (params?: { from?: string; to?: string }) => {
+    const query =
+      params && (params.from || params.to)
+        ? `?from=${encodeURIComponent(params.from || "")}&to=${encodeURIComponent(params.to || "")}`
+        : "";
+    return apiCall<any[]>(`/api/pro/calendar${query}`);
+  },
+
+  getClients: () => apiCall<any[]>("/api/pro/clients"),
+
+   updateClientNotes: (clientId: number, notes: string) =>
+    apiCall(`/api/pro/clients/${clientId}/notes`, {
+      method: "PUT",
+      body: JSON.stringify({ notes }),
+    }),
+
 };
 
 

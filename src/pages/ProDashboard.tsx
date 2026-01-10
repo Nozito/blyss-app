@@ -62,28 +62,28 @@ const ProDashboard = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
 
-useEffect(() => {
-  const fetchDashboard = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  useEffect(() => {
+    const fetchDashboard = async () => {
+      try {
+        setLoading(true);
+        setError(null);
 
-      const res = await api.pro.getDashboard();
+        const res = await api.pro.getDashboard();
 
-      if (!res.success) {
-        throw new Error(res.error || "Erreur serveur");
+        if (!res.success) {
+          throw new Error(res.error || "Erreur serveur");
+        }
+
+        setData(res.data);
+      } catch (e: any) {
+        setError(e.message ?? "Erreur inattendue");
+      } finally {
+        setLoading(false);
       }
+    };
 
-      setData(res.data);
-    } catch (e: any) {
-      setError(e.message ?? "Erreur inattendue");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  fetchDashboard();
-}, []);
+    fetchDashboard();
+  }, []);
 
   const weeklyStats = data?.weeklyStats ?? {
     services: 0,
@@ -400,45 +400,64 @@ useEffect(() => {
           <h3 className="font-semibold text-sm text-foreground mb-3">
             Revenus de la semaine
           </h3>
+
           {weeklyRevenue.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">
               Aucun revenu enregistré pour cette semaine pour l’instant.
             </p>
-          ) : (
-            <div className="flex items-end justify-between gap-2 h-32">
-              {weeklyRevenue.map((day, index) => {
-                const isMax = day.amount === maxRevenue && day.amount > 0;
-                return (
-                  <div
-                    key={index}
-                    className="flex-1 flex flex-col items-center gap-1"
-                  >
-                    <div
-                      className={`w-full rounded-t-lg transition-all duration-300 ${
-                        day.amount > 0
-                          ? isMax
-                            ? "bg-pink-500"
-                            : "gradient-primary"
-                          : "bg-muted"
-                      }`}
-                      style={{
-                        height: `${getBarHeight(day.amount)}%`
-                      }}
-                    />
-                    <span className="text-[11px] text-muted-foreground">
-                      {day.day}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          ) : (() => {
+            // Bar graph in px, tallest bar is pink, others gray, proportional height, minHeight 8px, parent h-32 (128px)
+            const parentHeightPx = 128;
+            const minBarPx = 8;
+            const maxAmount = Math.max(...weeklyRevenue.map(d => d.amount ?? 0, 1));
+            // Find all indexes with max value for pink bar
+            const maxIndexes = weeklyRevenue
+              .map((d, idx) => (d.amount === maxAmount && d.amount > 0 ? idx : -1))
+              .filter(idx => idx !== -1);
+
+            return (
+              <div className="flex items-end justify-between gap-2 h-32">
+                {weeklyRevenue.map((day, index) => {
+                  const amount = day.amount ?? 0;
+                  // Height in px, at least minBarPx
+                  const barPx =
+                    maxAmount > 0
+                      ? Math.max(Math.round((amount / maxAmount) * parentHeightPx), minBarPx)
+                      : minBarPx;
+                  const isMax = amount === maxAmount && amount > 0;
+                  return (
+                    <div key={index} className="flex-1 flex flex-col items-center gap-1 group">
+                      {/* Tooltip */}
+                      <span
+                        className="mb-1 px-2 py-0.5 rounded bg-black/80 text-xs text-white font-medium transition-opacity duration-150 opacity-0 group-hover:opacity-100 group-active:opacity-100 select-none"
+                      >
+                        {amount}€
+                      </span>
+                      {/* Bar */}
+                      <div
+                        className={`w-full rounded-t-lg transition-all duration-300 ${isMax ? "bg-pink-500" : "bg-gray-300"
+                          } cursor-pointer`}
+                        style={{
+                          height: `${barPx}px`,
+                          minHeight: `${minBarPx}px`,
+                          maxHeight: `${parentHeightPx}px`,
+                        }}
+                        tabIndex={0}
+                      />
+                      {/* Day */}
+                      <span className="text-[11px] text-muted-foreground">{day.day}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </section>
       </div>
 
       {/* Add Slots Modal */}
       {showSlotsModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/40">
           <div className="w-full max-w-[430px] bg-card rounded-t-3xl p-6 pb-8 animate-slide-up-modal">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-foreground">
@@ -470,8 +489,9 @@ useEffect(() => {
 
       {/* Block Day Modal */}
       {showBlockModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/40">
           <div className="w-full max-w-[430px] bg-card rounded-t-3xl p-6 pb-8 animate-slide-up-modal">
+
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-foreground">
                 Bloquer une journée
