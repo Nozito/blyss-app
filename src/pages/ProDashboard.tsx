@@ -78,7 +78,7 @@ const ProDashboard = () => {
       });
 
       if (!res.ok) {
-        throw new Error("Erreur serveur");
+        throw new Error(`Erreur serveur (${res.status})`);
       }
 
       const json = await res.json();
@@ -92,6 +92,7 @@ const ProDashboard = () => {
 
   fetchDashboard();
 }, []);
+
 
 
   const weeklyStats = data?.weeklyStats ?? {
