@@ -1,4 +1,4 @@
-import express, { Request, Response } from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import bcrypt from "bcrypt";
 import mysql from "mysql2/promise";
@@ -34,10 +34,6 @@ interface AuthenticatedRequest extends Request {
 }
 
 const app = express();
-app.use(cors({
-    origin: "http://localhost:8080",
-    credentials: true
-}));
 
 const allowedOrigins = [
   'http://localhost:5173',      
@@ -89,7 +85,7 @@ app.use(cors({
 
 app.use(express.json());
 
-const authMiddleware = (req: AuthenticatedRequest, res: Response, next: Function) => {
+const authMiddleware = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
         return res.status(401).json({ success: false, message: "Unauthorized" });
@@ -251,7 +247,7 @@ app.post("/api/auth/login", async (req: Request<{}, {}, LoginRequestBody>, res: 
 });
 
 // Récupérer l'utilisateur connecté
-app.get("/api/users", authMiddleware, async (req: any, res: Response) => {
+app.get("/api/users", authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
     try {
         const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [req.user.id]);
         const user = (rows as User[])[0];
@@ -551,6 +547,287 @@ app.put('/api/users/payments', authMiddleware, async (req: AuthenticatedRequest,
 });
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+
+// --- DASHBOARD PRO ---
+
+// helper pour récupérer l'id du pro connecté depuis ton authMiddleware
+function getProId(req: AuthenticatedRequest): number {
+  const proId = req.user?.id;
+  if (!proId) {
+    throw new Error("Pro non authentifié");
+  }
+  return proId;
+}
+
+app.get(
+  "/api/pro/dashboard",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+
+      connection = await db.getConnection();
+
+      // 1) Prestations cette semaine
+      const [thisWeekRows] = (await connection.query(
+        `
+        SELECT COUNT(*) AS count
+        FROM reservations
+        WHERE pro_id = ?
+          AND status IN ('confirmed', 'completed')
+          AND YEARWEEK(start_datetime, 1) = YEARWEEK(CURDATE(), 1)
+        `,
+        [proId]
+      )) as [{ count: number }[], any];
+      const servicesThisWeek = thisWeekRows[0]?.count ?? 0;
+
+      // 2) Prestations semaine dernière
+      const [lastWeekRows] = (await connection.query(
+        `
+        SELECT COUNT(*) AS count
+        FROM reservations
+        WHERE pro_id = ?
+          AND status IN ('confirmed', 'completed')
+          AND YEARWEEK(start_datetime, 1) = YEARWEEK(CURDATE(), 1) - 1
+        `,
+        [proId]
+      )) as [{ count: number }[], any];
+      const servicesLastWeek = lastWeekRows[0]?.count ?? 0;
+
+      let change = 0;
+      let isUp = true;
+      if (servicesLastWeek > 0) {
+        change = Math.round(
+          ((servicesThisWeek - servicesLastWeek) / servicesLastWeek) * 100
+        );
+        isUp = change >= 0;
+        change = Math.abs(change);
+      }
+
+      // 3) Estimation du jour (CA du jour)
+      const [todayRows] = (await connection.query(
+        `
+        SELECT IFNULL(SUM(price), 0) AS total
+        FROM reservations
+        WHERE pro_id = ?
+          AND status IN ('confirmed', 'completed')
+          AND DATE(start_datetime) = CURDATE()
+        `,
+        [proId]
+      )) as [{ total: number | null }[], any];
+      const todayForecast = Number(todayRows[0]?.total ?? 0);
+
+      // 4) 3 prochaines clientes
+      const [upcomingRows] = (await connection.query(
+        `
+        SELECT
+          r.id,
+          CONCAT(u.first_name, ' ', u.last_name) AS client_name,
+          p.name AS prestation_name,
+          DATE_FORMAT(r.start_datetime, '%H:%i') AS start_time,
+          r.price,
+          r.status
+        FROM reservations r
+        JOIN users u ON u.id = r.client_id
+        JOIN prestations p ON p.id = r.prestation_id
+        WHERE r.pro_id = ?
+          AND r.status IN ('confirmed', 'completed')
+          AND r.start_datetime >= NOW()
+        ORDER BY r.start_datetime ASC
+        LIMIT 3
+        `,
+        [proId]
+      )) as [{
+        id: number;
+        client_name: string;
+        prestation_name: string;
+        start_time: string;
+        price: number;
+        status: string;
+      }[], any];
+
+      const upcomingClients = upcomingRows.map((row) => {
+        const initials = row.client_name
+          .split(" ")
+          .filter(Boolean)
+          .map((part) => part[0]?.toUpperCase())
+          .join("")
+          .slice(0, 2);
+
+        const status =
+          row.status === "confirmed"
+            ? "upcoming"
+            : row.status === "completed"
+            ? "completed"
+            : "upcoming";
+
+        return {
+          id: row.id,
+          name: row.client_name,
+          service: row.prestation_name,
+          time: row.start_time,
+          price: Number(row.price),
+          status,
+          avatar: initials
+        };
+      });
+
+      // 5) Taux de remplissage basé sur les créneaux (slots)
+      // total de créneaux ouverts cette semaine
+      const [slotsRows] = (await connection.query(
+        `
+        SELECT COUNT(*) AS total_slots
+        FROM slots
+        WHERE pro_id = ?
+          AND status = 'open'
+          AND YEARWEEK(start_datetime, 1) = YEARWEEK(CURDATE(), 1)
+        `,
+        [proId]
+      )) as [{ total_slots: number }[], any];
+      const totalSlots = slotsRows[0]?.total_slots ?? 0;
+
+      // créneaux réservés (slots qui ont au moins une réservation confirmée/completed)
+      const [bookedRows] = (await connection.query(
+        `
+        SELECT COUNT(DISTINCT r.slot_id) AS booked_slots
+        FROM reservations r
+        JOIN slots s ON s.id = r.slot_id
+        WHERE r.pro_id = ?
+          AND r.status IN ('confirmed', 'completed')
+          AND YEARWEEK(s.start_datetime, 1) = YEARWEEK(CURDATE(), 1)
+        `,
+        [proId]
+      )) as [{ booked_slots: number }[], any];
+      const bookedSlots = bookedRows[0]?.booked_slots ?? 0;
+
+      let fillRate = 0;
+      if (totalSlots > 0) {
+        fillRate = Math.round((bookedSlots / totalSlots) * 100);
+      }
+
+      // 6) Nombre de clientes uniques cette semaine
+      const [clientsWeekRows] = (await connection.query(
+        `
+        SELECT COUNT(DISTINCT client_id) AS count
+        FROM reservations
+        WHERE pro_id = ?
+          AND status IN ('confirmed', 'completed')
+          AND YEARWEEK(start_datetime, 1) = YEARWEEK(CURDATE(), 1)
+        `,
+        [proId]
+      )) as [{ count: number }[], any];
+      const clientsThisWeek = clientsWeekRows[0]?.count ?? 0;
+
+      // 7) Top prestations (30 derniers jours)
+      const [topServicesRows] = (await connection.query(
+        `
+        SELECT
+          p.name AS prestation_name,
+          COUNT(*) AS count
+        FROM reservations r
+        JOIN prestations p ON p.id = r.prestation_id
+        WHERE r.pro_id = ?
+          AND r.status IN ('confirmed', 'completed')
+          AND r.start_datetime >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        GROUP BY p.id, p.name
+        ORDER BY count DESC
+        LIMIT 5
+        `,
+        [proId]
+      )) as [{ prestation_name: string; count: number }[], any];
+
+      const totalTopCount = topServicesRows.reduce(
+        (acc, row) => acc + Number(row.count),
+        0
+      );
+
+      const topServices = topServicesRows.map((row) => ({
+        name: row.prestation_name,
+        percentage:
+          totalTopCount > 0
+            ? Math.round((Number(row.count) / totalTopCount) * 100)
+            : 0
+      }));
+
+      // 8) Revenus de la semaine par jour
+      const [indexedRevenueRows] = (await connection.query(
+        `
+        SELECT
+          DATE(start_datetime) AS jour,
+          SUM(price) AS total,
+          DAYOFWEEK(start_datetime) AS dayOfWeek
+        FROM reservations
+        WHERE pro_id = ?
+          AND status IN ('confirmed', 'completed')
+          AND YEARWEEK(start_datetime, 1) = YEARWEEK(CURDATE(), 1)
+        GROUP BY DATE(start_datetime)
+        ORDER BY jour
+        `,
+        [proId]
+      )) as [{ jour: string; total: number | null; dayOfWeek: number }[], any];
+
+      const weeklyRevenue = indexedRevenueRows.map((row) => {
+        const dow = row.dayOfWeek; // 1=Dim, 2=Lun, ..., 7=Sam
+        let label = "";
+        switch (dow) {
+          case 2:
+            label = "Lun";
+            break;
+          case 3:
+            label = "Mar";
+            break;
+          case 4:
+            label = "Mer";
+            break;
+          case 5:
+            label = "Jeu";
+            break;
+          case 6:
+            label = "Ven";
+            break;
+          case 7:
+            label = "Sam";
+            break;
+          case 1:
+          default:
+            label = "Dim";
+            break;
+        }
+
+        return {
+          day: label,
+          amount: Number(row.total ?? 0)
+        };
+      });
+
+      const responseBody = {
+        weeklyStats: {
+          services: servicesThisWeek,
+          change,
+          isUp
+        },
+        todayForecast,
+        upcomingClients,
+        fillRate,
+        clientsThisWeek,
+        topServices,
+        weeklyRevenue
+      };
+
+      res.json(responseBody);
+    } catch (err: any) {
+      console.error(err);
+      if (err.message === "Pro non authentifié") {
+        return res.status(401).json({ message: "Non authentifié" });
+      }
+      res.status(500).json({ message: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
 
 const PORT = process.env.PORT || 3001;
 

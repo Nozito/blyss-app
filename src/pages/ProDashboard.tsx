@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,83 +14,103 @@ import {
   X
 } from "lucide-react";
 
+type WeeklyRevenuePoint = {
+  day: string;
+  amount: number;
+};
+
+type TopService = {
+  name: string;
+  percentage: number;
+};
+
+type UpcomingClient = {
+  id: number;
+  name: string;
+  service: string;
+  time: string;
+  price: number;
+  status: "ongoing" | "upcoming" | "completed";
+  avatar: string;
+};
+
+type ProDashboardData = {
+  weeklyStats: {
+    services: number;
+    change: number;
+    isUp: boolean;
+  };
+  todayForecast: number;
+  upcomingClients: UpcomingClient[];
+  fillRate: number;
+  clientsThisWeek: number;
+  topServices: TopService[];
+  weeklyRevenue: WeeklyRevenuePoint[];
+};
+
 const ProDashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  const [data, setData] = useState<ProDashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [showSlotsModal, setShowSlotsModal] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Mock data
-  const weeklyStats = {
-    services: 24,
-    change: 12,
+  useEffect(() => {
+    const fetchDashboard = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await fetch("/api/pro/dashboard", {
+          credentials: "include"
+        });
+
+        if (!res.ok) {
+          throw new Error("Impossible de charger le tableau de bord");
+        }
+
+        const json = await res.json();
+        setData(json);
+      } catch (e: any) {
+        setError(e.message ?? "Erreur inattendue");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboard();
+  }, []);
+
+  const weeklyStats = data?.weeklyStats ?? {
+    services: 0,
+    change: 0,
     isUp: true
   };
 
-  const todayForecast = 320;
-
-  const upcomingClients = [
-    {
-      id: 1,
-      name: "Marie Dupont",
-      service: "Pose complète gel",
-      time: "14:00",
-      price: 65,
-      status: "ongoing",
-      avatar: "MD"
-    },
-    {
-      id: 2,
-      name: "Sophie Martin",
-      service: "Remplissage",
-      time: "15:30",
-      price: 45,
-      status: "upcoming",
-      avatar: "SM"
-    },
-    {
-      id: 3,
-      name: "Emma Bernard",
-      service: "Manucure simple",
-      time: "17:00",
-      price: 35,
-      status: "upcoming",
-      avatar: "EB"
-    }
-  ];
-
-  const fillRate = 78;
-  const clientsThisWeek = 18;
-
-  const topServices = [
-    { name: "Pose gel", percentage: 45 },
-    { name: "Remplissage", percentage: 30 },
-    { name: "Manucure", percentage: 25 }
-  ];
-
-  const weeklyRevenue = [
-    { day: "Lun", amount: 180 },
-    { day: "Mar", amount: 240 },
-    { day: "Mer", amount: 0 },
-    { day: "Jeu", amount: 320 },
-    { day: "Ven", amount: 280 },
-    { day: "Sam", amount: 420 },
-    { day: "Dim", amount: 0 }
-  ];
+  const todayForecast = data?.todayForecast ?? 0;
+  const upcomingClients = data?.upcomingClients ?? [];
+  const fillRate = data?.fillRate ?? 0;
+  const clientsThisWeek = data?.clientsThisWeek ?? 0;
+  const topServices = data?.topServices ?? [];
+  const weeklyRevenue = data?.weeklyRevenue ?? [];
 
   const maxRevenue = useMemo(
     () =>
       Math.max(
         1,
-        ...weeklyRevenue.map((d) => d.amount) // évite division par 0
+        ...weeklyRevenue.map((d) => d.amount)
       ),
     [weeklyRevenue]
   );
 
   const getBarHeight = (amount: number) => {
-    if (amount <= 0) return 8; // 8px mini pour les jours à 0
-    const minPct = 20; // au moins 20% de la hauteur visuelle
+    if (amount <= 0) return 8;
+    const minPct = 20;
     const rawPct = (amount / maxRevenue) * 100;
     return Math.max(minPct, rawPct);
   };
@@ -121,14 +141,44 @@ const ProDashboard = () => {
     }
   };
 
+  if (loading) {
+    return (
+      <MobileLayout showNav={false}>
+        <div className="py-6 flex justify-center items-center">
+          <p className="text-sm text-muted-foreground">
+            Chargement du tableau de bord...
+          </p>
+        </div>
+      </MobileLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <MobileLayout showNav={true}>
+        <div className="py-6 flex flex-col items-center gap-3">
+          <p className="text-sm text-destructive">
+            Une erreur est survenue.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="text-xs text-primary underline"
+          >
+            Réessayer
+          </button>
+        </div>
+      </MobileLayout>
+    );
+  }
+
   return (
     <MobileLayout showNav={!(showSlotsModal || showBlockModal)}>
       <div className="py-6 animate-fade-in space-y-5">
         {/* Header */}
         <header className="space-y-1 text-center">
           <p className="text-xs text-muted-foreground">
-  Bonjour {user?.first_name} {user?.last_name} ✨
-</p>
+            Bonjour {user?.first_name} {user?.last_name} ✨
+          </p>
           <h1 className="text-xl font-semibold text-foreground">
             Ton tableau de bord
           </h1>
@@ -140,11 +190,15 @@ const ProDashboard = () => {
         {/* Weekly Performance Card */}
         <section className="blyss-card gradient-primary flex items-center justify-between animate-slide-up">
           <div>
-            <p className="text-primary-foreground/80 text-xs">Cette semaine</p>
+            <p className="text-primary-foreground/80 text-xs">
+              Cette semaine
+            </p>
             <p className="text-3xl font-bold text-primary-foreground mt-1">
               {weeklyStats.services}
             </p>
-            <p className="text-primary-foreground/80 text-xs">prestations</p>
+            <p className="text-primary-foreground/80 text-xs">
+              prestations
+            </p>
           </div>
           <div className="flex flex-col items-end gap-2">
             <div className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-primary-foreground/20">
@@ -269,6 +323,11 @@ const ProDashboard = () => {
                 </div>
               </div>
             ))}
+            {upcomingClients.length === 0 && (
+              <p className="text-[11px] text-muted-foreground text-center">
+                Aucune cliente à venir pour le moment.
+              </p>
+            )}
           </div>
         </section>
 
@@ -281,7 +340,9 @@ const ProDashboard = () => {
                 Taux de remplissage
               </span>
             </div>
-            <p className="text-3xl font-bold text-foreground">{fillRate}%</p>
+            <p className="text-3xl font-bold text-foreground">
+              {fillRate}%
+            </p>
             <p className="text-[11px] text-muted-foreground mt-1">
               Sur tes créneaux ouverts cette semaine.
             </p>
@@ -307,26 +368,32 @@ const ProDashboard = () => {
           <h3 className="font-semibold text-sm text-foreground mb-3">
             Top prestations
           </h3>
-          <div className="space-y-3">
-            {topServices.map((service, index) => (
-              <div key={index}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-muted-foreground">
-                    {service.name}
-                  </span>
-                  <span className="text-xs font-medium text-foreground">
-                    {service.percentage}%
-                  </span>
+          {topServices.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              Pas encore assez de données sur tes prestations.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {topServices.map((service, index) => (
+                <div key={index}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-muted-foreground">
+                      {service.name}
+                    </span>
+                    <span className="text-xs font-medium text-foreground">
+                      {service.percentage}%
+                    </span>
+                  </div>
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full gradient-primary rounded-full transition-all duration-500"
+                      style={{ width: `${service.percentage}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full gradient-primary rounded-full transition-all duration-500"
-                    style={{ width: `${service.percentage}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* Weekly Revenue Graph */}
@@ -334,27 +401,40 @@ const ProDashboard = () => {
           <h3 className="font-semibold text-sm text-foreground mb-3">
             Revenus de la semaine
           </h3>
-          <div className="flex items-end justify-between gap-2 h-32">
-            {weeklyRevenue.map((day, index) => (
-              <div
-                key={index}
-                className="flex-1 flex flex-col items-center gap-1"
-              >
-                <div
-                  className={`w-full rounded-t-lg transition-all duration-300 ${day.amount > 0 ? "gradient-primary" : "bg-muted"
-                    }`}
-                  style={{
-                    height: `${getBarHeight(day.amount)}%`
-                  }}
-                />
-                <span className="text-[11px] text-muted-foreground">
-                  {day.day}
-                </span>
-              </div>
-            ))}
-          </div>
+          {weeklyRevenue.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              Aucun revenu enregistré pour cette semaine pour l’instant.
+            </p>
+          ) : (
+            <div className="flex items-end justify-between gap-2 h-32">
+              {weeklyRevenue.map((day, index) => {
+                const isMax = day.amount === maxRevenue && day.amount > 0;
+                return (
+                  <div
+                    key={index}
+                    className="flex-1 flex flex-col items-center gap-1"
+                  >
+                    <div
+                      className={`w-full rounded-t-lg transition-all duration-300 ${
+                        day.amount > 0
+                          ? isMax
+                            ? "bg-pink-500"
+                            : "gradient-primary"
+                          : "bg-muted"
+                      }`}
+                      style={{
+                        height: `${getBarHeight(day.amount)}%`
+                      }}
+                    />
+                    <span className="text-[11px] text-muted-foreground">
+                      {day.day}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
-
       </div>
 
       {/* Add Slots Modal */}
