@@ -114,7 +114,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
         toast.success("Compte créé avec succès !");
         // Si pro : on l’envoie sur la page d’abonnement
         if (formData.role === "pro") {
-          navigate("/pro/abonnement"); // adapte le chemin à ta route réelle (ex: "/pro/subscription")
+          navigate("/pro/new-subscription"); // adapte le chemin à ta route réelle (ex: "/pro/subscription")
         } else {
           navigate("/client");
         }

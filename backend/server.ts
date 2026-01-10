@@ -85,21 +85,23 @@ app.use(cors({
 
 app.use(express.json());
 
-const authMiddleware = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+const authMiddleware = (req: AuthenticatedRequest, res: Response, next: Function) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ success: false, message: "Unauthorized" });
   }
   const token = authHeader.split(" ")[1];
   try {
+    console.log("JWT incoming:", token.substring(0, 30));
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number };
     req.user = { id: decoded.id };
     next();
   } catch (err) {
-    console.error(err);
+    console.error("JWT error:", err);
     return res.status(401).json({ success: false, message: "Invalid token" });
   }
 };
+
 
 const db = mysql.createPool({
   host: process.env.DB_HOST,
