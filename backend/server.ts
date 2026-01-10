@@ -87,13 +87,17 @@ app.use(express.json());
 
 const authMiddleware = (req: AuthenticatedRequest, res: Response, next: Function) => {
   const authHeader = req.headers.authorization;
+  console.log("Auth header:", authHeader); // debug
+
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ success: false, message: "Unauthorized" });
   }
+
   const token = authHeader.split(" ")[1];
   try {
     console.log("JWT incoming:", token.substring(0, 30));
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number };
+    console.log("JWT decoded id:", decoded.id);
     req.user = { id: decoded.id };
     next();
   } catch (err) {
@@ -101,7 +105,6 @@ const authMiddleware = (req: AuthenticatedRequest, res: Response, next: Function
     return res.status(401).json({ success: false, message: "Invalid token" });
   }
 };
-
 
 const db = mysql.createPool({
   host: process.env.DB_HOST,

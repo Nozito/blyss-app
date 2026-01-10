@@ -85,9 +85,6 @@ useEffect(() => {
   fetchDashboard();
 }, []);
 
-
-
-
   const weeklyStats = data?.weeklyStats ?? {
     services: 0,
     change: 0,
