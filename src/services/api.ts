@@ -183,6 +183,13 @@ export const notificationsApi = {
   },
 };
 
+export const proApi = {
+  getDashboard: async (): Promise<ApiResponse<any>> => {
+    return apiCall('/api/pro/dashboard');
+  },
+};
+
+
 export interface PaymentsSettings {
   bankaccountname: string | null;
   IBAN: string | null;
@@ -210,4 +217,6 @@ export default {
   favorites: favoritesApi,
   notifications: notificationsApi,
   payments: paymentsApi,
+  pro: proApi,
 };
+

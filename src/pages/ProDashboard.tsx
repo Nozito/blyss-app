@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from "@/contexts/AuthContext";
+import api from "@/services/api";
 
 import {
   TrendingUp,
@@ -60,29 +61,20 @@ const ProDashboard = () => {
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  useEffect(() => {
+
+useEffect(() => {
   const fetchDashboard = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const token = localStorage.getItem("token");
+      const res = await api.pro.getDashboard();
 
-      const res = await fetch("/api/pro/dashboard", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        throw new Error(`Erreur serveur (${res.status})`);
+      if (!res.success) {
+        throw new Error(res.error || "Erreur serveur");
       }
 
-      const json = await res.json();
-      setData(json);
+      setData(res.data);
     } catch (e: any) {
       setError(e.message ?? "Erreur inattendue");
     } finally {
@@ -92,6 +84,7 @@ const ProDashboard = () => {
 
   fetchDashboard();
 }, []);
+
 
 
 
