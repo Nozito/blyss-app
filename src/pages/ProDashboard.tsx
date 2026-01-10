@@ -61,30 +61,38 @@ const ProDashboard = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchDashboard = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  const fetchDashboard = async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-        const res = await fetch("/api/pro/dashboard", {
-          credentials: "include"
-        });
+      const token = localStorage.getItem("token");
 
-        if (!res.ok) {
-          throw new Error("Impossible de charger le tableau de bord");
-        }
+      const res = await fetch("/api/pro/dashboard", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: "include",
+      });
 
-        const json = await res.json();
-        setData(json);
-      } catch (e: any) {
-        setError(e.message ?? "Erreur inattendue");
-      } finally {
-        setLoading(false);
+      if (!res.ok) {
+        throw new Error("Erreur serveur");
       }
-    };
 
-    fetchDashboard();
-  }, []);
+      const json = await res.json();
+      setData(json);
+    } catch (e: any) {
+      setError(e.message ?? "Erreur inattendue");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  fetchDashboard();
+}, []);
+
 
   const weeklyStats = data?.weeklyStats ?? {
     services: 0,
