@@ -29,3 +29,4 @@ backend/.env.dev
 .env.production
 backend/.env.prod
 backend/.env.prod
+.env.dev
