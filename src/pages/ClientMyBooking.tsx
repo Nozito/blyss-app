@@ -1,7 +1,8 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
-import { Calendar, Clock, MapPin, ChevronRight, RotateCcw, XCircle } from "lucide-react";
+import { Calendar, Clock, MapPin, RotateCcw, XCircle, Sparkles } from "lucide-react";
 
 const avatarsByName: Record<string, string> = {
   "Marie Beauté": "https://randomuser.me/api/portraits/women/1.jpg",
@@ -46,149 +47,311 @@ const ClientMyBooking = () => {
     },
   ]);
 
+  const upcomingBookings = bookings.filter((b) => b.status === "upcoming");
+  const pastBookings = bookings.filter((b) => b.status === "past");
+
   return (
     <MobileLayout>
-      <div className="animate-fade-in">
+      <div className="min-h-screen bg-background pb-6">
         {/* Header */}
-        <div className="pt-6 pb-4 animate-fade-in text-center">
-          <h1 className="text-2xl font-semibold text-foreground mb-1">
+        <motion.div
+          className="pt-6 pb-6 text-center px-6"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+        >
+          <h1 className="text-3xl font-display font-bold text-foreground mb-2">
             Mes réservations
           </h1>
-          <p className="text-muted-foreground text-sm">
+          <p className="text-muted-foreground">
             Gère et retrouve toutes tes prestations
           </p>
-        </div>
+        </motion.div>
 
         {bookings.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
-            <Calendar size={48} className="text-muted-foreground mb-4" />
-            <h2 className="text-lg font-semibold text-foreground mb-1">
+          <motion.div
+            className="flex flex-col items-center justify-center py-20 px-6 text-center"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.6 }}
+          >
+            <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-6">
+              <Calendar size={40} className="text-primary" />
+            </div>
+            <h2 className="text-xl font-semibold text-foreground mb-2">
               Aucune réservation
             </h2>
-            <p className="text-muted-foreground text-sm mb-6">
-              Tu n'as pas encore réservé de prestation
+            <p className="text-muted-foreground mb-8 max-w-sm">
+              Tu n'as pas encore réservé de prestation. Découvre nos expertes !
             </p>
             <button
               onClick={() => navigate("/client")}
-              className="px-6 py-3 rounded-xl gradient-gold text-secondary-foreground font-medium active:scale-95 transition-transform"
+              className="
+                px-8 py-3 rounded-2xl
+                bg-primary hover:bg-primary/90
+                text-primary-foreground font-semibold
+                shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40
+                transition-all duration-300
+                active:scale-95
+              "
             >
               Découvrir des pros
             </button>
-          </div>
+          </motion.div>
         ) : (
-          <div className="space-y-3 animate-slide-up">
-            {bookings.map((booking) => (
-              <button
-                key={booking.id}
-                onClick={() => navigate(`/client/booking-detail/${booking.id}`)}
-                className="bg-card rounded-2xl p-4 shadow-card w-full text-left active:scale-[0.98] transition-transform"
+          <div className="space-y-6 px-6">
+            {/* À venir */}
+            {upcomingBookings.length > 0 && (
+              <motion.section
+                className="space-y-3"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2, duration: 0.6 }}
               >
-                <img
-                  src={avatarsByName[booking.name] || "/default-avatar.png"}
-                  alt={booking.name}
-                  className="w-16 h-16 rounded-full object-cover mb-3"
-                />
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <h3 className="font-semibold text-foreground">
-                    {booking.name}
-                  </h3>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full ${booking.status === "upcoming"
-                      ? "bg-primary/10 text-primary"
-                      : "bg-muted text-muted-foreground"
-                      }`}
-                  >
-                    {booking.status === "upcoming" ? "À venir" : "Passée"}
-                  </span>
+                <div className="flex items-center gap-2 px-1">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  <h2 className="text-lg font-semibold text-foreground">
+                    À venir
+                  </h2>
                 </div>
 
-                <p className="text-sm text-muted-foreground mb-2">
-                  {booking.service}
-                </p>
+                <div className="space-y-3">
+                  {upcomingBookings.map((booking, index) => (
+                    <motion.button
+                      key={booking.id}
+                      onClick={() => navigate(`/client/booking-detail/${booking.id}`)}
+                      className="
+                        w-full bg-card rounded-3xl p-5 
+                        shadow-lg shadow-black/5 border-2 border-primary/20
+                        text-left group
+                        hover:shadow-xl hover:shadow-primary/10
+                        hover:-translate-y-1
+                        transition-all duration-300
+                        active:scale-[0.98]
+                      "
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.3 + index * 0.1, duration: 0.5 }}
+                    >
+                      <div className="flex items-start gap-4 mb-4">
+                        <img
+                          src={avatarsByName[booking.name] || "/default-avatar.png"}
+                          alt={booking.name}
+                          className="w-16 h-16 rounded-2xl object-cover shadow-md"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <h3 className="font-semibold text-foreground text-base">
+                              {booking.name}
+                            </h3>
+                            <span className="px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium whitespace-nowrap">
+                              À venir
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {booking.service}
+                          </p>
+                        </div>
+                      </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center gap-1">
-                    <Calendar size={12} className="text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">
-                      {booking.date}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Clock size={12} className="text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">
-                      {booking.time}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <MapPin size={12} className="text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">
-                      {booking.location}
-                    </span>
-                  </div>
+                      <div className="grid grid-cols-3 gap-3 mb-4">
+                        <div className="flex items-center gap-2">
+                          <Calendar size={16} className="text-primary flex-shrink-0" />
+                          <span className="text-xs text-foreground truncate">
+                            {booking.date}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Clock size={16} className="text-primary flex-shrink-0" />
+                          <span className="text-xs text-foreground truncate">
+                            {booking.time}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <MapPin size={16} className="text-primary flex-shrink-0" />
+                          <span className="text-xs text-foreground truncate">
+                            {booking.location}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 pt-4 border-t border-muted">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/client/booking/${booking.id}`);
+                          }}
+                          className="
+                            flex-1 flex items-center justify-center gap-2
+                            px-4 py-2.5 rounded-xl
+                            bg-primary/10 text-primary
+                            text-sm font-medium
+                            hover:bg-primary/20
+                            transition-all duration-300
+                            active:scale-95
+                          "
+                        >
+                          <RotateCcw size={16} />
+                          Modifier
+                        </button>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmId(booking.id);
+                          }}
+                          className="
+                            flex-1 flex items-center justify-center gap-2
+                            px-4 py-2.5 rounded-xl
+                            bg-destructive/10 text-destructive
+                            text-sm font-medium
+                            hover:bg-destructive/20
+                            transition-all duration-300
+                            active:scale-95
+                          "
+                        >
+                          <XCircle size={16} />
+                          Annuler
+                        </button>
+                      </div>
+                    </motion.button>
+                  ))}
                 </div>
+              </motion.section>
+            )}
 
-                {booking.status === "upcoming" && (
-                  <div className="mt-3 pt-3 border-t border-border flex items-center gap-2">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/client/booking/${booking.id}`);
-                      }}
-                      className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-medium active:scale-95 transition-transform"
-                    >
-                      <RotateCcw size={14} />
-                      Modifier
-                    </button>
+            {/* Historique */}
+            {pastBookings.length > 0 && (
+              <motion.section
+                className="space-y-3"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4, duration: 0.6 }}
+              >
+                <h2 className="text-lg font-semibold text-foreground px-1">
+                  Historique
+                </h2>
 
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setConfirmId(booking.id);
-                      }}
-                      className="flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-destructive/10 text-destructive text-xs font-medium active:scale-95 transition-transform"
+                <div className="space-y-3">
+                  {pastBookings.map((booking, index) => (
+                    <motion.button
+                      key={booking.id}
+                      onClick={() => navigate(`/client/booking-detail/${booking.id}`)}
+                      className="
+                        w-full bg-card rounded-3xl p-5
+                        shadow-md shadow-black/5 border border-muted
+                        text-left
+                        hover:shadow-lg
+                        transition-all duration-300
+                        active:scale-[0.98]
+                      "
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.5 + index * 0.1, duration: 0.5 }}
                     >
-                      <XCircle size={14} />
-                      Annuler
-                    </button>
-                  </div>
-                )}
-              </button>
-            ))}
+                      <div className="flex items-start gap-4">
+                        <img
+                          src={avatarsByName[booking.name] || "/default-avatar.png"}
+                          alt={booking.name}
+                          className="w-14 h-14 rounded-2xl object-cover opacity-80"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <h3 className="font-medium text-foreground">
+                              {booking.name}
+                            </h3>
+                            <span className="px-2.5 py-0.5 rounded-full bg-muted text-muted-foreground text-xs whitespace-nowrap">
+                              Passée
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-3">
+                            {booking.service}
+                          </p>
+
+                          <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                            <div className="flex items-center gap-1.5">
+                              <Calendar size={14} />
+                              <span>{booking.date}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <Clock size={14} />
+                              <span>{booking.time}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.button>
+                  ))}
+                </div>
+              </motion.section>
+            )}
           </div>
         )}
       </div>
 
       {/* Cancel Confirmation Modal */}
-      {confirmId !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-card rounded-2xl p-6 w-[90%] max-w-sm animate-scale-in">
-            <h3 className="font-semibold text-foreground mb-2">
-              Annuler le rendez-vous ?
-            </h3>
-            <p className="text-sm text-muted-foreground mb-6">
-              Cette action est définitive.
-            </p>
+      <AnimatePresence>
+        {confirmId !== null && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setConfirmId(null)}
+          >
+            <motion.div
+              className="bg-card rounded-3xl p-6 w-full max-w-sm shadow-2xl"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
+                <XCircle className="w-6 h-6 text-destructive" />
+              </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={() => setConfirmId(null)}
-                className="flex-1 py-3 rounded-xl bg-muted text-foreground font-medium active:scale-95 transition-transform"
-              >
-                Retour
-              </button>
-              <button
-                onClick={() => {
-                  alert("Réservation annulée");
-                  setConfirmId(null);
-                }}
-                className="flex-1 py-3 rounded-xl bg-destructive text-destructive-foreground font-medium active:scale-95 transition-transform"
-              >
-                Annuler
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+              <h3 className="text-xl font-semibold text-foreground mb-2">
+                Annuler le rendez-vous ?
+              </h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                Cette action est définitive et ne pourra pas être annulée.
+              </p>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmId(null)}
+                  className="
+                    flex-1 h-12 rounded-xl
+                    bg-muted text-foreground font-medium
+                    hover:bg-muted/80
+                    transition-all duration-300
+                    active:scale-95
+                  "
+                >
+                  Retour
+                </button>
+                <button
+                  onClick={() => {
+                    alert("Réservation annulée");
+                    setConfirmId(null);
+                  }}
+                  className="
+                    flex-1 h-12 rounded-xl
+                    bg-destructive text-destructive-foreground font-medium
+                    hover:bg-destructive/90
+                    shadow-lg shadow-destructive/30
+                    transition-all duration-300
+                    active:scale-95
+                  "
+                >
+                  Confirmer
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </MobileLayout>
   );
 };

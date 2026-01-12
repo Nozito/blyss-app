@@ -1,6 +1,6 @@
 import { useState, forwardRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock } from "lucide-react";
 import logo from "@/assets/logo.png";
 import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from "@/contexts/AuthContext";
@@ -12,174 +12,209 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
-
-  const validateForm = (): boolean => {
-    if (!email.trim()) {
-      setError("L'email est requis");
-      return false;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError("Email invalide");
-      return false;
-    }
-    if (!password) {
-      setError("Le mot de passe est requis");
-      return false;
-    }
-    return true;
-  };
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
 
-    if (!validateForm()) return;
+    if (!email.trim() || !password) {
+      toast.error("Remplis tous les champs");
+      return;
+    }
 
     const response = await login({ email: email.trim(), password });
-      console.log('handleLogin result =', response);
 
-    if (response.success && response.data && response.data.user) {
-      // Redirection selon rôle
-      if (response.data.user.role === "pro") {
-        navigate("/pro/dashboard");
-      } else {
-        navigate("/client");
-      }
+    if (response.success && response.data?.user) {
+      toast.success("Connexion réussie ! 🎉");
+      setTimeout(() => {
+        navigate(response.data.user.role === "pro" ? "/pro/dashboard" : "/client");
+      }, 300);
     } else {
-      // Si l'utilisateur n'existe pas ou le mot de passe est incorrect
-      if (response.error === "user_not_found") {
-        setError("Compte inexistant");
-      } else if (response.error === "invalid_password") {
-        setError("Email ou mot de passe incorrect");
-      } else {
-        setError("Email ou mot de passe incorrect");
-      }
+      toast.error("Email ou mot de passe incorrect");
     }
   };
 
   return (
     <MobileLayout showNav={false}>
-      <div className="py-8 px-4 animate-fade-in flex flex-col items-center">
-        {/* Logo + accroche */}
-        <div className="flex flex-col items-center mb-6">
-          <img
-            src={logo}
-            alt="Blyss"
-            className="w-16 h-16 object-contain mb-3 rounded-xl"
-          />
-          <h1 className="font-display text-2xl font-semibold text-foreground">
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12 bg-background">
+        {/* Logo & titre */}
+        <div className="text-center mb-10 space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">
+          <div className="inline-block mb-2">
+            <img
+              src={logo}
+              alt="Blyss"
+              className="w-32 h-32 object-contain"
+            />
+          </div>
+          <h1 className="font-display text-3xl font-bold text-foreground">
             Bon retour ✨
           </h1>
-          <p className="text-xs text-muted-foreground mt-1">
-            Connecte-toi pour gérer tes nails en quelques taps.
+          <p className="text-muted-foreground text-sm">
+            Connecte-toi pour gérer tes nails en quelques taps
           </p>
         </div>
 
-        {/* Carte formulaire plus légère */}
-        <div className="w-full max-w-md bg-card rounded-2xl shadow-card px-5 py-6">
+        {/* Formulaire */}
+        <div className="w-full max-w-md space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
           <form onSubmit={handleLogin} className="space-y-5">
-            {error && (
-              <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20">
-                <p className="text-destructive text-xs text-center">
-                  {error}
-                </p>
-              </div>
-            )}
-
+            {/* Email */}
             <div className="space-y-2">
-              <label
-                htmlFor="email"
-                className="block text-xs font-medium text-muted-foreground"
-              >
+              <label className="text-sm font-medium text-foreground pl-1">
                 Email
               </label>
-              <input
-                id="email"
-                type="email"
-                inputMode="email"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  setError("");
-                }}
-                className="w-full px-4 h-11 rounded-xl bg-muted border border-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition"
-                placeholder="ton@email.com"
-                required
-                disabled={isLoading}
-              />
+              <div className="relative">
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+                  <Mail size={20} />
+                </div>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onFocus={() => setFocusedField("email")}
+                  onBlur={() => setFocusedField(null)}
+                  placeholder="ton@email.com"
+                  disabled={isLoading}
+                  autoComplete="email"
+                  className={`
+                    w-full h-14 pl-12 pr-4 rounded-2xl
+                    bg-card border-2 
+                    text-foreground placeholder:text-muted-foreground/50
+                    transition-all duration-300 ease-out
+                    focus:outline-none focus:scale-[1.02]
+                    disabled:opacity-50 disabled:cursor-not-allowed
+                    ${
+                      focusedField === "email"
+                        ? "border-primary shadow-lg shadow-primary/10"
+                        : "border-muted hover:border-muted-foreground/30"
+                    }
+                  `}
+                />
+              </div>
             </div>
 
+            {/* Password */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label
-                  htmlFor="password"
-                  className="block text-xs font-medium text-muted-foreground"
-                >
+              <div className="flex items-center justify-between pl-1">
+                <label className="text-sm font-medium text-foreground">
                   Mot de passe
                 </label>
                 <button
                   type="button"
                   onClick={() => navigate("/forgot-password")}
-                  className="text-[11px] text-primary active:opacity-80"
+                  className="text-xs text-primary hover:underline transition-all active:scale-95"
                   disabled={isLoading}
                 >
                   Mot de passe oublié ?
                 </button>
               </div>
               <div className="relative">
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+                  <Lock size={20} />
+                </div>
                 <input
-                  id="password"
                   type={showPassword ? "text" : "password"}
                   value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setError("");
-                  }}
-                  className="w-full px-4 h-11 rounded-xl bg-muted border border-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition pr-11"
+                  onChange={(e) => setPassword(e.target.value)}
+                  onFocus={() => setFocusedField("password")}
+                  onBlur={() => setFocusedField(null)}
                   placeholder="••••••••"
-                  required
                   disabled={isLoading}
                   autoComplete="current-password"
+                  className={`
+                    w-full h-14 pl-12 pr-12 rounded-2xl
+                    bg-card border-2 
+                    text-foreground placeholder:text-muted-foreground/50
+                    transition-all duration-300 ease-out
+                    focus:outline-none focus:scale-[1.02]
+                    disabled:opacity-50 disabled:cursor-not-allowed
+                    ${
+                      focusedField === "password"
+                        ? "border-primary shadow-lg shadow-primary/10"
+                        : "border-muted hover:border-muted-foreground/30"
+                    }
+                  `}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition"
-                  aria-label={
-                    showPassword
-                      ? "Masquer le mot de passe"
-                      : "Afficher le mot de passe"
-                  }
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-all p-1 rounded-lg hover:bg-muted/50 active:scale-90"
+                  disabled={isLoading}
+                  aria-label={showPassword ? "Masquer" : "Afficher"}
                 >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
             </div>
 
+            {/* Bouton connexion */}
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full h-11 rounded-xl bg-gradient-to-r from-primary to-primary-dark text-primary-foreground font-semibold text-sm shadow-lg hover:shadow-xl transition-shadow duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+              className="
+                w-full h-14 rounded-2xl mt-8
+                bg-primary hover:bg-primary/90
+                text-primary-foreground
+                font-semibold text-base
+                shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40
+                transition-all duration-300 ease-out
+                disabled:opacity-50 disabled:cursor-not-allowed
+                active:scale-[0.98]
+              "
             >
-              {isLoading ? "Connexion..." : "Se connecter"}
+              <span className="flex items-center justify-center gap-2">
+                {isLoading ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                    Connexion...
+                  </>
+                ) : (
+                  "Se connecter"
+                )}
+              </span>
             </button>
           </form>
 
-          <p className="text-center mt-5 text-xs text-muted-foreground">
-            Pas encore de compte ?{" "}
-            <button
-              onClick={() => navigate("/signup")}
-              className="text-primary font-semibold hover:underline"
-              disabled={isLoading}
-            >
-              S'inscrire
-            </button>
-          </p>
+          {/* Séparateur */}
+          <div className="relative my-8">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-muted" />
+            </div>
+            <div className="relative flex justify-center">
+              <span className="px-4 bg-background text-xs text-muted-foreground">
+                Pas encore de compte ?
+              </span>
+            </div>
+          </div>
 
-          <p className="text-[10px] text-muted-foreground text-center mt-4">
-            En te connectant, tu acceptes les Conditions générales et la
-            Politique de confidentialité Blyss.
+          {/* Bouton inscription */}
+          <button
+            type="button"
+            onClick={() => navigate("/signup")}
+            disabled={isLoading}
+            className="
+              w-full h-14 rounded-2xl
+              bg-card border-2 border-foreground/20
+              text-foreground font-semibold
+              hover:bg-foreground/5 hover:border-foreground/40
+              transition-all duration-300
+              active:scale-[0.98]
+              disabled:opacity-50
+              shadow-sm
+            "
+          >
+            Créer un compte
+          </button>
+
+          {/* Mentions légales */}
+          <p className="text-center text-[10px] text-muted-foreground/70 leading-relaxed mt-6">
+            En te connectant, tu acceptes les{" "}
+            <button className="underline hover:text-foreground transition-colors">
+              Conditions générales
+            </button>{" "}
+            et la{" "}
+            <button className="underline hover:text-foreground transition-colors">
+              Politique de confidentialité
+            </button>
           </p>
         </div>
       </div>

@@ -7,21 +7,16 @@ import multer, { FileFilterCallback } from "multer";
 import path from "path";
 import fs from "fs";
 import jwt from "jsonwebtoken";
-import { isValidIBAN, electronicFormatIBAN } from 'ibantools';
-import crypto from 'crypto';
+import { isValidIBAN, electronicFormatIBAN } from "ibantools";
+import crypto from "crypto";
 
+const envFile = process.env.NODE_ENV === "production" ? ".env.prod" : ".env.dev";
+const envPath = path.resolve(__dirname, "..", envFile);
+console.log("Loading env from:", envPath);
 
+dotenv.config({ path: envPath });
 
-const envFile = process.env.NODE_ENV === 'production' ? '.env.prod' : '.env.dev';
-
-const envPath = path.resolve(__dirname, '..', envFile);
-console.log('Loading env from:', envPath);
-
-dotenv.config({
-  path: envPath,
-});
-
-console.log('JWT_SECRET after dotenv =', process.env.JWT_SECRET);
+console.log("JWT_SECRET after dotenv =", process.env.JWT_SECRET);
 
 if (!process.env.JWT_SECRET) {
   console.error("JWT_SECRET is not defined. Exiting.");
@@ -36,58 +31,59 @@ interface AuthenticatedRequest extends Request {
 const app = express();
 
 const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:8080',
-  'https://app.blyssapp.fr'
+  "http://localhost:5173",
+  "http://localhost:8080",
+  "https://app.blyssapp.fr",
 ];
 
-const IBAN_KEY = Buffer.from(process.env.IBAN_ENC_KEY || '', 'hex');
-const IBAN_IV = Buffer.from(process.env.IBAN_ENC_IV || '', 'hex');
+const IBAN_KEY = Buffer.from(process.env.IBAN_ENC_KEY || "", "hex");
+const IBAN_IV = Buffer.from(process.env.IBAN_ENC_IV || "", "hex");
 
 if (IBAN_KEY.length !== 32) {
-  console.error('IBAN_ENC_KEY must be 32 bytes (64 hex chars).');
+  console.error("IBAN_ENC_KEY must be 32 bytes (64 hex chars).");
   process.exit(1);
 }
 if (![12, 16].includes(IBAN_IV.length)) {
-  console.error('IBAN_ENC_IV must be 12 or 16 bytes.');
+  console.error("IBAN_ENC_IV must be 12 or 16 bytes.");
   process.exit(1);
 }
 
 function encryptIban(plain: string): string {
-  const cipher = crypto.createCipheriv('aes-256-gcm', IBAN_KEY, IBAN_IV);
-  const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  const cipher = crypto.createCipheriv("aes-256-gcm", IBAN_KEY, IBAN_IV);
+  const encrypted = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
-  // on stocke ciphertext + tag en base64, séparés
-  return `${encrypted.toString('base64')}:${authTag.toString('base64')}`;
+  return `${encrypted.toString("base64")}:${authTag.toString("base64")}`;
 }
 
 function decryptIban(stored: string): string {
-  const [cipherTextB64, tagB64] = stored.split(':');
-  const encrypted = Buffer.from(cipherTextB64, 'base64');
-  const authTag = Buffer.from(tagB64, 'base64');
+  const [cipherTextB64, tagB64] = stored.split(":");
+  const encrypted = Buffer.from(cipherTextB64, "base64");
+  const authTag = Buffer.from(tagB64, "base64");
 
-  const decipher = crypto.createDecipheriv('aes-256-gcm', IBAN_KEY, IBAN_IV);
+  const decipher = crypto.createDecipheriv("aes-256-gcm", IBAN_KEY, IBAN_IV);
   decipher.setAuthTag(authTag);
   const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return decrypted.toString('utf8');
+  return decrypted.toString("utf8");
 }
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  })
+);
 
 app.use(express.json());
 
-const authMiddleware = (req: AuthenticatedRequest, res: Response, next: Function) => {
+const authMiddleware = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
-  console.log("Auth header:", authHeader); // debug
+  console.log("Auth header:", authHeader);
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ success: false, message: "Unauthorized" });
@@ -144,6 +140,7 @@ interface User {
   city: string | null;
   instagram_account: string | null;
   profile_photo: string | null;
+  pro_status?: "active" | "inactive" | null;
 }
 
 interface UpdatePaymentsBody {
@@ -158,116 +155,328 @@ interface CreateSubscriptionBody {
   monthlyPrice: number;
   totalPrice?: number | null;
   commitmentMonths?: number | null;
-  startDate: string; // "YYYY-MM-DD"
+  startDate: string;
   endDate?: string | null;
 }
 
+function generateAccessToken(userId: number) {
+  return jwt.sign({ id: userId }, process.env.JWT_SECRET!, { expiresIn: "15m" });
+}
 
-app.post("/api/auth/signup", async (req: Request<{}, {}, SignupRequestBody>, res: Response) => {
-  try {
-    const {
-      first_name,
-      last_name,
-      email,
-      password,
-      phone_number,
-      birth_date,
-      role,
-      activity_name,
-      city,
-      instagram_account,
-    } = req.body;
+async function generateAndStoreRefreshToken(userId: number) {
+  const refreshToken = crypto.randomBytes(64).toString("hex");
 
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: "Missing required fields: email and password" });
-    }
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 30);
 
-    const password_hash = await bcrypt.hash(password, 12);
+  await db.execute(
+    `
+      INSERT INTO refresh_tokens (user_id, token, expires_at, revoked)
+      VALUES (?, ?, ?, 0)
+    `,
+    [userId, refreshToken, expiresAt]
+  );
 
-    await db.execute(
-      `INSERT INTO users
-       (first_name, last_name, email, phone_number, birth_date, password_hash, role, activity_name, city, instagram_account)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        first_name || null,
-        last_name || null,
+  return refreshToken;
+}
+
+async function revokeRefreshToken(token: string) {
+  await db.execute(
+    `
+      UPDATE refresh_tokens
+      SET revoked = 1
+      WHERE token = ?
+    `,
+    [token]
+  );
+}
+
+/* AUTH SIGNUP */
+app.post(
+  "/api/auth/signup",
+  async (req: Request<{}, {}, SignupRequestBody>, res: Response) => {
+    try {
+      const {
+        first_name,
+        last_name,
         email,
-        phone_number || null,
-        birth_date || null,
-        password_hash,
-        role || "client",
-        role === "pro" ? activity_name : null,
-        role === "pro" ? city : null,
-        role === "pro" ? instagram_account : null,
-      ]
-    );
+        password,
+        phone_number,
+        birth_date,
+        role,
+        activity_name,
+        city,
+        instagram_account,
+      } = req.body;
 
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Signup failed due to server error" });
+      if (!email || !password) {
+        return res.status(400).json({
+          success: false,
+          message: "Missing required fields: email and password",
+        });
+      }
+
+      const password_hash = await bcrypt.hash(password, 12);
+
+      await db.execute(
+        `INSERT INTO users
+         (first_name, last_name, email, phone_number, birth_date, password_hash, role, activity_name, city, instagram_account)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          first_name || null,
+          last_name || null,
+          email,
+          phone_number || null,
+          birth_date || null,
+          password_hash,
+          role || "client",
+          role === "pro" ? activity_name : null,
+          role === "pro" ? city : null,
+          role === "pro" ? instagram_account : null,
+        ]
+      );
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res
+        .status(500)
+        .json({ success: false, message: "Signup failed due to server error" });
+    }
   }
-});
+);
 
-app.post("/api/auth/login", async (req: Request<{}, {}, LoginRequestBody>, res: Response) => {
+/* AUTH LOGIN */
+app.post(
+  "/api/auth/login",
+  async (req: Request<{}, {}, LoginRequestBody>, res: Response) => {
+    try {
+      const { email, password } = req.body;
+
+      if (!email || !password) {
+        return res.status(400).json({ success: false, error: "missing_fields" });
+      }
+
+      const [rows] = await db.execute("SELECT * FROM users WHERE email = ?", [
+        email,
+      ]);
+      const user = (rows as User[])[0];
+
+      if (!user) {
+        return res.status(404).json({ success: false, error: "user_not_found" });
+      }
+
+      const isValid = await bcrypt.compare(password, user.password_hash);
+
+      if (!isValid) {
+        return res.status(401).json({ success: false, error: "invalid_password" });
+      }
+
+      const { password_hash, ...userWithoutPassword } = user;
+
+      const accessToken = generateAccessToken(user.id);
+      const refreshToken = await generateAndStoreRefreshToken(user.id);
+
+      res.json({
+        success: true,
+        data: {
+          accessToken,
+          refreshToken,
+          user: userWithoutPassword,
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ success: false, error: "login_failed" });
+    }
+  }
+);
+
+/* AUTH REFRESH */
+app.post("/api/auth/refresh", async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const { refreshToken } = req.body as { refreshToken?: string };
 
-    if (!email || !password) {
-      return res.status(400).json({ success: false, error: "missing_fields" });
+    if (!refreshToken) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing refresh token" });
     }
 
-    const [rows] = await db.execute("SELECT * FROM users WHERE email = ?", [email]);
-    const user = (rows as User[])[0];
-
-    if (!user) {
-      return res.status(404).json({ success: false, error: "user_not_found" });
-    }
-
-    const isValid = await bcrypt.compare(password, user.password_hash);
-
-    if (!isValid) {
-      return res.status(401).json({ success: false, error: "invalid_password" });
-    }
-
-    const { password_hash, ...userWithoutPassword } = user;
-
-    const token = jwt.sign(
-      { id: user.id },
-      process.env.JWT_SECRET!,
-      { expiresIn: "7d" }
+    const [rows] = await db.execute(
+      `
+        SELECT user_id, expires_at, revoked
+        FROM refresh_tokens
+        WHERE token = ?
+        LIMIT 1
+      `,
+      [refreshToken]
     );
 
-    res.json({
+    const record =
+      (rows as { user_id: number; expires_at: Date; revoked: number }[])[0];
+
+    if (!record) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid refresh token" });
+    }
+
+    if (record.revoked) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Refresh token revoked" });
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(record.expires_at);
+    if (expiresAt <= now) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Refresh token expired" });
+    }
+
+    const newAccessToken = generateAccessToken(record.user_id);
+    const newRefreshToken = await generateAndStoreRefreshToken(record.user_id);
+    await revokeRefreshToken(refreshToken);
+
+    return res.json({
       success: true,
       data: {
-        token: token,
-        user: userWithoutPassword,
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
       },
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, error: "login_failed" });
+    console.error("Refresh token error:", err);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
 
-// Récupérer l'utilisateur connecté
-app.get("/api/users", authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+/* AUTH LOGOUT */
+app.post("/api/auth/logout", async (req: Request, res: Response) => {
   try {
-    const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [req.user.id]);
-    const user = (rows as User[])[0];
-    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    const { refreshToken } = req.body as { refreshToken?: string };
 
-    // Ne jamais renvoyer le hash de mot de passe
-    const { password_hash, ...userWithoutPassword } = user;
+    if (!refreshToken) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing refresh token" });
+    }
 
-    res.json({ success: true, data: userWithoutPassword });
+    await revokeRefreshToken(refreshToken);
+
+    return res.json({ success: true });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Unable to fetch user" });
+    console.error("Logout error:", err);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
 
+/* GET CURRENT USER + STATS */
+app.get(
+  "/api/users",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.user!.id;
+
+      // 1) Récupérer l'utilisateur
+      const [userRows] = await db.execute("SELECT * FROM users WHERE id = ?", [
+        userId,
+      ]);
+      const user = (userRows as User[])[0];
+      if (!user) {
+        return res
+          .status(404)
+          .json({ success: false, message: "User not found" });
+      }
+
+      // 2) Nombre de clients distincts
+      const [clientsRows] = await db.execute(
+        `
+        SELECT COUNT(DISTINCT client_id) AS clients_count
+        FROM reservations
+        WHERE pro_id = ?
+          AND status = 'completed'
+        `,
+        [userId]
+      );
+      const clients_count = Number(
+        (clientsRows as any[])[0]?.clients_count ?? 0
+      );
+
+      // 3) Note moyenne
+      const [ratingRows] = await db.execute(
+        `
+        SELECT AVG(rating) AS avg_rating
+        FROM reviews
+        WHERE pro_id = ?
+        `,
+        [userId]
+      );
+      const avg_rating_raw = (ratingRows as any[])[0]?.avg_rating;
+      const avg_rating =
+        avg_rating_raw !== null && avg_rating_raw !== undefined
+          ? Number(avg_rating_raw)
+          : 0;
+
+      // 4) Ancienneté : années ou mois
+      const [durationRows] = await db.execute(
+        `
+        SELECT
+          TIMESTAMPDIFF(YEAR, created_at, CURDATE()) AS diff_years,
+          TIMESTAMPDIFF(MONTH, created_at, CURDATE()) AS diff_months
+        FROM users
+        WHERE id = ?
+        `,
+        [userId]
+      );
+
+      const durationRow = (durationRows as any[])[0];
+      const diffYears = Number(durationRow?.diff_years ?? 0);
+      const diffMonthsTotal = Number(durationRow?.diff_months ?? 0);
+
+      let years_on_blyss: string;
+
+      if (diffYears >= 1) {
+        const remainingMonths = diffMonthsTotal % 12;
+        years_on_blyss =
+          remainingMonths > 0
+            ? `${diffYears} an${diffYears > 1 ? "s" : ""} et ${remainingMonths} mois`
+            : `${diffYears} an${diffYears > 1 ? "s" : ""}`;
+      } else if (diffMonthsTotal >= 1) {
+        years_on_blyss = `${diffMonthsTotal} mois`;
+      } else {
+        years_on_blyss = "Moins d’1 mois";
+      }
+
+      const { password_hash, ...userWithoutPassword } = user;
+
+      const payload = {
+        ...userWithoutPassword,
+        clients_count,
+        avg_rating,
+        years_on_blyss,
+      };
+
+      console.log(">>> years_on_blyss envoyé au front =", years_on_blyss);
+
+      return res.json({
+        success: true,
+        data: payload,
+      });
+    } catch (err) {
+      console.error("[/api/users] error =", err);
+      return res
+        .status(500)
+        .json({ success: false, message: "Unable to fetch user" });
+    }
+  }
+);
+
+
+/* UPLOAD PHOTO */
 const uploadDir = path.join(__dirname, "uploads/profile_photo");
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -283,7 +492,11 @@ const storage = multer.diskStorage({
   },
 });
 
-const fileFilter = (_req: Express.Request, file: Express.Multer.File, cb: FileFilterCallback) => {
+const fileFilter = (
+  _req: Express.Request,
+  file: Express.Multer.File,
+  cb: FileFilterCallback
+) => {
   if (file.mimetype === "image/jpeg" || file.mimetype === "image/png") {
     cb(null, true);
   } else {
@@ -293,96 +506,138 @@ const fileFilter = (_req: Express.Request, file: Express.Multer.File, cb: FileFi
 
 const upload = multer({ storage, fileFilter });
 
-app.post("/api/users/upload-photo", authMiddleware, upload.single("photo"), async (req: AuthenticatedRequest, res) => {
-  try {
-    if (!req.file || !req.user?.id) {
-      return res.status(400).json({ success: false, message: "No file or userId provided" });
+app.post(
+  "/api/users/upload-photo",
+  authMiddleware,
+  upload.single("photo"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.file || !req.user?.id) {
+        return res
+          .status(400)
+          .json({ success: false, message: "No file or userId provided" });
+      }
+
+      const photoPath = `/uploads/profile_photo/${req.file.filename}`;
+
+      await db.execute("UPDATE users SET profile_photo = ? WHERE id = ?", [
+        photoPath,
+        req.user.id,
+      ]);
+
+      res.json({ success: true, photo: photoPath });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ success: false, message: "Upload failed" });
     }
-
-    const photoPath = `/uploads/profile_photo/${req.file.filename}`;
-
-    await db.execute(
-      "UPDATE users SET profile_photo = ? WHERE id = ?",
-      [photoPath, req.user.id]
-    );
-
-    res.json({ success: true, photo: photoPath });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Upload failed" });
   }
-});
+);
 
-app.put("/api/users/update", authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const {
-      first_name,
-      last_name,
-      activity_name,
-      city,
-      instagram_account,
-      currentPassword,
-      newPassword,
-    } = req.body;
+/* UPDATE USER PROFILE */
+app.put(
+  "/api/users/update",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const {
+        first_name,
+        last_name,
+        activity_name,
+        city,
+        instagram_account,
+        currentPassword,
+        newPassword,
+      } = req.body;
 
-    const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [req.user!.id]);
-    const user = (rows as User[])[0];
-
-    if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
-    }
-
-    let passwordHash = user.password_hash;
-    if (newPassword) {
-      if (!currentPassword) {
-        return res.status(400).json({ success: false, message: "Current password required" });
-      }
-      const isValid = await bcrypt.compare(currentPassword, user.password_hash);
-      if (!isValid) {
-        return res.status(401).json({ success: false, message: "Invalid current password" });
-      }
-      if (currentPassword === newPassword) {
-        return res.status(400).json({
-          success: false,
-          message: "New password must be different from current password",
-        });
-      }
-      passwordHash = await bcrypt.hash(newPassword, 12);
-    }
-
-    const updatedFirstName = first_name !== undefined ? first_name : user.first_name;
-    const updatedLastName = last_name !== undefined ? last_name : user.last_name;
-    const updatedActivityName = user.role === "pro" ? (activity_name !== undefined ? activity_name : user.activity_name) : null;
-    const updatedCity = user.role === "pro" ? (city !== undefined ? city : user.city) : null;
-    const updatedInstagramAccount = user.role === "pro" ? (instagram_account !== undefined ? instagram_account : user.instagram_account) : null;
-
-    await db.execute(
-      `UPDATE users
-       SET first_name = ?, last_name = ?, activity_name = ?, city = ?, instagram_account = ?, password_hash = ?
-       WHERE id = ?`,
-      [
-        updatedFirstName,
-        updatedLastName,
-        updatedActivityName,
-        updatedCity,
-        updatedInstagramAccount,
-        passwordHash,
+      const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [
         req.user!.id,
-      ]
-    );
+      ]);
+      const user = (rows as User[])[0];
 
-    const [updatedRows] = await db.execute("SELECT * FROM users WHERE id = ?", [req.user!.id]);
-    const updatedUser = (updatedRows as User[])[0];
-    const { password_hash, ...userWithoutPassword } = updatedUser;
+      if (!user) {
+        return res
+          .status(404)
+          .json({ success: false, message: "User not found" });
+      }
 
-    res.json({ success: true, data: userWithoutPassword });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: "Update failed" });
+      let passwordHash = user.password_hash;
+      if (newPassword) {
+        if (!currentPassword) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Current password required" });
+        }
+        const isValid = await bcrypt.compare(currentPassword, user.password_hash);
+        if (!isValid) {
+          return res
+            .status(401)
+            .json({ success: false, message: "Invalid current password" });
+        }
+        if (currentPassword === newPassword) {
+          return res.status(400).json({
+            success: false,
+            message: "New password must be different from current password",
+          });
+        }
+        passwordHash = await bcrypt.hash(newPassword, 12);
+      }
+
+      const updatedFirstName =
+        first_name !== undefined ? first_name : user.first_name;
+      const updatedLastName =
+        last_name !== undefined ? last_name : user.last_name;
+      const updatedActivityName =
+        user.role === "pro"
+          ? activity_name !== undefined
+            ? activity_name
+            : user.activity_name
+          : null;
+      const updatedCity =
+        user.role === "pro"
+          ? city !== undefined
+            ? city
+            : user.city
+          : null;
+      const updatedInstagramAccount =
+        user.role === "pro"
+          ? instagram_account !== undefined
+            ? instagram_account
+            : user.instagram_account
+          : null;
+
+      await db.execute(
+        `
+        UPDATE users
+        SET first_name = ?, last_name = ?, activity_name = ?, city = ?, instagram_account = ?, password_hash = ?
+        WHERE id = ?
+      `,
+        [
+          updatedFirstName,
+          updatedLastName,
+          updatedActivityName,
+          updatedCity,
+          updatedInstagramAccount,
+          passwordHash,
+          req.user!.id,
+        ]
+      );
+
+      const [updatedRows] = await db.execute(
+        "SELECT * FROM users WHERE id = ?",
+        [req.user!.id]
+      );
+      const updatedUser = (updatedRows as User[])[0];
+      const { password_hash, ...userWithoutPassword } = updatedUser;
+
+      res.json({ success: true, data: userWithoutPassword });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ success: false, message: "Update failed" });
+    }
   }
-});
+);
 
-// Création d'un abonnement pro + activation pro_status
+/* CREATE SUBSCRIPTION */
 app.post(
   "/api/subscriptions",
   authMiddleware,
@@ -399,21 +654,19 @@ app.post(
         totalPrice,
         commitmentMonths,
         startDate,
-        endDate
+        endDate,
       } = req.body as CreateSubscriptionBody;
 
       if (!plan || !billingType || !monthlyPrice || !startDate) {
-        return res.status(400).json({
-          success: false,
-          message: "Missing required fields"
-        });
+        return res
+          .status(400)
+          .json({ success: false, message: "Missing required fields" });
       }
 
       const connection = await db.getConnection();
       try {
         await connection.beginTransaction();
 
-        // 1) Insert dans subscriptions
         const [result] = await connection.execute(
           `
           INSERT INTO subscriptions
@@ -428,11 +681,10 @@ app.post(
             totalPrice ?? null,
             commitmentMonths ?? null,
             startDate,
-            endDate ?? null
+            endDate ?? null,
           ]
         );
 
-        // 2) Passer l'utilisateur en pro_status = 'active'
         await connection.execute(
           `UPDATE users SET pro_status = 'active' WHERE id = ?`,
           [req.user.id]
@@ -440,19 +692,19 @@ app.post(
 
         await connection.commit();
 
-        // @ts-ignore
-        const subscriptionId = (result as any).insertId;
+        const insertResult = result as any;
+        const subscriptionId = insertResult.insertId;
 
         res.status(201).json({
           success: true,
-          data: { subscriptionId }
+          data: { subscriptionId },
         });
       } catch (err) {
         await connection.rollback();
         console.error("Error creating subscription:", err);
         res.status(500).json({
           success: false,
-          message: "Failed to create subscription"
+          message: "Failed to create subscription",
         });
       } finally {
         connection.release();
@@ -461,102 +713,113 @@ app.post(
       console.error(err);
       res.status(500).json({
         success: false,
-        message: "Internal server error"
+        message: "Internal server error",
       });
     }
   }
 );
 
+/* UPDATE PAYMENTS */
+app.put(
+  "/api/users/payments",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const { bankaccountname, IBAN, accept_online_payment } =
+        req.body as UpdatePaymentsBody;
 
-app.put('/api/users/payments', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const userId = req.user!.id;
-    const { bankaccountname, IBAN, accept_online_payment } = req.body as UpdatePaymentsBody;
+      if (accept_online_payment) {
+        if (!bankaccountname || !bankaccountname.trim()) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: "Le titulaire du compte est requis.",
+            });
+        }
+        if (!IBAN || !IBAN.trim()) {
+          return res
+            .status(400)
+            .json({ success: false, message: "L’IBAN est requis." });
+        }
 
-    if (accept_online_payment) {
-      if (!bankaccountname || !bankaccountname.trim()) {
-        return res.status(400).json({ success: false, message: 'Le titulaire du compte est requis.' });
-      }
-      if (!IBAN || !IBAN.trim()) {
-        return res.status(400).json({ success: false, message: 'L’IBAN est requis.' });
-      }
+        const formattedIban = electronicFormatIBAN(IBAN);
+        if (!isValidIBAN(formattedIban)) {
+          return res
+            .status(400)
+            .json({ success: false, message: "IBAN invalide." });
+        }
 
-      const formattedIban = electronicFormatIBAN(IBAN);
-      if (!isValidIBAN(formattedIban)) {
-        return res.status(400).json({ success: false, message: 'IBAN invalide.' });
-      }
+        const encryptedIban = encryptIban(formattedIban);
 
-      // Chiffrement IBAN
-      const encryptedIban = encryptIban(formattedIban);
+        const [existing] = await db.execute(
+          "SELECT id FROM users WHERE IBAN = ? AND id != ?",
+          [encryptedIban, userId]
+        );
+        if ((existing as any[]).length > 0) {
+          return res.status(409).json({
+            success: false,
+            message: "Cet IBAN est déjà utilisé par un autre compte.",
+          });
+        }
 
-      // Vérifier unicité : soit tu laisses la contrainte MySQL faire le boulot,
-      // soit tu testes toi-même sur la colonne chiffrée (unique_user_iban) :
-      const [existing] = await db.execute(
-        'SELECT id FROM users WHERE IBAN = ? AND id != ?',
-        [encryptedIban, userId]
-      );
-      if ((existing as any[]).length > 0) {
-        return res.status(409).json({ success: false, message: 'Cet IBAN est déjà utilisé par un autre compte.' });
-      }
-
-      await db.execute(
-        `
+        await db.execute(
+          `
           UPDATE users
           SET bankaccountname = ?, IBAN = ?, accept_online_payment = 1
           WHERE id = ?
         `,
-        [bankaccountname.trim(), encryptedIban, userId]
-      );
-    } else {
-      // Pas de paiement en ligne
-      await db.execute(
-        `
+          [bankaccountname.trim(), encryptedIban, userId]
+        );
+      } else {
+        await db.execute(
+          `
           UPDATE users
           SET accept_online_payment = 0
           WHERE id = ?
         `,
+          [userId]
+        );
+      }
+
+      const [rows] = await db.execute(
+        "SELECT bankaccountname, IBAN, accept_online_payment FROM users WHERE id = ?",
         [userId]
       );
-    }
+      const record = (rows as any[])[0];
 
-    // Retourner les infos mises à jour (sans déchiffrer IBAN côté API si tu ne veux pas)
-    const [rows] = await db.execute(
-      'SELECT bankaccountname, IBAN, accept_online_payment FROM users WHERE id = ?',
-      [userId]
-    );
-    const record = (rows as any[])[0];
-
-    // Pour ne pas exposer l’IBAN brut chiffré, tu peux renvoyer null ou une version masquée
-    let maskedIban: string | null = null;
-    if (record.IBAN) {
-      try {
-        const plain = decryptIban(record.IBAN as string);
-        maskedIban = plain.replace(/.(?=.{4})/g, '•'); // masque tout sauf les 4 derniers
-      } catch {
-        maskedIban = null;
+      let maskedIban: string | null = null;
+      if (record.IBAN) {
+        try {
+          const plain = decryptIban(record.IBAN as string);
+          maskedIban = plain.replace(/.(?=.{4})/g, "•");
+        } catch {
+          maskedIban = null;
+        }
       }
-    }
 
-    res.json({
-      success: true,
-      data: {
-        bankaccountname: record.bankaccountname,
-        IBAN: maskedIban,
-        accept_online_payment: record.accept_online_payment,
-      },
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Erreur lors de la mise à jour des paiements.' });
+      res.json({
+        success: true,
+        data: {
+          bankaccountname: record.bankaccountname,
+          IBAN: maskedIban,
+          accept_online_payment: record.accept_online_payment,
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({
+        success: false,
+        message: "Erreur lors de la mise à jour des paiements.",
+      });
+    }
   }
-});
+);
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-
-// --- DASHBOARD PRO ---
-
-// helper pour récupérer l'id du pro connecté depuis ton authMiddleware
+/* HELPER PRO ID */
 function getProId(req: AuthenticatedRequest): number {
   const proId = req.user?.id;
   if (!proId) {
@@ -565,6 +828,7 @@ function getProId(req: AuthenticatedRequest): number {
   return proId;
 }
 
+/* PRO DASHBOARD */
 app.get(
   "/api/pro/dashboard",
   authMiddleware,
@@ -1044,6 +1308,135 @@ app.put(
     }
   }
 );
+
+app.get(
+  "/api/pro/subscription",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+
+      connection = await db.getConnection();
+
+      const [rows] = (await connection.query(
+        `
+        SELECT
+          id,
+          plan,
+          billing_type,
+          monthly_price,
+          total_price,
+          commitment_months,
+          start_date,
+          end_date,
+          status,
+          created_at
+        FROM subscriptions
+        WHERE client_id = ?
+          AND status = 'active'
+        ORDER BY created_at DESC
+        LIMIT 1
+        `,
+        [proId]
+      )) as {
+        length: any;
+        id: number;
+        plan: "start" | "serenite" | "signature";
+        billing_type: "monthly" | "one_time";
+        monthly_price: number;
+        total_price: number | null;
+        commitment_months: number | null;
+        start_date: string;
+        end_date: string | null;
+        status: "active" | "expired" | "cancelled";
+        created_at: string;
+      }[];
+
+      if (!rows.length) {
+        return res.json({ success: true, data: null });
+      }
+
+      const sub = rows[0];
+
+      res.json({
+        success: true,
+        data: {
+          id: sub.id,
+          plan: sub.plan,
+          billingType: sub.billing_type,
+          monthlyPrice: sub.monthly_price,
+          totalPrice: sub.total_price,
+          commitmentMonths: sub.commitment_months,
+          startDate: sub.start_date,
+          endDate: sub.end_date,
+          status: sub.status,
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      res
+        .status(500)
+        .json({ success: false, message: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+app.put(
+  "/api/pro/subscription/cancel",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+
+      connection = await db.getConnection();
+
+      // on récupère l’abonnement actif le plus récent
+      const [rows] = (await connection.query(
+        `
+        SELECT id
+        FROM subscriptions
+        WHERE client_id = ?
+          AND status = 'active'
+        ORDER BY created_at DESC
+        LIMIT 1
+        `,
+        [proId]
+      )) as {
+        length: any; id: number 
+}[];
+
+      if (!rows.length) {
+        return res.json({ success: false, message: "Aucun abonnement actif." });
+      }
+
+      const subscriptionId = rows[0].id;
+
+      // on marque comme "cancelled"
+      await connection.query(
+        `
+        UPDATE subscriptions
+        SET status = 'cancelled'
+        WHERE id = ?
+        `,
+        [subscriptionId]
+      );
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res
+        .status(500)
+        .json({ success: false, message: "Erreur lors de la résiliation." });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
 
 const PORT = process.env.PORT || 3001;
 

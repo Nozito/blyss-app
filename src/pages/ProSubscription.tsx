@@ -1,18 +1,13 @@
 import { useState } from "react";
 import MobileLayout from "@/components/MobileLayout";
-import { Check } from "lucide-react";
+import { Check, ArrowLeft, Zap, Heart, Sparkles, TrendingDown } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 type BillingType = "monthly" | "one_time";
 type PlanId = "start" | "serenite" | "signature";
 
-/**
- * Hypothèse : prix de base mensuel "sans engagement"
- * utilisé comme référence pour calculer l'économie annuelle.
- * Tu peux l'ajuster selon ta vraie offre.
- */
-const BASE_MONTHLY_NO_COMMITMENT = 34.90;
-
 const ProSubscription = () => {
+  const navigate = useNavigate();
   const [billingType, setBillingType] = useState<BillingType>("monthly");
   const [selectedPlan, setSelectedPlan] = useState<PlanId | null>("serenite");
   const [isLoading, setIsLoading] = useState(false);
@@ -20,21 +15,23 @@ const ProSubscription = () => {
   const plans: {
     id: PlanId;
     name: string;
+    icon: any;
     monthlyPrice: number;
     commitment: number | null;
     oneTimePrice?: number;
     features: string[];
-    highlight?: boolean;
-    badge?: string;
+    popular?: boolean;
+    savings?: string;
   }[] = [
     {
       id: "start",
       name: "Start",
+      icon: Zap,
       monthlyPrice: 34.90,
       commitment: null,
       features: [
         "Réservation en ligne",
-        "Gestion des rendez-vous",
+        "Gestion agenda",
         "Notifications clients",
         "Tableau de bord"
       ]
@@ -42,78 +39,67 @@ const ProSubscription = () => {
     {
       id: "serenite",
       name: "Sérénité",
+      icon: Heart,
       monthlyPrice: 29.90,
       commitment: 3,
       oneTimePrice: 79.90,
+      savings: "Économise 10€",
       features: [
         "Module finance",
         "Portfolio photos",
         "Rappels automatiques",
-        "+ fonctionnalités Start"
+        "Tout Start inclus"
       ],
-      highlight: true,
-      badge: "Meilleure offre"
+      popular: true
     },
     {
       id: "signature",
       name: "Signature",
+      icon: Sparkles,
       monthlyPrice: 24.90,
       commitment: 12,
       oneTimePrice: 249.00,
+      savings: "Économise 50€",
       features: [
         "Visibilité premium",
         "Rappels post-prestation",
-        "Encaissement en ligne*",
-        "+ fonctionnalités Start & Sérénité"
-      ],
-      badge: "Économies max"
+        "Encaissement en ligne",
+        "Tout Sérénité inclus"
+      ]
     }
   ];
-
-  const getWithoutCommitmentPrice = (months: number) =>
-    (34.90 * months).toFixed(2);
 
   const handleSelectPlan = (planId: PlanId) => {
     setSelectedPlan(planId);
   };
-
-  const formatPrice = (price: number) =>
-    price.toLocaleString("fr-FR", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
 
   const handleSubscribe = async () => {
     if (!selectedPlan) return;
     const plan = plans.find((p) => p.id === selectedPlan);
     if (!plan) return;
 
-    // Récupérer le token JWT (adaptation selon ta logique d'auth)
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem("access_token");
     if (!token) {
-      alert("Tu dois être connecté pour t’abonner.");
+      alert("Tu dois être connecté pour t'abonner.");
       return;
     }
 
     setIsLoading(true);
     try {
       const today = new Date();
-      const startDate = today.toISOString().slice(0, 10); // YYYY-MM-DD
+      const startDate = today.toISOString().slice(0, 10);
 
       let endDate: string | null = null;
       let totalPrice: number | null = null;
       let commitmentMonths: number | null = plan.commitment ?? null;
 
       if (billingType === "monthly") {
-        // Abonnement mensuel : end_date et total_price peuvent rester null.
         endDate = null;
         totalPrice = null;
       } else {
-        // Paiement en une fois
         if (!plan.oneTimePrice) throw new Error("oneTimePrice manquant");
         totalPrice = plan.oneTimePrice;
 
-        // Si tu considères que le paiement en une fois couvre la durée d'engagement
         if (commitmentMonths && commitmentMonths > 0) {
           const end = new Date(today);
           end.setMonth(end.getMonth() + commitmentMonths);
@@ -143,269 +129,284 @@ const ProSubscription = () => {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         console.error("Subscription error", data);
-        alert("Une erreur est survenue lors de l’activation de ton abonnement.");
+        alert("Une erreur est survenue lors de l'activation de ton abonnement.");
         return;
       }
 
-      // À ce stade, ton backend a déjà :
-      // - créé la ligne dans `subscriptions`
-      // - mis users.pro_status = 'active'
       alert("Ton compte pro est maintenant actif ✅");
-      // Tu peux ajouter une redirection ici (ex: router.push("/pro"))
+      navigate("/pro");
     } catch (error) {
       console.error(error);
-      alert("Impossible de finaliser l’abonnement pour le moment.");
+      alert("Impossible de finaliser l'abonnement pour le moment.");
     } finally {
       setIsLoading(false);
     }
   };
 
+  const isAnnual = billingType === "one_time";
+
   return (
     <MobileLayout showNav={false}>
-      <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted">
-        <div className="py-6 px-4 space-y-6 max-w-md mx-auto animate-fade-in">
-          {/* Header */}
-          <header className="text-center space-y-1.5">
-            <h1 className="text-[20px] font-semibold text-foreground">
-              Active ton compte professionnel
-            </h1>
-            <p className="text-[13px] text-muted-foreground">
-              Choisis la formule adaptée à ton activité, avec ou sans engagement.
-            </p>
-          </header>
-
-          {/* Billing segmented control (rose DA en accent) */}
-          <div className="flex flex-col items-center gap-4">
-            <div
-              className="inline-flex w-full max-w-xs rounded-[999px] bg-muted p-1 shadow-sm transition"
-              role="tablist"
-              aria-label="Sélection du mode de paiement"
+      <div className="min-h-screen bg-background">
+        {/* Header fixe */}
+        <div className="sticky top-0 bg-background/95 backdrop-blur-lg z-10 border-b border-border/50 -mx-4 px-4 py-4 mb-6">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate(-1)}
+              className="w-9 h-9 rounded-full bg-muted/50 flex items-center justify-center active:scale-95 transition-transform"
             >
+              <ArrowLeft size={18} className="text-foreground" />
+            </button>
+            <div className="flex-1">
+              <h1 className="text-lg font-semibold text-foreground">
+                Choisis ta formule
+              </h1>
+            </div>
+          </div>
+        </div>
+
+        <div className="pb-32 space-y-6">
+          {/* Toggle avec effet accentué */}
+          <div className="flex flex-col items-center gap-3 animate-fade-in">
+            <div className="relative inline-flex rounded-full bg-muted p-1 shadow-sm">
               <button
                 type="button"
-                role="tab"
-                aria-selected={billingType === "monthly"}
                 onClick={() => setBillingType("monthly")}
-                className={`flex-1 rounded-[999px] text-[13px] font-medium transition-all px-3 py-1.5
-                  ${
-                    billingType === "monthly"
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground"
-                  }`}
-                style={{ WebkitTapHighlightColor: "transparent" }}
+                className={`
+                  relative z-10 px-6 py-2.5 rounded-full text-sm font-semibold transition-all duration-300
+                  ${billingType === "monthly"
+                    ? "text-white"
+                    : "text-muted-foreground"
+                  }
+                `}
               >
                 Mensuel
               </button>
               <button
                 type="button"
-                role="tab"
-                aria-selected={billingType === "one_time"}
                 onClick={() => setBillingType("one_time")}
-                className={`flex-1 rounded-[999px] text-[13px] font-medium transition-all px-3 py-1.5
-                  ${
-                    billingType === "one_time"
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground"
-                  }`}
-                style={{ WebkitTapHighlightColor: "transparent" }}
+                className={`
+                  relative z-10 px-6 py-2.5 rounded-full text-sm font-semibold transition-all duration-300
+                  ${billingType === "one_time"
+                    ? "text-white"
+                    : "text-muted-foreground"
+                  }
+                `}
               >
-                En une fois
+                Annuel
               </button>
+              {/* Slider animé */}
+              <div
+                className={`
+                  absolute top-1 bottom-1 rounded-full bg-primary shadow-md
+                  transition-all duration-300 ease-out
+                  ${billingType === "monthly" 
+                    ? "left-1 right-[50%]" 
+                    : "left-[50%] right-1"
+                  }
+                `}
+              />
             </div>
-            <p className="text-[11px] text-muted-foreground text-center">
-              Mensuel pour plus de flexibilité, une fois pour plus d’économies.
-            </p>
+            
+            {/* Badge économies avec animation */}
+            <div 
+              className={`
+                flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200
+                transition-all duration-300
+                ${isAnnual 
+                  ? "opacity-100 translate-y-0 scale-100" 
+                  : "opacity-0 -translate-y-2 scale-95 pointer-events-none"
+                }
+              `}
+            >
+              <TrendingDown size={14} className="text-emerald-600" />
+              <span className="text-xs font-semibold text-emerald-700">
+                Jusqu'à 50€ d'économies
+              </span>
+            </div>
           </div>
 
-          {/* Plans */}
-          <section className="space-y-3">
-            {plans.map((plan) => {
+          {/* Plans avec animations en cascade */}
+          <div className="space-y-3">
+            {plans.map((plan, index) => {
               const isSelected = selectedPlan === plan.id;
-              const isOneTime = billingType === "one_time" && plan.oneTimePrice;
-              const isHighlighted = plan.highlight;
-
-              const yearlyWithThisPlan = plan.monthlyPrice * 12;
-              const yearlyWithBase = BASE_MONTHLY_NO_COMMITMENT * 12;
-              const yearlySaving = yearlyWithBase - yearlyWithThisPlan;
+              const Icon = plan.icon;
+              const displayPrice = isAnnual && plan.oneTimePrice 
+                ? plan.oneTimePrice 
+                : plan.monthlyPrice;
 
               return (
                 <button
-                  type="button"
                   key={plan.id}
                   onClick={() => handleSelectPlan(plan.id)}
-                  aria-pressed={isSelected}
-                  className={`
-                    w-full text-left rounded-[16px] relative overflow-hidden
-                    border transition-all duration-180 ease-out
-                    ${
-                      isHighlighted
-                        ? "border-primary/80 bg-primary/5"
-                        : "border-border bg-card"
-                    }
-                    ${
-                      isSelected
-                        ? "ring-2 ring-primary shadow-lg translate-y-[-1px]"
-                        : "hover:border-primary/40 hover:shadow-sm active:scale-[0.99]"
-                    }
-                  `}
-                  style={{
-                    WebkitTapHighlightColor: "transparent"
+                  style={{ 
+                    animationDelay: `${index * 100}ms`,
                   }}
+                  className={`
+                    w-full text-left rounded-2xl p-5 border-2 
+                    transition-all duration-300 ease-out
+                    animate-slide-up
+                    ${isSelected 
+                      ? "border-primary bg-primary/5 shadow-lg shadow-primary/10 scale-[1.02]" 
+                      : "border-border bg-card hover:border-primary/30 hover:shadow-md"
+                    }
+                    active:scale-[0.98]
+                  `}
                 >
-                  <div className="px-4 py-4 space-y-3 relative z-10">
-                    {/* Ligne titre + badge */}
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`h-4 w-4 rounded-full border flex items-center justify-center transition
-                            ${
-                              isSelected
-                                ? "border-primary bg-primary/10"
-                                : "border-muted-foreground/40 bg-background"
-                            }
-                          `}
-                        >
-                          {isSelected && (
-                            <span className="h-2 w-2 rounded-full bg-primary" />
-                          )}
-                        </div>
-                        <h2 className="text-[15px] font-semibold text-foreground">
-                          Formule {plan.name}
-                        </h2>
+                  {/* Header */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`
+                        w-12 h-12 rounded-xl flex items-center justify-center
+                        transition-all duration-300
+                        ${isSelected 
+                          ? "bg-gradient-to-br from-primary to-primary/60 scale-110" 
+                          : "bg-muted"
+                        }
+                      `}>
+                        <Icon 
+                          size={24} 
+                          className={`transition-all duration-300 ${isSelected ? "text-white" : "text-muted-foreground"}`} 
+                        />
                       </div>
-                      {(plan.badge || isHighlighted) && (
-                        <span className="rounded-full bg-primary text-primary-foreground text-[11px] px-2 py-0.5 font-semibold shadow-sm border border-primary/80">
-                          {plan.badge ?? "Populaire"}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Bloc prix */}
-                    <div className="flex items-end justify-between gap-4">
-                      <div className="space-y-1">
-                        <span className="text-[11px] uppercase tracking-wide text-primary font-semibold">
-                          {isOneTime
-                            ? "Paiement unique"
-                            : plan.commitment
-                            ? "Tarif engagé"
-                            : "Sans engagement"}
-                        </span>
-                        <div className="flex items-baseline gap-1">
-                          <p className="text-[24px] font-bold text-foreground leading-none">
-                            {isOneTime
-                              ? formatPrice(plan.oneTimePrice!)
-                              : formatPrice(plan.monthlyPrice)}
-                          </p>
-                          <span className="text-[13px] font-semibold text-foreground">
-                            €
+                      <div>
+                        <h3 className="text-base font-bold text-foreground">
+                          {plan.name}
+                        </h3>
+                        {plan.popular && (
+                          <span className="inline-block mt-1 text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                            POPULAIRE
                           </span>
-                          {!isOneTime && (
-                            <span className="text-[12px] font-normal text-muted-foreground">
-                              / mois
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[12px] text-muted-foreground">
-                          {isOneTime
-                            ? "Accès illimité après paiement."
-                            : plan.commitment
-                            ? `Engagement ${plan.commitment} mois`
-                            : "Résiliable à tout moment"}
-                        </p>
-
-                        {/* Ligne d’impact annuel subtile */}
-                        {!isOneTime && (
-                          <p className="text-[11px] text-muted-foreground">
-                            Soit {formatPrice(yearlyWithThisPlan)}€ / an
-                            {yearlySaving > 0 && (
-                              <>
-                                {" "}au lieu de {formatPrice(yearlyWithBase)}€,
-                                tu économises ~{formatPrice(yearlySaving)}€ / an.
-                              </>
-                            )}
-                          </p>
-                        )}
-
-                        {isOneTime && plan.oneTimePrice && (
-                          <p className="text-[11px] text-muted-foreground">
-                            Équivaut à {formatPrice(plan.oneTimePrice / 12)}€ / mois
-                            la première année.
-                          </p>
                         )}
                       </div>
-
-                      {isOneTime && plan.commitment && (
-                        <div className="text-right text-[11px] text-muted-foreground">
-                          <p>
-                            au lieu de{" "}
-                            <span className="line-through">
-                              {getWithoutCommitmentPrice(plan.commitment)}€
-                            </span>
-                          </p>
-                          <p>sans engagement</p>
-                        </div>
-                      )}
                     </div>
-
-                    {/* Séparateur */}
-                    <div className="h-px bg-border/70" />
-
-                    {/* Features */}
-                    <ul className="space-y-1.5">
-                      {plan.features.map((feature, i) => (
-                        <li
-                          key={i}
-                          className="flex items-center gap-2 text-[13px] text-muted-foreground"
-                        >
-                          <Check
-                            size={18}
-                            className="shrink-0 text-primary"
-                          />
-                          <span>{feature}</span>
-                        </li>
-                      ))}
-                    </ul>
+                    <div className={`
+                      w-5 h-5 rounded-full border-2 flex items-center justify-center 
+                      transition-all duration-300
+                      ${isSelected 
+                        ? "border-primary bg-primary scale-110" 
+                        : "border-muted-foreground/30 scale-100"
+                      }
+                    `}>
+                      <Check 
+                        size={12} 
+                        className={`text-white transition-all duration-200 ${isSelected ? "scale-100 opacity-100" : "scale-0 opacity-0"}`}
+                        strokeWidth={3} 
+                      />
+                    </div>
                   </div>
 
-                  {/* Halo rose sur la meilleure offre */}
-                  {isHighlighted && (
-                    <span className="pointer-events-none absolute -right-14 -top-14 h-28 w-28 rounded-full bg-primary/18 blur-3xl" />
-                  )}
+                  {/* Prix avec animation de changement */}
+                  <div className="mb-4 relative">
+                    {/* Badge économies annuel */}
+                    {isAnnual && plan.savings && (
+                      <div 
+                        className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-md animate-bounce-in"
+                      >
+                        {plan.savings}
+                      </div>
+                    )}
+                    
+                    <div className="flex items-baseline gap-1 mb-1">
+                      <span 
+                        key={displayPrice}
+                        className="text-3xl font-bold text-foreground animate-scale-in"
+                      >
+                        {Math.floor(displayPrice)}
+                      </span>
+                      <span className="text-lg font-semibold text-foreground">
+                        €
+                      </span>
+                      {!isAnnual && (
+                        <span className="text-sm text-muted-foreground">
+                          / mois
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground transition-all duration-300">
+                      {isAnnual 
+                        ? `${plan.commitment} mois • Paiement unique`
+                        : plan.commitment 
+                          ? `Engagement ${plan.commitment} mois`
+                          : "Sans engagement"
+                      }
+                    </p>
+                  </div>
+
+                  {/* Features */}
+                  <div className="space-y-2">
+                    {plan.features.map((feature, i) => (
+                      <div 
+                        key={i} 
+                        className="flex items-start gap-2"
+                        style={{ 
+                          animationDelay: `${(index * 100) + (i * 50)}ms` 
+                        }}
+                      >
+                        <Check 
+                          size={16} 
+                          className="text-primary mt-0.5 flex-shrink-0" 
+                          strokeWidth={2.5} 
+                        />
+                        <span className="text-sm text-muted-foreground">
+                          {feature}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </button>
               );
             })}
-          </section>
-
-          {/* Spacer before fixed footer */}
-          <div className="h-16" />
+          </div>
         </div>
 
-        {/* Fixed CTA footer optimisé iOS */}
-        <footer
-          className="fixed inset-x-0 bottom-0 bg-background/95 border-t backdrop-blur px-4"
-          style={{
-            paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))"
-          }}
+        {/* Footer fixe */}
+        <div 
+          className="fixed inset-x-0 bottom-0 bg-background/95 backdrop-blur-lg border-t border-border/50 px-4 py-4"
+          style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom))" }}
         >
-          <div className="max-w-md mx-auto flex flex-col gap-2 pt-2">
+          <div className="max-w-md mx-auto">
             <button
               disabled={!selectedPlan || isLoading}
               onClick={handleSubscribe}
-              className="w-full py-3 rounded-[14px] bg-primary text-primary-foreground font-semibold text-[15px] disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition-transform shadow-md"
-              style={{ WebkitTapHighlightColor: "transparent" }}
+              className="w-full py-4 rounded-2xl bg-primary text-white font-semibold text-base disabled:opacity-50 active:scale-[0.98] transition-all shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30"
             >
-              {isLoading
-                ? "Activation en cours..."
-                : selectedPlan
-                ? "Continuer vers le paiement"
-                : "Sélectionne une formule pour continuer"}
+              {isLoading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Activation...
+                </span>
+              ) : (
+                "Continuer"
+              )}
             </button>
-            <p className="text-[11px] text-muted-foreground text-center pb-1">
-              * Des frais s’appliquent à l’encaissement en ligne. Tu peux changer d’offre plus tard.
+            <p className="text-xs text-center text-muted-foreground mt-3">
+              Annule à tout moment • Paiement sécurisé
             </p>
           </div>
-        </footer>
+        </div>
       </div>
+
+      <style>{`
+        @keyframes bounce-in {
+          0% { transform: scale(0) rotate(-5deg); opacity: 0; }
+          50% { transform: scale(1.1) rotate(2deg); }
+          100% { transform: scale(1) rotate(0); }
+        }
+        
+        @keyframes scale-in {
+          0% { transform: scale(0.8); opacity: 0; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+
+        .animate-bounce-in {
+          animation: bounce-in 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        .animate-scale-in {
+          animation: scale-in 0.3s ease-out;
+        }
+      `}</style>
     </MobileLayout>
   );
 };

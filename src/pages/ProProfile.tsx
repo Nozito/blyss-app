@@ -1,57 +1,109 @@
 import MobileLayout from "@/components/MobileLayout";
 import { useNavigate } from "react-router-dom";
-import { Settings, ChevronRight, CreditCard, Bell, HelpCircle, LogOut } from "lucide-react";
+import {
+  Settings,
+  ChevronRight,
+  CreditCard,
+  Bell,
+  HelpCircle,
+  LogOut,
+  BadgeCheck,
+  Camera,
+} from "lucide-react";
 import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Cropper from "react-easy-crop";
 import getCroppedImg from "@/utils/cropImage";
-import { BadgeCheck } from "lucide-react";
+import { proApi } from "@/services/api";
 
 const ProProfile = () => {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      navigate('/login');
-    }
-  }, [isLoading, isAuthenticated, navigate]);
-  const displayActivity = user?.activity_name || "Non renseignée";
+  const initialPhoto =
+    user?.profile_photo && user.profile_photo.startsWith("http")
+      ? user.profile_photo
+      : user?.profile_photo
+      ? `http://localhost:3001${user.profile_photo}`
+      : logo;
 
-  const [profileImage, setProfileImage] = useState(user?.profile_photo || logo);
+  const [profileImage, setProfileImage] = useState(initialPhoto);
   const [tempProfileImage, setTempProfileImage] = useState<string | null>(null);
   const [showCropModal, setShowCropModal] = useState(false);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
   const inputFileRef = useRef<HTMLInputElement>(null);
 
-  const onCropComplete = useCallback((croppedArea, croppedAreaPixels) => {
-    setCroppedAreaPixels(croppedAreaPixels);
+  const [subscription, setSubscription] = useState<{
+    id: number;
+    plan: "start" | "serenite" | "signature";
+    billingType: "monthly" | "one_time";
+    monthlyPrice: number;
+    totalPrice: number | null;
+    commitmentMonths: number | null;
+    startDate: string;
+    endDate: string | null;
+    status: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      navigate("/login");
+    }
+  }, [isLoading, isAuthenticated, navigate]);
+
+  useEffect(() => {
+    if (user?.profile_photo) {
+      const url = user.profile_photo.startsWith("http")
+        ? user.profile_photo
+        : `http://localhost:3001${user.profile_photo}`;
+      setProfileImage(`${url}?t=${Date.now()}`);
+    }
+  }, [user?.profile_photo]);
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && user?.role === "pro") {
+      proApi.getSubscription().then((res) => {
+        if (res.success) {
+          setSubscription(res.data ?? null);
+        }
+      });
+    }
+  }, [isLoading, isAuthenticated, user]);
+
+  const displayActivity = user?.activity_name || "Non renseignée";
+  const displayName = user
+    ? `${user.first_name} ${user.last_name}`
+    : "Marie Beauté";
+
+  const onCropComplete = useCallback((_: any, cropped: any) => {
+    setCroppedAreaPixels(cropped);
   }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      const imageDataUrl = URL.createObjectURL(file);
-      setTempProfileImage(imageDataUrl);
-      setShowCropModal(true);
-      e.target.value = "";
-    }
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const imageDataUrl = URL.createObjectURL(file);
+    setTempProfileImage(imageDataUrl);
+    setShowCropModal(true);
+    e.target.value = "";
   };
 
-  const handleUpload = async () => {
+  const uploadCroppedPhoto = async () => {
     try {
       if (!user?.id) {
-        toast.error("Impossible d’uploader : l'utilisateur n'est pas défini");
+        toast.error("Impossible d'uploader : l'utilisateur n'est pas défini");
         return;
       }
       if (!tempProfileImage || !croppedAreaPixels) return;
 
-      const croppedImageResult = await getCroppedImg(tempProfileImage, croppedAreaPixels);
-      // getCroppedImg may return a Blob or a data URL string; normalize to Blob
+      const croppedImageResult = await getCroppedImg(
+        tempProfileImage,
+        croppedAreaPixels
+      );
       const croppedImageBlob =
         typeof croppedImageResult === "string"
           ? await (await fetch(croppedImageResult)).blob()
@@ -59,20 +111,15 @@ const ProProfile = () => {
 
       const formData = new FormData();
       formData.append("photo", croppedImageBlob, "profile.jpg");
+      formData.append("userId", String(user.id));
 
-      // Assurez-vous que user.id existe
-      if (user?.id) {
-        formData.append("userId", user.id.toString());
-      } else {
-        console.error("User ID is undefined!");
-      }
-
-      const response = await fetch("http://localhost:3001/api/users/upload-photo", {
-        method: "POST",
-        body: formData,
-      });
-
-      console.log("Raw response:", response);
+      const response = await fetch(
+        "http://localhost:3001/api/users/upload-photo",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
 
       if (!response.ok) {
         throw new Error("Upload failed");
@@ -80,10 +127,9 @@ const ProProfile = () => {
 
       const data = await response.json();
 
-      console.log("Parsed response data:", data);
-
       if (data?.photo) {
-        setProfileImage("http://localhost:3001" + data.photo + "?t=" + Date.now());
+        const url = `http://localhost:3001${data.photo}`;
+        setProfileImage(`${url}?t=${Date.now()}`);
         setShowCropModal(false);
         setTempProfileImage(null);
         toast.success("Photo de profil mise à jour");
@@ -91,15 +137,43 @@ const ProProfile = () => {
         throw new Error("URL de la photo non reçue");
       }
     } catch (error) {
-      toast.error((error as Error).message || "Erreur lors de la mise à jour de la photo");
+      toast.error(
+        (error as Error).message ||
+          "Erreur lors de la mise à jour de la photo"
+      );
     }
   };
 
-  const handleProfileImageClick = () => {
-    if (inputFileRef.current) {
-      inputFileRef.current.click();
-    }
+  const handleLogout = async () => {
+    await logout();
+    toast.success("Déconnexion réussie");
+    navigate("/");
   };
+
+  const hasActiveSubscription =
+    user?.pro_status === "active" && subscription?.status === "active";
+
+  const currentPlanLabel = subscription
+    ? subscription.plan === "serenite"
+      ? "Formule Sérénité"
+      : subscription.plan === "start"
+      ? "Formule Start"
+      : "Formule Signature"
+    : "Aucune formule";
+
+  const currentBillingLabel = subscription
+    ? subscription.billingType === "monthly"
+      ? "Mensuel"
+      : "Paiement unique"
+    : "";
+
+  const nextBillingDate = subscription?.endDate
+    ? new Date(subscription.endDate).toLocaleDateString("fr-FR", {
+        year: "numeric",
+        month: "long",
+        day: "2-digit",
+      })
+    : "";
 
   const menuItems = [
     { icon: Settings, label: "Paramètres", path: "/pro/settings" },
@@ -108,66 +182,70 @@ const ProProfile = () => {
     { icon: HelpCircle, label: "Aide", path: "/pro/help" },
   ];
 
-  const handleLogout = async () => {
-    await logout();
-    toast.success("Déconnexion réussie");
-    navigate("/");
-  };
-
-  const displayName = user ? `${user?.first_name} ${user?.last_name}` : "Marie Beauté";
-
-  const currentPlanLabel = "Formule Sérénité";
-  const currentBillingLabel = "Mensuel";
-  const nextBillingDate = "15 janvier 2026";
-
   return (
     <MobileLayout>
-      <div className="py-6 animate-fade-in">
+      <div className="pb-6">
         {/* Header */}
-        <div className="mb-5">
-          <h1 className="text-2xl font-semibold text-foreground">
+        <div className="relative -mx-4 px-4 pt-6 pb-4 mb-3 bg-gradient-to-b from-primary/5 to-transparent">
+          <h1 className="text-2xl font-bold text-foreground mb-1 animate-fade-in">
             Mon profil
           </h1>
+          <p className="text-sm text-muted-foreground animate-fade-in" style={{ animationDelay: "0.1s" }}>
+            Gère ton compte professionnel
+          </p>
         </div>
 
         {/* Profile Card */}
-        <div className="blyss-card flex items-center gap-4 mb-6 animate-slide-up">
-          <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center relative cursor-pointer overflow-hidden">
-            <img src={profileImage} alt="Profile" className="w-20 h-20 object-contain" />
-            <input
-              type="file"
-              accept="image/*"
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              onChange={(e) => {
-                if (e.target.files && e.target.files[0]) {
-                  const file = e.target.files[0];
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    setTempProfileImage(reader.result as string);
-                    setShowCropModal(true);
-                  };
-                  reader.readAsDataURL(file);
-                }
-              }}
-            />
-          </div>
-          <div className="flex-1">
-            <h2 className="text-lg font-semibold text-foreground">
-              {displayName}
-            </h2>
-            {user?.email && (
-              <p className="text-sm text-muted-foreground">{user?.email}</p>
-            )}
-            <p className="text-sm text-muted-foreground">{displayActivity}</p>
-            <p className="text-xs text-primary mt-1">Profil complété à 95%</p>
+        <div 
+          className="blyss-card mb-6 animate-slide-up group hover:shadow-lg transition-all duration-300"
+          style={{ animationDelay: "0.1s" }}
+        >
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center overflow-hidden ring-2 ring-primary/10 transition-all duration-300 group-hover:ring-primary/30">
+                <img
+                  src={profileImage}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                />
+                <input
+                  ref={inputFileRef}
+                  type="file"
+                  accept="image/*"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  onChange={handleFileChange}
+                />
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-primary shadow-lg flex items-center justify-center cursor-pointer group-hover:scale-110 transition-transform">
+                <Camera size={14} className="text-white" />
+              </div>
+            </div>
+
+            <div className="flex-1">
+              <h2 className="text-lg font-bold text-foreground mb-0.5">
+                {displayName}
+              </h2>
+              <p className="text-sm text-muted-foreground mb-2">
+                {displayActivity}
+              </p>
+              <div className="flex items-center gap-1.5">
+                <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full w-[95%] bg-gradient-to-r from-primary to-primary/60 rounded-full" />
+                </div>
+                <span className="text-[10px] font-semibold text-primary">95%</span>
+              </div>
+            </div>
           </div>
         </div>
 
+        {/* Modal crop */}
         {showCropModal && tempProfileImage && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-            <div className="bg-white rounded-3xl p-4 w-[90%] max-w-sm flex flex-col items-center">
-              <h3 className="font-semibold text-foreground mb-4">Ajustez votre photo</h3>
-              <div className="relative w-full h-64 rounded-xl overflow-hidden mb-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-3xl p-6 w-[90%] max-w-sm flex flex-col items-center shadow-2xl animate-scale-in">
+              <h3 className="font-bold text-foreground mb-4 text-lg">
+                Ajuste ta photo
+              </h3>
+              <div className="relative w-full h-64 rounded-2xl overflow-hidden mb-4 ring-2 ring-border">
                 <Cropper
                   image={tempProfileImage}
                   crop={crop}
@@ -175,11 +253,10 @@ const ProProfile = () => {
                   aspect={1}
                   onCropChange={setCrop}
                   onZoomChange={setZoom}
-                  onCropComplete={(_, croppedAreaPixels) => setCroppedAreaPixels(croppedAreaPixels)}
+                  onCropComplete={onCropComplete}
                 />
               </div>
 
-              {/* Zoom Slider */}
               <input
                 type="range"
                 min={1}
@@ -187,64 +264,22 @@ const ProProfile = () => {
                 step={0.01}
                 value={zoom}
                 onChange={(e) => setZoom(Number(e.target.value))}
-                className="w-full mt-2"
+                className="w-full mt-2 mb-6"
               />
 
-              <div className="flex gap-4 w-full mt-4">
+              <div className="flex gap-3 w-full">
                 <button
-                  onClick={() => { setTempProfileImage(null); setShowCropModal(false); }}
-                  className="flex-1 py-3 rounded-xl bg-muted text-foreground font-medium"
+                  onClick={() => {
+                    setTempProfileImage(null);
+                    setShowCropModal(false);
+                  }}
+                  className="flex-1 py-3 rounded-xl bg-muted text-foreground font-semibold active:scale-95 transition-transform"
                 >
                   Annuler
                 </button>
                 <button
-                  onClick={async () => {
-                    if (!user?.id) {
-                      toast.error("Impossible d’uploader : l'utilisateur n'est pas défini");
-                      return;
-                    }
-                    if (!croppedAreaPixels) return;
-                    try {
-                      const croppedImage = await getCroppedImg(tempProfileImage, croppedAreaPixels);
-                      const blob =
-                        typeof croppedImage === "string"
-                          ? await (await fetch(croppedImage)).blob()
-                          : croppedImage;
-                      const formData = new FormData();
-                      formData.append("photo", blob, "profile.jpg");
-                      if (user?.id) {
-                        formData.append("userId", user.id.toString());
-                      }
-                      // Log FormData entries
-                      console.log("FormData entries:");
-                      for (const pair of formData.entries()) {
-                        console.log(pair[0], pair[1]);
-                      }
-                      // Upload to correct backend URL
-                      console.log("Uploading photo with FormData entries:");
-                      for (const pair of formData.entries()) {
-                        console.log(pair[0], pair[1]);
-                      }
-                      const response = await fetch("http://localhost:3001/api/users/upload-photo", {
-                        method: "POST",
-                        body: formData,
-                      });
-                      console.log("Raw response:", response);
-                      const data = await response.json();
-                      console.log("Parsed response data:", data);
-                      if (data?.photo) {
-                        setProfileImage("http://localhost:3001" + data.photo + "?t=" + Date.now());
-                        toast.success("Photo de profil mise à jour");
-                        setShowCropModal(false);
-                        setTempProfileImage(null);
-                      } else {
-                        throw new Error("URL de la photo non reçue");
-                      }
-                    } catch (error) {
-                      toast.error((error as Error).message || "Erreur lors de la mise à jour de la photo");
-                    }
-                  }}
-                  className="flex-1 py-3 rounded-xl bg-blyss-pink text-white font-medium"
+                  onClick={uploadCroppedPhoto}
+                  className="flex-1 py-3 rounded-xl bg-primary text-white font-semibold shadow-lg shadow-primary/30 active:scale-95 transition-transform"
                 >
                   Valider
                 </button>
@@ -253,86 +288,156 @@ const ProProfile = () => {
           </div>
         )}
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-3 mb-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-          <div className="stat-card text-center">
-            <p className="text-2xl font-bold text-primary">156</p>
-            <p className="text-xs text-muted-foreground">Clientes</p>
-          </div>
-          <div className="stat-card text-center">
-            <p className="text-2xl font-bold text-primary">4.9</p>
-            <p className="text-xs text-muted-foreground">Note</p>
-          </div>
-          <div className="stat-card text-center">
-            <p className="text-2xl font-bold text-primary">2 ans</p>
-            <p className="text-xs text-muted-foreground">Sur Blyss</p>
-          </div>
-        </div>
-
-         {/* ENCARDS ABONNEMENT */}
+        {/* Stats style pro */}
         <div
-          className="blyss-card flex items-center gap-4 animate-slide-up active:scale-[0.99] transition-all cursor-pointer mb-6"
-          style={{ animationDelay: "0.12s" }}
-          onClick={() => navigate("/pro/subscription")}
+          className="blyss-card mb-6 animate-slide-up"
+          style={{ animationDelay: "0.2s" }}
         >
-          <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center">
-            <CreditCard size={20} className="text-primary" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-foreground truncate">
-          Mon abonnement
+          <div className="grid grid-cols-3 divide-x divide-border">
+            <div className="text-center px-3 py-2">
+              <p className="text-2xl font-bold text-foreground mb-1">
+                {user?.clients_count ?? "–"}
               </p>
-              <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 text-[10px] px-2 py-0.5">
-          <BadgeCheck size={12} className="mr-1" />
-          Actif
-              </span>
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
+                Clientes
+              </p>
             </div>
-            <p className="text-[12px] text-muted-foreground mt-0.5">
-              {currentPlanLabel} · {currentBillingLabel}
-            </p>
-            <p className="text-[11px] text-muted-foreground">
-              Prochain prélèvement le {nextBillingDate}
-            </p>
+
+            <div className="text-center px-3 py-2">
+              <p className="text-2xl font-bold text-foreground mb-1">
+                {user?.avg_rating != null ? user.avg_rating.toFixed(1) : "–"}
+              </p>
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
+                Note
+              </p>
+            </div>
+
+            <div className="text-center px-3 py-2">
+              <p className="text-lg font-bold text-foreground mb-1">
+                {user?.years_on_blyss ?? "–"}
+              </p>
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
+                Sur Blyss
+              </p>
+            </div>
           </div>
-          <ChevronRight size={18} className="text-muted-foreground flex-shrink-0" />
         </div>
 
+        {/* Abonnement */}
+        <div
+          className="relative overflow-hidden rounded-2xl mb-6 animate-slide-up group cursor-pointer"
+          style={{ animationDelay: "0.3s" }}
+          onClick={() => {
+            if (isAuthenticated && hasActiveSubscription) {
+              navigate("/pro/subscription-settings");
+            } else {
+              navigate("/pro/subscription");
+            }
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent" />
+          <div className="relative blyss-card border-primary/20 group-hover:shadow-lg group-active:scale-[0.98] transition-all duration-300">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg shadow-primary/20 group-hover:scale-110 transition-transform">
+                <CreditCard size={24} className="text-white" />
+              </div>
 
-        {/* Menu Items */}
-        <div className="blyss-card p-0 overflow-hidden mb-6 animate-slide-up" style={{ animationDelay: "0.15s" }}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-base font-bold text-foreground">
+                    Mon abonnement
+                  </p>
+                  {hasActiveSubscription && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 text-[10px] px-2 py-1 font-semibold animate-pulse-soft">
+                      <BadgeCheck size={12} />
+                      Actif
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-sm text-muted-foreground font-medium">
+                  {currentPlanLabel}
+                  {currentBillingLabel && ` · ${currentBillingLabel}`}
+                </p>
+
+                {nextBillingDate && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Prochain: {nextBillingDate}
+                  </p>
+                )}
+              </div>
+
+              <ChevronRight
+                size={20}
+                className="text-muted-foreground group-hover:translate-x-1 transition-transform"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Menu */}
+        <div
+          className="blyss-card p-0 overflow-hidden mb-6 animate-slide-up"
+          style={{ animationDelay: "0.4s" }}
+        >
           {menuItems.map((item, index) => (
             <button
               key={index}
               onClick={() => navigate(item.path)}
-              className="w-full flex items-center gap-4 px-4 py-4 hover:bg-muted/50 active:bg-muted active:scale-[0.99] transition-all border-b border-border last:border-b-0"
+              className="w-full flex items-center gap-4 px-4 py-4 hover:bg-muted/50 active:bg-muted active:scale-[0.99] transition-all border-b border-border last:border-b-0 group"
             >
-              <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center">
+              <div className="w-11 h-11 rounded-xl bg-accent flex items-center justify-center group-hover:scale-110 transition-transform">
                 <item.icon size={20} className="text-primary" />
               </div>
-              <span className="flex-1 text-left font-medium text-foreground">{item.label}</span>
-              <ChevronRight size={20} className="text-muted-foreground" />
+              <span className="flex-1 text-left font-semibold text-foreground">
+                {item.label}
+              </span>
+              <ChevronRight size={20} className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
             </button>
           ))}
         </div>
 
-        {/* Logout */}
+        {/* Déconnexion */}
         <button
           onClick={handleLogout}
-          className="blyss-card w-full flex items-center gap-4 animate-slide-up active:scale-[0.98] transition-transform"
-          style={{ animationDelay: "0.2s" }}
+          className="blyss-card w-full flex items-center gap-4 animate-slide-up active:scale-[0.98] transition-all border-2 border-transparent hover:border-destructive/20 group"
+          style={{ animationDelay: "0.5s" }}
         >
-          <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center">
-            <LogOut size={20} className="text-destructive" />
+          <div className="w-11 h-11 rounded-xl bg-destructive/10 flex items-center justify-center group-hover:bg-destructive group-hover:scale-110 transition-all">
+            <LogOut size={20} className="text-destructive group-hover:text-white transition-colors" />
           </div>
-          <span className="flex-1 text-left font-medium text-destructive">Se déconnecter</span>
+          <span className="flex-1 text-left font-semibold text-destructive">
+            Se déconnecter
+          </span>
         </button>
 
-        {/* App Version */}
-        <p className="text-center text-xs text-muted-foreground mt-8 animate-fade-in" style={{ animationDelay: "0.3s" }}>
+        <p
+          className="text-center text-xs text-muted-foreground mt-8 animate-fade-in"
+          style={{ animationDelay: "0.6s" }}
+        >
           Blyss v1.0.0
         </p>
       </div>
+
+      <style>{`
+        @keyframes pulse-soft {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.8; }
+        }
+        
+        @keyframes scale-in {
+          0% { transform: scale(0.9); opacity: 0; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+
+        .animate-pulse-soft {
+          animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        .animate-scale-in {
+          animation: scale-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+      `}</style>
     </MobileLayout>
   );
 };

@@ -1,8 +1,18 @@
 import MobileLayout from "@/components/MobileLayout";
 import { useNavigate } from "react-router-dom";
-import { Settings, ChevronRight, CreditCard, Bell, HelpCircle, LogOut } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+  Settings,
+  ChevronRight,
+  CreditCard,
+  Bell,
+  HelpCircle,
+  LogOut,
+  Camera,
+  Star,
+} from "lucide-react";
 import logo from "@/assets/logo.png";
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Cropper from "react-easy-crop";
 import getCroppedImg from "@/utils/cropImage";
 import { useAuth } from "@/contexts/AuthContext";
@@ -11,7 +21,16 @@ import { toast } from "sonner";
 const ClientProfile = () => {
   const navigate = useNavigate();
   const { user, logout, isAuthenticated } = useAuth();
-  const [profileImage, setProfileImage] = useState(logo);
+  const inputFileRef = useRef<HTMLInputElement>(null);
+
+  const initialPhoto =
+    user?.profile_photo && user.profile_photo.startsWith("http")
+      ? user.profile_photo
+      : user?.profile_photo
+      ? `http://localhost:3001${user.profile_photo}`
+      : logo;
+
+  const [profileImage, setProfileImage] = useState(initialPhoto);
   const [tempProfileImage, setTempProfileImage] = useState<string | null>(null);
   const [showCropModal, setShowCropModal] = useState(false);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
@@ -25,61 +44,175 @@ const ClientProfile = () => {
     { icon: HelpCircle, label: "Aide", path: "/client/help" },
   ];
 
+  useEffect(() => {
+    if (user?.profile_photo) {
+      const url = user.profile_photo.startsWith("http")
+        ? user.profile_photo
+        : `http://localhost:3001${user.profile_photo}`;
+      setProfileImage(`${url}?t=${Date.now()}`);
+    }
+  }, [user?.profile_photo]);
+
+  const onCropComplete = useCallback((_: any, cropped: any) => {
+    setCroppedAreaPixels(cropped);
+  }, []);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const imageDataUrl = URL.createObjectURL(file);
+    setTempProfileImage(imageDataUrl);
+    setShowCropModal(true);
+    e.target.value = "";
+  };
+
+  const uploadCroppedPhoto = async () => {
+    try {
+      if (!user?.id) {
+        toast.error("Impossible d'uploader : l'utilisateur n'est pas défini");
+        return;
+      }
+      if (!tempProfileImage || !croppedAreaPixels) return;
+
+      const croppedImageResult = await getCroppedImg(
+        tempProfileImage,
+        croppedAreaPixels
+      );
+      const croppedImageBlob =
+        typeof croppedImageResult === "string"
+          ? await (await fetch(croppedImageResult)).blob()
+          : croppedImageResult;
+
+      const formData = new FormData();
+      formData.append("photo", croppedImageBlob, "profile.jpg");
+      formData.append("userId", String(user.id));
+
+      const response = await fetch(
+        "http://localhost:3001/api/users/upload-photo",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Upload failed");
+      }
+
+      const data = await response.json();
+
+      if (data?.photo) {
+        const url = `http://localhost:3001${data.photo}`;
+        setProfileImage(`${url}?t=${Date.now()}`);
+        setShowCropModal(false);
+        setTempProfileImage(null);
+        toast.success("Photo de profil mise à jour");
+      } else {
+        throw new Error("URL de la photo non reçue");
+      }
+    } catch (error) {
+      toast.error(
+        (error as Error).message ||
+          "Erreur lors de la mise à jour de la photo"
+      );
+    }
+  };
+
   const handleLogout = async () => {
     await logout();
     toast.success("Déconnexion réussie");
     navigate("/");
   };
 
-  const displayName = user ? `${user.first_name} ${user.last_name}` : "Marie Dubois";
+  const displayName = user
+    ? `${user.first_name} ${user.last_name}`
+    : "Marie Dubois";
 
   return (
     <MobileLayout>
-      <div className="animate-fade-in">
+      <div className="pb-6">
         {/* Header */}
-        <div className="pt-6 pb-4 animate-fade-in text-center">
-          <h1 className="text-2xl font-semibold text-foreground mb-1">
+        <motion.div
+          className="relative -mx-4 px-4 pt-6 pb-4 mb-3 bg-gradient-to-b from-primary/5 to-transparent"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+        >
+          <h1 className="text-2xl font-bold text-foreground mb-1">
             Mon profil
           </h1>
-        </div>
+          <p className="text-sm text-muted-foreground">
+            Gère ton compte Blyss
+          </p>
+        </motion.div>
 
         {/* Profile Card */}
-        <div className="blyss-card flex items-center gap-4 mb-6 animate-slide-up">
-          <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center relative cursor-pointer overflow-hidden">
-            <img src={profileImage} alt="Profile" className="w-20 h-20 object-contain" />
-            <input
-              type="file"
-              accept="image/*"
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              onChange={(e) => {
-                if (e.target.files && e.target.files[0]) {
-                  const file = e.target.files[0];
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    setTempProfileImage(reader.result as string);
-                    setShowCropModal(true);
-                  };
-                  reader.readAsDataURL(file);
-                }
-              }}
-            />
-          </div>
-          <div className="flex-1">
-            <h2 className="text-lg font-semibold text-foreground">
-              {displayName}
-            </h2>
-            {user?.email && (
-              <p className="text-sm text-muted-foreground">{user.email}</p>
-            )}
-            <p className="text-xs text-primary mt-1">Profil complété à 95%</p>
-          </div>
-        </div>
+        <motion.div
+          className="bg-card rounded-3xl p-5 shadow-lg shadow-black/5 border border-muted mb-6 group hover:shadow-xl transition-all duration-300"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.5 }}
+        >
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center overflow-hidden ring-2 ring-primary/10 transition-all duration-300 group-hover:ring-primary/30">
+                <img
+                  src={profileImage}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                />
+                <input
+                  ref={inputFileRef}
+                  type="file"
+                  accept="image/*"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  onChange={handleFileChange}
+                />
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-primary shadow-lg flex items-center justify-center cursor-pointer group-hover:scale-110 transition-transform">
+                <Camera size={14} className="text-white" />
+              </div>
+            </div>
 
+            <div className="flex-1">
+              <h2 className="text-lg font-bold text-foreground mb-0.5">
+                {displayName}
+              </h2>
+              {user?.email && (
+                <p className="text-sm text-muted-foreground mb-2">
+                  {user.email}
+                </p>
+              )}
+              <div className="flex items-center gap-1.5">
+                <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full w-[95%] bg-gradient-to-r from-primary to-primary/60 rounded-full" />
+                </div>
+                <span className="text-[10px] font-semibold text-primary">
+                  95%
+                </span>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Modal crop */}
         {showCropModal && tempProfileImage && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-            <div className="bg-white rounded-3xl p-4 w-[90%] max-w-sm flex flex-col items-center">
-              <h3 className="font-semibold text-foreground mb-4">Ajustez votre photo</h3>
-              <div className="relative w-full h-64 rounded-xl overflow-hidden mb-4">
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-white rounded-3xl p-6 w-[90%] max-w-sm flex flex-col items-center shadow-2xl"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            >
+              <h3 className="font-bold text-foreground mb-4 text-lg">
+                Ajuste ta photo
+              </h3>
+              <div className="relative w-full h-64 rounded-2xl overflow-hidden mb-4 ring-2 ring-border">
                 <Cropper
                   image={tempProfileImage}
                   crop={crop}
@@ -87,11 +220,10 @@ const ClientProfile = () => {
                   aspect={1}
                   onCropChange={setCrop}
                   onZoomChange={setZoom}
-                  onCropComplete={(_, croppedAreaPixels) => setCroppedAreaPixels(croppedAreaPixels)}
+                  onCropComplete={onCropComplete}
                 />
               </div>
 
-              {/* Zoom Slider */}
               <input
                 type="range"
                 min={1}
@@ -99,109 +231,85 @@ const ClientProfile = () => {
                 step={0.01}
                 value={zoom}
                 onChange={(e) => setZoom(Number(e.target.value))}
-                className="w-full mt-2"
+                className="w-full mt-2 mb-6"
               />
 
-              <div className="flex gap-4 w-full mt-4">
+              <div className="flex gap-3 w-full">
                 <button
-                  onClick={() => { setTempProfileImage(null); setShowCropModal(false); }}
-                  className="flex-1 py-3 rounded-xl bg-muted text-foreground font-medium"
+                  onClick={() => {
+                    setTempProfileImage(null);
+                    setShowCropModal(false);
+                  }}
+                  className="flex-1 py-3 rounded-xl bg-muted text-foreground font-semibold active:scale-95 transition-transform"
                 >
                   Annuler
                 </button>
                 <button
-                  onClick={async () => {
-                    if (!croppedAreaPixels) return;
-                    try {
-                      const croppedImage = await getCroppedImg(tempProfileImage, croppedAreaPixels);
-                      // Convert base64 image to blob
-                      const res = await fetch(croppedImage);
-                      const blob = await res.blob();
-                      // Prepare form data
-                      const formData = new FormData();
-                      formData.append("photo", blob, "profile.jpg");
-                      if (user && user.id) {
-                        formData.append("userId", user.id.toString());
-                      }
-                      // Upload to backend
-                      const response = await fetch("/api/users/upload-photo", {
-                        method: "POST",
-                        body: formData,
-                      });
-                      if (!response.ok) {
-                        throw new Error("Erreur lors de l'upload de la photo");
-                      }
-                      const data = await response.json();
-                      if (data.photoUrl) {
-                        setProfileImage(data.photoUrl);
-                        toast.success("Photo de profil mise à jour");
-                      } else {
-                        throw new Error("URL de la photo non reçue");
-                      }
-                      setTempProfileImage(null);
-                      setShowCropModal(false);
-                    } catch (error) {
-                      toast.error((error as Error).message || "Erreur lors de la mise à jour de la photo");
-                    }
-                  }}
-                  className="flex-1 py-3 rounded-xl bg-blyss-pink text-white font-medium"
+                  onClick={uploadCroppedPhoto}
+                  className="flex-1 py-3 rounded-xl bg-primary text-white font-semibold shadow-lg shadow-primary/30 active:scale-95 transition-transform"
                 >
                   Valider
                 </button>
               </div>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         )}
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-3 mb-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
-          <div className="stat-card text-center">
-            <p className="text-2xl font-bold text-blyss-pink">156</p>
-            <p className="text-xs text-muted-foreground">Réservations</p>
-          </div>
-          <div className="stat-card text-center">
-            <p className="text-2xl font-bold text-blyss-pink">4.9</p>
-            <p className="text-xs text-muted-foreground">Note</p>
-          </div>
-          <div className="stat-card text-center">
-            <p className="text-2xl font-bold text-blyss-pink">2 ans</p>
-            <p className="text-xs text-muted-foreground">Sur Blyss</p>
-          </div>
-        </div>
-
         {/* Menu Items */}
-        <div className="blyss-card p-0 overflow-hidden mb-6 animate-slide-up" style={{ animationDelay: "0.15s" }}>
+        <motion.div
+          className="bg-card rounded-3xl p-0 overflow-hidden shadow-lg shadow-black/5 border border-muted mb-6"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, duration: 0.5 }}
+        >
           {menuItems.map((item, index) => (
             <button
               key={index}
               onClick={() => navigate(item.path)}
-              className="w-full flex items-center gap-4 px-4 py-4 hover:bg-muted/50 active:bg-muted active:scale-[0.99] transition-all border-b border-border last:border-b-0"
+              className="w-full flex items-center gap-4 px-4 py-4 hover:bg-muted/50 active:bg-muted active:scale-[0.99] transition-all border-b border-border last:border-b-0 group"
             >
-              <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center">
+              <div className="w-11 h-11 rounded-xl bg-accent flex items-center justify-center group-hover:scale-110 transition-transform">
                 <item.icon size={20} className="text-primary" />
               </div>
-              <span className="flex-1 text-left font-medium text-foreground">{item.label}</span>
-              <ChevronRight size={20} className="text-muted-foreground" />
+              <span className="flex-1 text-left font-semibold text-foreground">
+                {item.label}
+              </span>
+              <ChevronRight
+                size={20}
+                className="text-muted-foreground group-hover:translate-x-1 transition-transform"
+              />
             </button>
           ))}
-        </div>
+        </motion.div>
 
         {/* Logout */}
-        <button
+        <motion.button
           onClick={handleLogout}
-          className="blyss-card w-full flex items-center gap-4 animate-slide-up active:scale-[0.98] transition-transform"
-          style={{ animationDelay: "0.2s" }}
+          className="bg-card rounded-3xl p-4 shadow-lg shadow-black/5 border-2 border-transparent hover:border-destructive/20 w-full flex items-center gap-4 active:scale-[0.98] transition-all group"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4, duration: 0.5 }}
         >
-          <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center">
-            <LogOut size={20} className="text-destructive" />
+          <div className="w-11 h-11 rounded-xl bg-destructive/10 flex items-center justify-center group-hover:bg-destructive group-hover:scale-110 transition-all">
+            <LogOut
+              size={20}
+              className="text-destructive group-hover:text-white transition-colors"
+            />
           </div>
-          <span className="flex-1 text-left font-medium text-destructive">Se déconnecter</span>
-        </button>
+          <span className="flex-1 text-left font-semibold text-destructive">
+            Se déconnecter
+          </span>
+        </motion.button>
 
         {/* App Version */}
-        <p className="text-center text-xs text-muted-foreground mt-8 animate-fade-in" style={{ animationDelay: "0.3s" }}>
+        <motion.p
+          className="text-center text-xs text-muted-foreground mt-8"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5, duration: 0.5 }}
+        >
           Blyss v1.0.0
-        </p>
+        </motion.p>
       </div>
     </MobileLayout>
   );

@@ -92,7 +92,7 @@ const App = () => {
               <Route path="/client/notifications" element={<ClientNotifications />} />
               <Route path="/client/payments" element={<ClientPayements />} />
               <Route path="/client/settings" element={<ClientSettings />} />
-
+              <Route path="/client/booking/:id" element={<ClientBooking/>} />
 
               {/* CLIENT */}
               <Route
@@ -113,14 +113,6 @@ const App = () => {
               />
               <Route
                 path="/client/booking"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ClientBooking />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/client/booking/:id"
                 element={
                   <MobileLayout showNav={!showSplash}>
                     <ClientBooking />

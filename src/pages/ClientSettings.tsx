@@ -1,5 +1,6 @@
 import MobileLayout from "@/components/MobileLayout";
-import { ChevronLeft } from "lucide-react";
+import { motion } from "framer-motion";
+import { ArrowLeft, User, Lock, Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -24,6 +25,10 @@ const ClientSettings = () => {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [errors, setErrors] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -109,160 +114,299 @@ const ClientSettings = () => {
 
   return (
     <MobileLayout showNav={false}>
-      <div className="animate-fade-in">
+      <div className="pb-6">
         {/* Header */}
-        <div className="flex items-center mb-2">
+        <motion.div
+          className="flex items-center gap-3 mb-6 pt-6"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+        >
           <button
             onClick={() => navigate("/client/profile")}
-            className="p-2 -ml-2"
-            aria-label="Retour au profil"
+            className="
+              w-11 h-11 rounded-2xl bg-card border border-muted
+              flex items-center justify-center
+              hover:bg-muted/50
+              transition-all duration-300
+              active:scale-95
+            "
+            aria-label="Retour"
           >
-            <ChevronLeft size={24} className="text-foreground" />
+            <ArrowLeft size={20} className="text-foreground" />
           </button>
-          <h1 className="font-display text-2xl font-semibold text-foreground ml-2">
-            Paramètres
-          </h1>
-        </div>
-        <p className="text-muted-foreground text-sm mb-5">
-          Gère ton compte, tes infos et ta sécurité.
-        </p>
+          <div className="flex-1">
+            <h1 className="text-2xl font-display font-bold text-foreground">
+              Paramètres
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Gère ton compte et ta sécurité
+            </p>
+          </div>
+        </motion.div>
 
         {/* SECTION : Infos personnelles */}
-        <div className="space-y-4 mb-6">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Infos personnelles
-          </h2>
+        <motion.div
+          className="space-y-3 mb-6"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.5 }}
+        >
+          <div className="flex items-center gap-2 px-1">
+            <User size={16} className="text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">
+              Infos personnelles
+            </h2>
+          </div>
 
-          <div className="blyss-card flex flex-col gap-3">
-            <div className="flex flex-col">
-              <label htmlFor="lastName" className="text-xs text-muted-foreground mb-1">
+          <div className="bg-card rounded-3xl p-5 shadow-lg shadow-black/5 border border-muted space-y-4">
+            <div className="space-y-2">
+              <label
+                htmlFor="lastName"
+                className="text-xs font-medium text-muted-foreground"
+              >
                 Nom
               </label>
               <input
                 id="lastName"
                 type="text"
                 maxLength={100}
-                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
+                className="
+                  w-full h-12 px-4 rounded-2xl
+                  border-2 border-muted
+                  bg-background text-foreground
+                  focus:outline-none focus:border-primary
+                  transition-all duration-300
+                "
                 placeholder="Ton nom"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
               />
             </div>
 
-            <div className="flex flex-col">
-              <label htmlFor="firstName" className="text-xs text-muted-foreground mb-1">
+            <div className="space-y-2">
+              <label
+                htmlFor="firstName"
+                className="text-xs font-medium text-muted-foreground"
+              >
                 Prénom
               </label>
               <input
                 id="firstName"
                 type="text"
                 maxLength={100}
-                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
+                className="
+                  w-full h-12 px-4 rounded-2xl
+                  border-2 border-muted
+                  bg-background text-foreground
+                  focus:outline-none focus:border-primary
+                  transition-all duration-300
+                "
                 placeholder="Ton prénom"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
               />
             </div>
 
-            <div className="flex flex-col">
-              <label htmlFor="birthDate" className="text-xs text-muted-foreground mb-1">
+            <div className="space-y-2">
+              <label
+                htmlFor="birthDate"
+                className="text-xs font-medium text-muted-foreground"
+              >
                 Date de naissance
               </label>
               <input
                 id="birthDate"
                 type="date"
-                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
+                className="
+                  w-full h-12 px-4 rounded-2xl
+                  border-2 border-muted
+                  bg-background text-foreground
+                  focus:outline-none focus:border-primary
+                  transition-all duration-300
+                "
                 value={birthDate}
                 onChange={(e) => setBirthDate(e.target.value)}
               />
             </div>
           </div>
-        </div>
+        </motion.div>
 
         {/* SECTION : Sécurité / mot de passe */}
-        <div className="space-y-4 mb-6">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Sécurité
-          </h2>
+        <motion.div
+          className="space-y-3 mb-6"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.5 }}
+        >
+          <div className="flex items-center gap-2 px-1">
+            <Lock size={16} className="text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">
+              Sécurité
+            </h2>
+          </div>
 
-          <div className="blyss-card flex flex-col gap-3">
-            <div className="flex flex-col">
-              <label htmlFor="currentPassword" className="text-xs text-muted-foreground mb-1">
+          <div className="bg-card rounded-3xl p-5 shadow-lg shadow-black/5 border border-muted space-y-4">
+            <div className="space-y-2">
+              <label
+                htmlFor="currentPassword"
+                className="text-xs font-medium text-muted-foreground"
+              >
                 Ancien mot de passe
               </label>
-              <input
-                id="currentPassword"
-                type="password"
-                autoComplete="current-password"
-                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
-                placeholder="Ton mot de passe actuel"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-              />
+              <div className="relative">
+                <input
+                  id="currentPassword"
+                  type={showCurrentPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  className="
+                    w-full h-12 px-4 pr-12 rounded-2xl
+                    border-2 border-muted
+                    bg-background text-foreground
+                    focus:outline-none focus:border-primary
+                    transition-all duration-300
+                  "
+                  placeholder="Mot de passe actuel"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showCurrentPassword ? (
+                    <EyeOff size={18} />
+                  ) : (
+                    <Eye size={18} />
+                  )}
+                </button>
+              </div>
             </div>
 
-            <div className="flex flex-col">
-              <label htmlFor="newPassword" className="text-xs text-muted-foreground mb-1">
+            <div className="space-y-2">
+              <label
+                htmlFor="newPassword"
+                className="text-xs font-medium text-muted-foreground"
+              >
                 Nouveau mot de passe
               </label>
-              <input
-                id="newPassword"
-                type="password"
-                autoComplete="new-password"
-                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
-                placeholder="Nouveau mot de passe"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-              />
+              <div className="relative">
+                <input
+                  id="newPassword"
+                  type={showNewPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  className="
+                    w-full h-12 px-4 pr-12 rounded-2xl
+                    border-2 border-muted
+                    bg-background text-foreground
+                    focus:outline-none focus:border-primary
+                    transition-all duration-300
+                  "
+                  placeholder="Nouveau mot de passe"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showNewPassword ? (
+                    <EyeOff size={18} />
+                  ) : (
+                    <Eye size={18} />
+                  )}
+                </button>
+              </div>
             </div>
 
-            <div className="flex flex-col">
-              <label htmlFor="newPasswordConfirm" className="text-xs text-muted-foreground mb-1">
+            <div className="space-y-2">
+              <label
+                htmlFor="newPasswordConfirm"
+                className="text-xs font-medium text-muted-foreground"
+              >
                 Confirme le nouveau mot de passe
               </label>
-              <input
-                id="newPasswordConfirm"
-                type="password"
-                autoComplete="new-password"
-                className="border border-muted rounded-xl px-3 h-11 w-full text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
-                placeholder="Répète le nouveau mot de passe"
-                value={newPasswordConfirm}
-                onChange={(e) => setNewPasswordConfirm(e.target.value)}
-              />
+              <div className="relative">
+                <input
+                  id="newPasswordConfirm"
+                  type={showConfirmPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  className="
+                    w-full h-12 px-4 pr-12 rounded-2xl
+                    border-2 border-muted
+                    bg-background text-foreground
+                    focus:outline-none focus:border-primary
+                    transition-all duration-300
+                  "
+                  placeholder="Répète le nouveau mot de passe"
+                  value={newPasswordConfirm}
+                  onChange={(e) => setNewPasswordConfirm(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showConfirmPassword ? (
+                    <EyeOff size={18} />
+                  ) : (
+                    <Eye size={18} />
+                  )}
+                </button>
+              </div>
             </div>
 
-            <p className="text-[11px] text-muted-foreground">
-              Ton mot de passe doit contenir au moins 8 caractères, une
-              majuscule et un chiffre.
-            </p>
+            <div className="pt-2 space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Ton mot de passe doit contenir au moins 8 caractères, une
+                majuscule et un chiffre.
+              </p>
 
-            <button
-              type="button"
-              onClick={handleForgotPassword}
-              className="self-start text-xs text-primary active:opacity-80 focus:outline-none focus-visible:underline"
-            >
-              Mot de passe oublié ?
-            </button>
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="text-xs text-primary font-medium hover:underline active:opacity-80"
+              >
+                Mot de passe oublié ?
+              </button>
+            </div>
           </div>
 
           {errors && (
-            <div 
+            <motion.div
               role="alert"
-              className="p-3 rounded-xl bg-destructive/10 border border-destructive/20"
+              className="p-4 rounded-2xl bg-destructive/10 border-2 border-destructive/20"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.3 }}
             >
-              <p className="text-[11px] text-destructive">{errors}</p>
-            </div>
+              <p className="text-sm text-destructive font-medium">{errors}</p>
+            </motion.div>
           )}
-        </div>
+        </motion.div>
 
         {/* Bouton Enregistrer */}
-        <button
+        <motion.button
           onClick={handleSave}
           disabled={isSaving}
-          className="w-full py-3 rounded-xl gradient-gold text-secondary-foreground font-medium mt-2 active:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+          className="
+            w-full h-14 rounded-2xl
+            bg-primary text-primary-foreground font-semibold text-base
+            shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40
+            disabled:opacity-50 disabled:cursor-not-allowed
+            transition-all duration-300
+            active:scale-[0.98]
+          "
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, duration: 0.5 }}
+          whileHover={{ scale: isSaving ? 1 : 1.02 }}
+          whileTap={{ scale: isSaving ? 1 : 0.98 }}
         >
           {isSaving ? "Enregistrement..." : "Enregistrer les modifications"}
-        </button>
+        </motion.button>
       </div>
     </MobileLayout>
   );

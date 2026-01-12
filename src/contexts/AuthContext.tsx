@@ -1,12 +1,40 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { authApi, User, LoginCredentials, SignupData, ApiResponse } from '@/services/api';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode,
+} from "react";
+import {
+  authApi,
+  User,
+  LoginCredentials,
+  SignupData,
+  ApiResponse,
+} from "@/services/api";
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (credentials: LoginCredentials) => Promise<ApiResponse<{ user: User; token: string }>>;
-  signup: (data: SignupData) => Promise<ApiResponse<{ user: User; token: string }>>;
+  login: (
+    credentials: LoginCredentials
+  ) => Promise<
+    ApiResponse<{
+      accessToken: string;
+      refreshToken: string;
+      user: User;
+    }>
+  >;
+  signup: (
+    data: SignupData
+  ) => Promise<
+    ApiResponse<{
+      accessToken: string;
+      refreshToken: string;
+      user: User;
+    }>
+  >;
   logout: () => Promise<void>;
   updateUser: (data: Partial<User>) => Promise<ApiResponse<User>>;
 }
@@ -23,16 +51,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   useEffect(() => {
     const initAuth = async () => {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem("auth_token");
       let savedUser: User | null = null;
 
       try {
-        const storedUser = localStorage.getItem('user');
+        const storedUser = localStorage.getItem("user");
         if (storedUser) {
-          savedUser = JSON.parse(storedUser);
+          savedUser = JSON.parse(storedUser) as User;
         }
       } catch {
-        localStorage.removeItem('user');
+        localStorage.removeItem("user");
       }
 
       if (!token) {
@@ -44,8 +72,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       try {
         const response = await authApi.getProfile();
         if (response.success && response.data) {
-          setUser(response.data as User);
-          localStorage.setItem('user', JSON.stringify(response.data as User));
+          setUser(response.data);
+          localStorage.setItem("user", JSON.stringify(response.data));
         } else {
           setUser(savedUser);
         }
@@ -62,57 +90,73 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     if (user) {
       try {
-        localStorage.setItem('user', JSON.stringify(user));
+        localStorage.setItem("user", JSON.stringify(user));
       } catch {
-        // Ignore localStorage set errors
+        // ignore
       }
     } else {
-      localStorage.removeItem('user');
-      localStorage.removeItem('auth_token');
+      localStorage.removeItem("user");
+      localStorage.removeItem("auth_token");
     }
   }, [user]);
 
   const login = async (
     credentials: LoginCredentials
-  ): Promise<ApiResponse<{ user: User; token: string }>> => {
+  ): Promise<
+    ApiResponse<{
+      accessToken: string;
+      refreshToken: string;
+      user: User;
+    }>
+  > => {
     setIsLoading(true);
     try {
       const response = await authApi.login(credentials);
-      console.log('login response =', response);
+      console.log("login response =", response);
 
       if (response.success && response.data) {
         try {
-          const { user: respUser, token } = response.data;
-          console.log('storing token =', token, 'user =', respUser);
-          localStorage.setItem('auth_token', token);
+          const { accessToken, refreshToken, user: respUser } = response.data;
+
+          console.log("storing token =", accessToken, "user =", respUser);
+          // Tu peux stocker aussi le refreshToken si besoin
+          localStorage.setItem("auth_token", accessToken);
+          localStorage.setItem("refresh_token", refreshToken);
           setUser(respUser);
-          console.log('user state after setUser =', respUser);
         } catch (err) {
-          console.error('Error storing token or setting user:', err);
+          console.error("Error storing token or setting user:", err);
         }
       } else {
-        console.warn('login failed at API level:', response);
+        console.warn("login failed at API level:", response);
       }
 
       return response;
     } catch (err) {
-      console.error('Login error (catch):', err);
-      return { success: false, message: 'Login failed' };
+      console.error("Login error (catch):", err);
+      return { success: false, message: "Login failed" };
     } finally {
       setIsLoading(false);
     }
   };
 
-
-  const signup = async (data: SignupData): Promise<ApiResponse<{ user: User; token: string }>> => {
+  const signup = async (
+    data: SignupData
+  ): Promise<
+    ApiResponse<{
+      accessToken: string;
+      refreshToken: string;
+      user: User;
+    }>
+  > => {
     setIsLoading(true);
     try {
       const response = await authApi.signup(data);
 
       if (response.success && response.data) {
-        const { user, token } = response.data;
-        localStorage.setItem('auth_token', token);
-        setUser(user);
+        const { accessToken, refreshToken, user: respUser } = response.data;
+        localStorage.setItem("auth_token", accessToken);
+        localStorage.setItem("refresh_token", refreshToken);
+        setUser(respUser);
       }
 
       return response;
@@ -122,20 +166,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const logout = async (): Promise<void> => {
-    await authApi.logout();
-    localStorage.removeItem('auth_token');
-    setUser(null);
+    try {
+      await authApi.logout();
+    } catch (e) {
+      console.error("Logout error:", e);
+    } finally {
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("refresh_token");
+      setUser(null);
+    }
   };
 
-  const updateUser = async (data: Partial<User>): Promise<ApiResponse<User>> => {
+  const updateUser = async (
+    data: Partial<User>
+  ): Promise<ApiResponse<User>> => {
     if (!user) {
-      return { success: false, message: 'No authenticated user' };
+      return { success: false, message: "No authenticated user" };
     }
 
-    const response = await authApi.updateProfile(data) as ApiResponse<User>;
+    const response = (await authApi.updateProfile(
+      data
+    )) as ApiResponse<User>;
 
     if (response.success && response.data) {
-      setUser(response.data as User);
+      setUser(response.data);
     }
 
     return response;
@@ -152,16 +206,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
   );
 };
 
 export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 };

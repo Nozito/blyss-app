@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapPin, Star, ChevronRight, Search, Calendar } from "lucide-react";
+import { MapPin, Star, ChevronRight, Search, Calendar, Sparkles } from "lucide-react";
+import { motion } from "framer-motion";
 import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -63,7 +64,7 @@ const ClientHome = () => {
   }> = [];
 
   const greeting = user?.first_name
-    ? `Salut ${user.first_name} 👋`
+    ? `Salut ${user.first_name}`
     : "Bienvenue sur Blyss";
 
   const filteredSpecialists = useMemo(() => {
@@ -77,111 +78,135 @@ const ClientHome = () => {
     );
   }, [searchQuery, specialists]);
 
-
   return (
-    <div
-      className="
-        relative
-        min-h-[100dvh]
-        w-full
-        bg-background
-        text-foreground
-      "
-      style={{
-        paddingTop: "calc(14px + env(safe-area-inset-top, 0px))",
-        paddingBottom: "calc(20px + env(safe-area-inset-bottom, 0px))"
-      }}
-    >
-      <div className="motion-safe:animate-[fadeIn_0.5s_ease-out] space-y-5">
-        {/* HERO Blyss */}
-        <header className="flex flex-col items-center text-center space-y-1 px-4 motion-safe:animate-[fadeInUp_0.6s_ease-out]">
-          <img
+    <div className="min-h-screen bg-background pb-24">
+      <div className="space-y-6 pt-6">
+        {/* HERO */}
+        <motion.header
+          className="flex flex-col items-center text-center space-y-4 px-6"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <motion.img
             src={logo}
             alt="Blyss"
-            className="w-28 h-28 object-contain"
+            className="w-24 h-24 object-contain"
+            initial={{ scale: 0.8 }}
+            animate={{ scale: 1 }}
+            transition={{ duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
           />
-          <div className="space-y-0.5">
-            <p className="text-xs text-foreground/80">{greeting}</p>
-            <p className="text-sm font-semibold text-foreground">Tes nails, sans prise de tête.</p>
-            <p className="text-[11px] text-foreground/70">Trouve une experte près de chez toi.</p>
+          <div className="space-y-1">
+            <motion.div
+              className="flex items-center justify-center gap-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2 }}
+            >
+              <p className="text-2xl font-display font-bold text-foreground">
+                {greeting}
+              </p>
+              <motion.span
+                animate={{ rotate: [0, 14, -8, 14, -4, 10, 0] }}
+                transition={{ duration: 0.5, delay: 0.3 }}
+              >
+                👋
+              </motion.span>
+            </motion.div>
+            <p className="text-muted-foreground">
+              Tes nails, sans prise de tête.
+            </p>
           </div>
-        </header>
+        </motion.header>
 
         {/* RECHERCHE */}
-        <section className="space-y-2 px-4">
-          <div className="sticky top-[calc(14px+env(safe-area-inset-top))] z-20 flex items-center bg-white rounded-2xl border border-black/10 px-3 transition-shadow focus-within:shadow-md focus-within:border-primary/40 motion-safe:transition-all motion-safe:duration-300 hover:shadow-md backdrop-blur-xl bg-white/80 supports-[backdrop-filter]:bg-white/60">
+        <motion.section
+          className="px-6 space-y-2"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, duration: 0.6 }}
+        >
+          <div className="relative">
             <Search
-              size={18}
-              className="text-foreground/50 mr-2 flex-shrink-0"
+              size={20}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
             />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Rechercher une experte, une prestation, un quartier..."
+              placeholder="Rechercher une experte..."
               className="
-                w-full py-3 bg-transparent text-sm text-foreground
-                placeholder:text-foreground/40
-                focus:outline-none
-                transition-shadow
+                w-full h-14 pl-12 pr-12 rounded-2xl
+                bg-card border-2 border-muted
+                text-foreground placeholder:text-muted-foreground/50
+                focus:outline-none focus:border-primary focus:scale-[1.01]
+                transition-all duration-300
               "
-              onFocus={() => navigator.vibrate?.(5)}
             />
-            {searchQuery.length > 0 && (
-              <button
+            {searchQuery && (
+              <motion.button
                 type="button"
                 onClick={() => setSearchQuery("")}
-                className="ml-2 text-foreground/40 hover:text-foreground transition-transform duration-200 active:scale-90"
-                aria-label="Effacer la recherche"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0 }}
               >
-                ×
-              </button>
+                <span className="text-2xl leading-none">×</span>
+              </motion.button>
             )}
           </div>
-          <p className="text-[11px] text-foreground/70">
-            Ex. : "pose gel République", "Emma", "manucure Paris 11".
+          <p className="text-xs text-muted-foreground px-1">
+            Ex. : "pose gel République", "Emma", "manucure Paris 11"
           </p>
-        </section>
+        </motion.section>
 
         {/* SÉLECTION BLYSS */}
-        <section className="space-y-3 mb-4">
-          {/* Header pleine largeur */}
-          <div className="flex items-center justify-between gap-2 px-4">
-            <div className="flex flex-1 min-w-0 flex-col gap-0.5">
-              <h2 className="text-sm font-semibold text-foreground truncate">
-                Sélection Blyss
-              </h2>
-              <p className="text-[11px] text-foreground/75 leading-snug line-clamp-2">
-                Une sélection d&apos;expertes nails bien notées, proche de toi.
+        <section className="space-y-4">
+          <motion.div
+            className="flex items-center justify-between px-6"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.4, duration: 0.6 }}
+          >
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-foreground">
+                  Sélection Blyss
+                </h2>
+                <Sparkles className="w-4 h-4 text-primary" />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Des expertes nails bien notées, proche de toi
               </p>
             </div>
-
             <button
               type="button"
-              onClick={() => { navigator.vibrate?.(10); navigate("/client/specialists"); }}
-              className="flex-shrink-0 text-[11px] px-3 py-1 rounded-full border border-primary text-primary font-medium active:scale-[0.98] transition"
+              onClick={() => navigate("/client/specialists")}
+              className="
+                px-4 py-2 rounded-full
+                text-xs font-medium text-primary
+                border-2 border-primary/30
+                hover:bg-primary/5 hover:border-primary/50
+                transition-all duration-300
+                active:scale-95
+              "
             >
               Tout voir
             </button>
-          </div>
+          </motion.div>
 
-          {/* Carrousel FULL WIDTH */}
+          {/* Carrousel */}
           {isLoading ? (
-            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1 px-4">
+            <div className="flex gap-4 overflow-x-auto no-scrollbar px-6 py-2">
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className="
-                    min-w-[260px]
-                    bg-white
-                    rounded-3xl
-                    shadow-md shadow-black/15
-                    border border-black/8
-                    animate-pulse
-                  "
+                  className="min-w-[280px] bg-card rounded-3xl overflow-hidden animate-pulse"
                 >
-                  <div className="h-32 bg-muted rounded-t-3xl" />
-                  <div className="px-4 py-3.5 space-y-2">
+                  <div className="h-40 bg-muted" />
+                  <div className="p-4 space-y-3">
                     <div className="h-4 bg-muted rounded w-2/3" />
                     <div className="h-3 bg-muted rounded w-1/2" />
                   </div>
@@ -189,162 +214,174 @@ const ClientHome = () => {
               ))}
             </div>
           ) : filteredSpecialists.length > 0 ? (
-            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1 px-4">
+            <div className="flex gap-4 overflow-x-auto no-scrollbar px-6 py-2">
               {filteredSpecialists.map((s, index) => (
-                <button
+                <motion.button
                   key={s.id}
                   type="button"
-                  onClick={() => { navigator.vibrate?.(10); navigate(`/client/specialist/${s.id}`); }}
+                  onClick={() => navigate(`/client/specialist/${s.id}`)}
                   className="
-                    min-w-[260px] max-w-[260px]
-                    bg-white
-                    rounded-3xl overflow-hidden
-                    shadow-md shadow-black/15
-                    border border-black/8
-                    text-left active:scale-[0.98] transition-transform
-                    group
-                    hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20 transition-all duration-300
-                    motion-safe:animate-[fadeInUp_0.6s_ease-out_both]
+                    min-w-[280px] flex-shrink-0
+                    bg-card rounded-3xl overflow-hidden
+                    shadow-lg shadow-black/5 border border-muted
+                    text-left group
+                    hover:shadow-xl hover:shadow-primary/10
+                    hover:-translate-y-1
+                    transition-all duration-300
+                    active:scale-[0.98]
                   "
-                  style={{ animationDelay: `${index * 80}ms` }}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.5 + index * 0.1, duration: 0.5 }}
                 >
-                  {/* Banner */}
-                  <div className="relative h-32">
+                  {/* Cover Image */}
+                  <div className="relative h-40 overflow-hidden">
                     <img
                       src={s.cover}
-                      alt={`Travaux de ${s.name}`}
-                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      alt={s.name}
+                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/25 to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
 
-                    <div className="absolute bottom-2 left-3 right-3 flex items-center gap-2 text-white">
-                      <div className="h-9 w-9 flex-shrink-0 overflow-hidden rounded-2xl border border-white/60 shadow-sm">
+                    {/* Avatar & Name on Cover */}
+                    <div className="absolute bottom-3 left-3 right-3 flex items-center gap-3 text-white">
+                      <div className="w-12 h-12 rounded-2xl overflow-hidden border-2 border-white/80 shadow-lg flex-shrink-0">
                         <img
                           src={s.avatar}
                           alt={s.name}
-                          className="h-full w-full object-cover"
+                          className="w-full h-full object-cover"
                         />
                       </div>
-
                       <div className="min-w-0 flex-1">
-                        <p className="text-[12px] font-semibold truncate">
+                        <p className="text-sm font-semibold truncate">
                           {s.name}
                         </p>
-                        <p className="text-[11px] text-white/90 truncate">
+                        <p className="text-xs text-white/90 truncate">
                           {s.specialty}
                         </p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Infos */}
-                  <div className="px-4 py-3.5 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <MapPin size={11} className="text-foreground/70" />
-                        <span className="text-[11px] text-foreground/75 truncate">
-                          {s.location}
-                        </span>
+                  {/* Info */}
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <MapPin size={14} />
+                        <span className="text-xs">{s.location}</span>
                       </div>
-
                       <div className="flex items-center gap-1.5">
-                        <Star
-                          size={11}
-                          className="fill-blyss-gold text-blyss-gold"
-                        />
-                        <span className="text-[11px] font-semibold text-foreground">
+                        <Star size={14} className="fill-yellow-400 text-yellow-400" />
+                        <span className="text-xs font-semibold text-foreground">
                           {s.rating}
                         </span>
-                        <span className="text-[10px] text-foreground/70">
+                        <span className="text-xs text-muted-foreground">
                           ({s.reviews})
                         </span>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-1">
-                      <p className="text-[11px] text-foreground/75 transition-colors duration-300 group-hover:text-foreground">
-                        Voir les créneaux disponibles
-                      </p>
+                    <div className="flex items-center justify-between pt-1 border-t border-muted">
+                      <span className="text-xs text-muted-foreground group-hover:text-primary transition-colors">
+                        Voir les créneaux
+                      </span>
                       <ChevronRight
                         size={16}
-                        className="text-primary transition-transform duration-300 group-hover:translate-x-0.5"
+                        className="text-primary transition-transform group-hover:translate-x-1"
                       />
                     </div>
                   </div>
-                </button>
+                </motion.button>
               ))}
             </div>
           ) : (
-            <div className="text-center py-10 px-6 bg-white rounded-2xl shadow-md shadow-black/10 border border-black/8 mx-4">
-              <p className="text-sm font-medium text-foreground mb-1">
-                Aucun résultat pour &quot;{searchQuery}&quot;
+            <motion.div
+              className="mx-6 text-center py-12 px-6 bg-card rounded-3xl border border-muted"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.5 }}
+            >
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
+                <Search className="w-8 h-8 text-primary" />
+              </div>
+              <p className="text-sm font-semibold text-foreground mb-2">
+                Aucun résultat pour "{searchQuery}"
               </p>
-              <p className="text-xs text-foreground/75 mb-3">
-                Essaie un autre quartier, une autre experte, ou efface la
-                recherche.
+              <p className="text-xs text-muted-foreground mb-4">
+                Essaie un autre quartier ou une autre experte
               </p>
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
                 className="
-                  text-xs px-3 py-1.5 rounded-full
-                  bg-white
-                  text-primary
-                  border border-black/10
-                  shadow-sm
-                  hover:shadow-md
-                  active:scale-[0.98]
-                  transition-all duration-200
+                  px-6 py-2 rounded-full
+                  bg-primary text-primary-foreground
+                  text-xs font-medium
+                  shadow-lg shadow-primary/30
+                  hover:shadow-xl hover:shadow-primary/40
+                  transition-all duration-300
+                  active:scale-95
                 "
               >
                 Effacer la recherche
               </button>
-            </div>
+            </motion.div>
           )}
         </section>
 
         {/* TES NAILS À VENIR */}
-        <section className="space-y-2 px-4">
-          <div className="flex flex-col gap-0.5">
-            <h2 className="text-sm font-semibold text-foreground">
+        <motion.section
+          className="space-y-3 px-6"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.7, duration: 0.6 }}
+        >
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold text-foreground">
               Tes nails à venir
             </h2>
-            <p className="text-[11px] text-foreground/75 leading-snug">
-              Retrouve ici tes prochains rendez-vous Blyss.
+            <p className="text-xs text-muted-foreground">
+              Retrouve ici tes prochains rendez-vous
             </p>
           </div>
 
           {upcomingAppointments.length === 0 ? (
-            <div className="py-3 px-3 rounded-xl bg-white text-foreground text-[11px] flex items-center gap-2 border border-black/10 transition-all duration-300 hover:shadow-sm shadow-md shadow-black/10">
-              <Calendar size={14} className="text-primary" />
-              <span>
-                Aucun rendez-vous prévu pour l&apos;instant. 
-                <br/>Planifie ta prochaine séance nails !
-              </span>
+            <div className="p-5 rounded-2xl bg-card border-2 border-dashed border-muted">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <Calendar size={20} className="text-primary" />
+                </div>
+                <div className="flex-1 space-y-1">
+                  <p className="text-sm font-medium text-foreground">
+                    Aucun rendez-vous prévu
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Planifie ta prochaine séance nails dès maintenant
+                  </p>
+                </div>
+              </div>
             </div>
           ) : (
-            <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
+            <div className="flex gap-4 overflow-x-auto no-scrollbar">
               {upcomingAppointments.map((appt) => (
                 <button
                   key={appt.id}
                   type="button"
                   onClick={() => navigate("/client/appointments")}
                   className="
-                    min-w-[230px]
-                    bg-white
-                    rounded-2xl
-                    p-3.5
-                    border border-black/8
-                    shadow-sm
-                    text-left active:scale-[0.98] transition-transform
+                    min-w-[260px] p-4 rounded-2xl
+                    bg-card border border-muted
+                    shadow-sm hover:shadow-md
+                    text-left transition-all
+                    active:scale-95
                   "
                 >
-                  {/* ... */}
+                  {/* Appointment details */}
                 </button>
               ))}
             </div>
           )}
-        </section>
+        </motion.section>
       </div>
     </div>
   );
