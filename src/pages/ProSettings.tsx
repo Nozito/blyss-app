@@ -1,5 +1,5 @@
 import MobileLayout from "@/components/MobileLayout";
-import { ChevronLeft, Check, AlertCircle } from "lucide-react";
+import { ChevronLeft, Check, AlertCircle, Eye, EyeOff, Save } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
@@ -24,6 +24,9 @@ const ProSettings = () => {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // UX states
   const [fieldErrors, setFieldErrors] = useState<{ [key: string]: string }>({});
@@ -239,6 +242,7 @@ const ProSettings = () => {
       setNewPasswordConfirm("");
       setPasswordStrength(null);
       setHasChanges(false);
+      setTouched({});
     } catch (error) {
       toast.error("Une erreur réseau est survenue");
     } finally {
@@ -250,7 +254,7 @@ const ProSettings = () => {
     navigate("/forgot-password");
   };
 
-  // Composant Input avec animations
+  // Composant Input avec animations améliorées
   const InputField = ({
     label,
     name,
@@ -259,6 +263,8 @@ const ProSettings = () => {
     onChange,
     placeholder,
     helpText,
+    showPassword,
+    onTogglePassword,
   }: {
     label: string;
     name: string;
@@ -267,25 +273,35 @@ const ProSettings = () => {
     onChange: (value: string) => void;
     placeholder?: string;
     helpText?: string;
+    showPassword?: boolean;
+    onTogglePassword?: () => void;
   }) => {
     const error = touched[name] && fieldErrors[name];
     const hasValue = value.length > 0;
+    const isPassword = type === "password";
 
     return (
-      <div className="flex flex-col relative">
-        <label className="text-xs text-muted-foreground mb-1 transition-colors">
+      <div className="flex flex-col relative animate-slide-up">
+        <label className={`text-xs font-medium mb-2 transition-colors duration-200 ${
+          error ? "text-destructive" : hasValue ? "text-primary" : "text-muted-foreground"
+        }`}>
           {label}
         </label>
-        <div className="relative">
+        <div className="relative group">
           <input
-            type={type}
+            type={isPassword && !showPassword ? "password" : "text"}
             autoComplete={type === "password" ? "current-password" : "off"}
             className={`
-              border rounded-xl px-3 h-11 w-full text-sm bg-background
-              transition-all duration-200 ease-out
-              focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary
-              ${error ? "border-destructive focus:ring-destructive/20" : "border-muted"}
-              ${hasValue ? "pl-3" : ""}
+              border-2 rounded-2xl px-4 h-12 w-full text-sm bg-background
+              transition-all duration-300 ease-out
+              focus:outline-none focus:ring-4 focus:scale-[1.02]
+              ${error 
+                ? "border-destructive focus:ring-destructive/10 focus:border-destructive" 
+                : hasValue
+                ? "border-primary/30 focus:ring-primary/10 focus:border-primary"
+                : "border-muted focus:ring-primary/10 focus:border-primary/50"
+              }
+              ${isPassword ? "pr-20" : "pr-10"}
             `}
             placeholder={placeholder}
             value={value}
@@ -295,26 +311,48 @@ const ProSettings = () => {
             }}
             onBlur={(e) => handleBlur(name, e.target.value)}
           />
-          {hasValue && !error && (
-            <Check 
-              size={16} 
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-green-500 animate-in fade-in zoom-in duration-200" 
-            />
-          )}
-          {error && (
-            <AlertCircle 
-              size={16} 
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-destructive animate-in fade-in zoom-in duration-200" 
-            />
-          )}
+          
+          {/* Icône de validation / erreur */}
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            {isPassword && onTogglePassword && (
+              <button
+                type="button"
+                onClick={onTogglePassword}
+                className="p-1 hover:bg-muted rounded-lg transition-colors active:scale-95"
+              >
+                {showPassword ? (
+                  <EyeOff size={18} className="text-muted-foreground" />
+                ) : (
+                  <Eye size={18} className="text-muted-foreground" />
+                )}
+              </button>
+            )}
+            
+            {!isPassword && hasValue && !error && (
+              <div className="w-6 h-6 rounded-full bg-green-500/10 flex items-center justify-center animate-in zoom-in duration-200">
+                <Check size={14} className="text-green-600" />
+              </div>
+            )}
+            
+            {error && (
+              <div className="w-6 h-6 rounded-full bg-destructive/10 flex items-center justify-center animate-in zoom-in duration-200">
+                <AlertCircle size={14} className="text-destructive" />
+              </div>
+            )}
+          </div>
         </div>
+        
         {error && (
-          <p className="mt-1 text-[11px] text-destructive animate-in slide-in-from-top-1 duration-200">
-            {error}
-          </p>
+          <div className="mt-2 flex items-start gap-2 animate-in slide-in-from-top-1 duration-200">
+            <AlertCircle size={14} className="text-destructive mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-destructive leading-relaxed">
+              {error}
+            </p>
+          </div>
         )}
+        
         {helpText && !error && (
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
             {helpText}
           </p>
         )}
@@ -325,8 +363,9 @@ const ProSettings = () => {
   if (isLoading) {
     return (
       <MobileLayout showNav={false}>
-        <div className="flex items-center justify-center h-screen">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <div className="flex flex-col items-center justify-center h-screen">
+          <div className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary animate-spin mb-4"></div>
+          <p className="text-sm text-muted-foreground animate-pulse">Chargement de tes données...</p>
         </div>
       </MobileLayout>
     );
@@ -334,30 +373,57 @@ const ProSettings = () => {
 
   return (
     <MobileLayout showNav={false}>
-      <div className="py-6 animate-fade-in">
+      <div className="min-h-screen py-6">
         {/* Header */}
-        <div className="flex items-center mb-2">
-          <button
-            onClick={() => navigate("/pro/profile")}
-            className="p-2 hover:bg-muted/50 rounded-lg transition-colors active:scale-95"
-          >
-            <ChevronLeft size={24} className="text-foreground" />
-          </button>
-          <h1 className="font-display text-2xl font-semibold text-foreground ml-2">
-            Paramètres pro
-          </h1>
+        <div className="relative -mx-4 px-4 pt-2 pb-6 mb-6 animate-fade-in">
+          <div className="flex items-center mb-3">
+            <button
+              onClick={() => navigate("/pro/profile")}
+              className="w-10 h-10 rounded-xl bg-muted hover:bg-muted-foreground/10 flex items-center justify-center active:scale-95 transition-all mr-3"
+            >
+              <ChevronLeft size={20} className="text-foreground" />
+            </button>
+            <div className="flex-1">
+              <h1 className="font-display text-2xl font-bold text-foreground">
+                Paramètres pro
+              </h1>
+            </div>
+          </div>
+          <p className="text-muted-foreground text-sm animate-fade-in" style={{ animationDelay: "0.1s" }}>
+            Gère ton profil, ton activité et ta sécurité sur Blyss.
+          </p>
         </div>
-        <p className="text-muted-foreground text-sm mb-5">
-          Gère ton profil, ton activité et ta sécurité sur Blyss.
-        </p>
+
+        {/* Badge de modifications en attente */}
+        {hasChanges && (
+          <div className="blyss-card mb-6 bg-primary/5 border-2 border-primary/20 animate-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <AlertCircle size={18} className="text-primary" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-foreground">
+                  Modifications non enregistrées
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  N'oublie pas de sauvegarder tes changements
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* SECTION : Profil pro */}
-        <div className="space-y-4 mb-6 animate-in slide-in-from-bottom-4 duration-300">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Profil pro
-          </h2>
+        <div className="space-y-4 mb-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
+          <div className="flex items-center gap-2 px-1">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+            <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              Profil pro
+            </h2>
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+          </div>
 
-          <div className="blyss-card flex flex-col gap-4">
+          <div className="blyss-card flex flex-col gap-5 hover:shadow-lg transition-shadow duration-300">
             <InputField
               label="Nom de ton activité"
               name="activityName"
@@ -385,12 +451,16 @@ const ProSettings = () => {
         </div>
 
         {/* SECTION : Localisation & réseaux */}
-        <div className="space-y-4 mb-6 animate-in slide-in-from-bottom-4 duration-300 delay-75">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Localisation & réseaux
-          </h2>
+        <div className="space-y-4 mb-6 animate-slide-up" style={{ animationDelay: "0.2s" }}>
+          <div className="flex items-center gap-2 px-1">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+            <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              Localisation & réseaux
+            </h2>
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+          </div>
 
-          <div className="blyss-card flex flex-col gap-4">
+          <div className="blyss-card flex flex-col gap-5 hover:shadow-lg transition-shadow duration-300">
             <InputField
               label="Ville / zone"
               name="city"
@@ -411,12 +481,16 @@ const ProSettings = () => {
         </div>
 
         {/* SECTION : Sécurité */}
-        <div className="space-y-4 mb-6 animate-in slide-in-from-bottom-4 duration-300 delay-150">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Sécurité
-          </h2>
+        <div className="space-y-4 mb-6 animate-slide-up" style={{ animationDelay: "0.3s" }}>
+          <div className="flex items-center gap-2 px-1">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+            <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              Sécurité
+            </h2>
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+          </div>
 
-          <div className="blyss-card flex flex-col gap-4">
+          <div className="blyss-card flex flex-col gap-5 hover:shadow-lg transition-shadow duration-300">
             <InputField
               label="Ancien mot de passe"
               name="currentPassword"
@@ -424,9 +498,11 @@ const ProSettings = () => {
               value={currentPassword}
               onChange={setCurrentPassword}
               placeholder="Ton mot de passe actuel"
+              showPassword={showCurrentPassword}
+              onTogglePassword={() => setShowCurrentPassword(!showCurrentPassword)}
             />
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <InputField
                 label="Nouveau mot de passe"
                 name="newPassword"
@@ -434,34 +510,36 @@ const ProSettings = () => {
                 value={newPassword}
                 onChange={setNewPassword}
                 placeholder="Nouveau mot de passe"
+                showPassword={showNewPassword}
+                onTogglePassword={() => setShowNewPassword(!showNewPassword)}
               />
               
               {/* Indicateur de force du mot de passe */}
               {passwordStrength && (
-                <div className="animate-in slide-in-from-top-1 duration-200">
-                  <div className="flex gap-1 mb-1">
-                    <div className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
-                      passwordStrength === "weak" ? "bg-red-500" :
+                <div className="animate-in slide-in-from-top-2 duration-300 p-3 rounded-xl bg-muted/50">
+                  <div className="flex gap-1.5 mb-2">
+                    <div className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${
+                      passwordStrength === "weak" ? "bg-red-500 scale-105" :
                       passwordStrength === "medium" ? "bg-orange-500" :
                       "bg-green-500"
                     }`} />
-                    <div className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
+                    <div className={`h-1.5 flex-1 rounded-full transition-all duration-500 delay-75 ${
                       passwordStrength === "medium" || passwordStrength === "strong" ? 
-                      (passwordStrength === "medium" ? "bg-orange-500" : "bg-green-500") :
+                      (passwordStrength === "medium" ? "bg-orange-500 scale-105" : "bg-green-500") :
                       "bg-muted"
                     }`} />
-                    <div className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
-                      passwordStrength === "strong" ? "bg-green-500" : "bg-muted"
+                    <div className={`h-1.5 flex-1 rounded-full transition-all duration-500 delay-150 ${
+                      passwordStrength === "strong" ? "bg-green-500 scale-105" : "bg-muted"
                     }`} />
                   </div>
-                  <p className={`text-[11px] ${
-                    passwordStrength === "weak" ? "text-red-500" :
-                    passwordStrength === "medium" ? "text-orange-500" :
-                    "text-green-500"
+                  <p className={`text-xs font-semibold ${
+                    passwordStrength === "weak" ? "text-red-600" :
+                    passwordStrength === "medium" ? "text-orange-600" :
+                    "text-green-600"
                   }`}>
-                    {passwordStrength === "weak" && "Mot de passe faible"}
-                    {passwordStrength === "medium" && "Mot de passe moyen"}
-                    {passwordStrength === "strong" && "Mot de passe fort"}
+                    {passwordStrength === "weak" && "⚠️ Mot de passe faible"}
+                    {passwordStrength === "medium" && "🔒 Mot de passe moyen"}
+                    {passwordStrength === "strong" && "✅ Mot de passe fort"}
                   </p>
                 </div>
               )}
@@ -474,42 +552,79 @@ const ProSettings = () => {
               value={newPasswordConfirm}
               onChange={setNewPasswordConfirm}
               placeholder="Répète le nouveau mot de passe"
+              showPassword={showConfirmPassword}
+              onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
               helpText="Ton mot de passe doit contenir au moins 8 caractères, une majuscule et un chiffre."
             />
 
             <button
               type="button"
               onClick={handleForgotPassword}
-              className="self-start text-xs text-primary hover:underline active:opacity-80 transition-opacity"
+              className="self-start text-xs text-primary hover:underline active:opacity-80 transition-opacity font-medium"
             >
               Mot de passe oublié ?
             </button>
           </div>
         </div>
 
-        {/* Bouton Enregistrer avec animation */}
-        <button
-          onClick={handleSave}
-          disabled={!hasChanges || isSaving}
-          className={`
-            w-full py-3 rounded-xl font-medium mt-2 
-            transition-all duration-200 ease-out
-            ${hasChanges && !isSaving
-              ? "gradient-gold text-secondary-foreground active:scale-[0.98] shadow-md hover:shadow-lg"
-              : "bg-muted text-muted-foreground cursor-not-allowed"
-            }
-          `}
-        >
-          {isSaving ? (
-            <span className="flex items-center justify-center gap-2">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
-              Enregistrement...
-            </span>
-          ) : (
-            "Enregistrer les modifications"
-          )}
-        </button>
+        {/* Bouton Enregistrer fixe en bas */}
+        <div className={`
+          sticky bottom-0 -mx-4 px-4 pt-4 pb-6 bg-gradient-to-t from-background via-background to-transparent
+          transition-all duration-300
+          ${hasChanges ? "animate-in slide-in-from-bottom-4" : ""}
+        `}>
+          <button
+            onClick={handleSave}
+            disabled={!hasChanges || isSaving}
+            className={`
+              w-full py-4 rounded-2xl font-semibold text-sm
+              transition-all duration-300 ease-out
+              flex items-center justify-center gap-2
+              ${hasChanges && !isSaving
+                ? "gradient-gold text-secondary-foreground active:scale-[0.97] shadow-lg hover:shadow-xl scale-105"
+                : "bg-muted text-muted-foreground cursor-not-allowed scale-100"
+              }
+            `}
+          >
+            {isSaving ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent"></div>
+                Enregistrement en cours...
+              </>
+            ) : hasChanges ? (
+              <>
+                <Save size={18} />
+                Enregistrer les modifications
+              </>
+            ) : (
+              <>
+                <Check size={18} />
+                Tout est à jour
+              </>
+            )}
+          </button>
+        </div>
       </div>
+
+      <style>{`
+        @keyframes fade-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        @keyframes slide-up {
+          from { transform: translateY(20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+
+        .animate-fade-in {
+          animation: fade-in 0.5s ease-out forwards;
+        }
+
+        .animate-slide-up {
+          animation: slide-up 0.5s ease-out forwards;
+        }
+      `}</style>
     </MobileLayout>
   );
 };

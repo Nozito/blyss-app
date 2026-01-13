@@ -9,6 +9,14 @@ import {
   LogOut,
   BadgeCheck,
   Camera,
+  Edit,
+  MapPin,
+  Instagram,
+  Star,
+  Eye,
+  TrendingUp,
+  Calendar,
+  User,
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/AuthContext";
@@ -26,8 +34,8 @@ const ProProfile = () => {
     user?.profile_photo && user.profile_photo.startsWith("http")
       ? user.profile_photo
       : user?.profile_photo
-      ? `http://localhost:3001${user.profile_photo}`
-      : logo;
+        ? `http://localhost:3001${user.profile_photo}`
+        : logo;
 
   const [profileImage, setProfileImage] = useState(initialPhoto);
   const [tempProfileImage, setTempProfileImage] = useState<string | null>(null);
@@ -78,6 +86,9 @@ const ProProfile = () => {
   const displayName = user
     ? `${user.first_name} ${user.last_name}`
     : "Marie Beauté";
+  const displayCity = user?.city || "Non renseigné";
+  // const displayBio = user?.bio || "Aucune bio ajoutée";
+  const displayInstagram = user?.instagram_account || null;
 
   const onCropComplete = useCallback((_: any, cropped: any) => {
     setCroppedAreaPixels(cropped);
@@ -139,7 +150,7 @@ const ProProfile = () => {
     } catch (error) {
       toast.error(
         (error as Error).message ||
-          "Erreur lors de la mise à jour de la photo"
+        "Erreur lors de la mise à jour de la photo"
       );
     }
   };
@@ -157,8 +168,8 @@ const ProProfile = () => {
     ? subscription.plan === "serenite"
       ? "Formule Sérénité"
       : subscription.plan === "start"
-      ? "Formule Start"
-      : "Formule Signature"
+        ? "Formule Start"
+        : "Formule Signature"
     : "Aucune formule";
 
   const currentBillingLabel = subscription
@@ -169,10 +180,10 @@ const ProProfile = () => {
 
   const nextBillingDate = subscription?.endDate
     ? new Date(subscription.endDate).toLocaleDateString("fr-FR", {
-        year: "numeric",
-        month: "long",
-        day: "2-digit",
-      })
+      year: "numeric",
+      month: "long",
+      day: "2-digit",
+    })
     : "";
 
   const menuItems = [
@@ -182,27 +193,34 @@ const ProProfile = () => {
     { icon: HelpCircle, label: "Aide", path: "/pro/help" },
   ];
 
+  const profileCompleteness =
+    (user?.activity_name ? 20 : 0) +
+    (user?.city ? 20 : 0) +
+    // (user?.bio ? 20 : 0) +
+    (user?.instagram_account ? 20 : 0) +
+    (user?.profile_photo && user.profile_photo !== logo ? 20 : 0);
+
   return (
     <MobileLayout>
-      <div className="pb-6">
-        {/* Header */}
-        <div className="relative -mx-4 px-4 pt-6 pb-4 mb-3 bg-gradient-to-b from-primary/5 to-transparent">
-          <h1 className="text-2xl font-bold text-foreground mb-1 animate-fade-in">
-            Mon profil
+      <div className="min-h-screen pb-6">
+        {/* Header avec gradient */}
+        <div className="relative -mx-4 px-4 pt-6 pb-6 mb-6 bg-gradient-to-b from-primary/5 to-transparent animate-fade-in">
+          <h1 className="text-2xl font-bold text-foreground mb-1">
+            Mon profil pro
           </h1>
-          <p className="text-sm text-muted-foreground animate-fade-in" style={{ animationDelay: "0.1s" }}>
-            Gère ton compte professionnel
+          <p className="text-sm text-muted-foreground" style={{ animationDelay: "0.1s" }}>
+            Gère ton compte et ton activité
           </p>
         </div>
 
-        {/* Profile Card */}
-        <div 
-          className="blyss-card mb-6 animate-slide-up group hover:shadow-lg transition-all duration-300"
+        {/* Profile Card avec photo */}
+        <div
+          className="blyss-card mb-6 animate-scale-in group hover:shadow-lg transition-all duration-300"
           style={{ animationDelay: "0.1s" }}
         >
           <div className="flex items-center gap-4">
             <div className="relative">
-              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center overflow-hidden ring-2 ring-primary/10 transition-all duration-300 group-hover:ring-primary/30">
+              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center overflow-hidden ring-2 ring-primary/10 transition-all duration-300 group-hover:ring-primary/30 group-hover:scale-105">
                 <img
                   src={profileImage}
                   alt="Profile"
@@ -228,12 +246,18 @@ const ProProfile = () => {
               <p className="text-sm text-muted-foreground mb-2">
                 {displayActivity}
               </p>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
                 <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
-                  <div className="h-full w-[95%] bg-gradient-to-r from-primary to-primary/60 rounded-full" />
+                  <div
+                    className="h-full bg-gradient-to-r from-primary to-primary/60 rounded-full transition-all duration-500"
+                    style={{ width: `${profileCompleteness}%` }}
+                  />
                 </div>
-                <span className="text-[10px] font-semibold text-primary">95%</span>
+                <span className="text-[10px] font-semibold text-primary">{profileCompleteness}%</span>
               </div>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Profil complété
+              </p>
             </div>
           </div>
         </div>
@@ -288,13 +312,16 @@ const ProProfile = () => {
           </div>
         )}
 
-        {/* Stats style pro */}
+        {/* Stats */}
         <div
-          className="blyss-card mb-6 animate-slide-up"
+          className="blyss-card mb-6 animate-slide-up hover:shadow-lg transition-shadow duration-300"
           style={{ animationDelay: "0.2s" }}
         >
           <div className="grid grid-cols-3 divide-x divide-border">
-            <div className="text-center px-3 py-2">
+            <div className="text-center px-3 py-3 group cursor-pointer">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
+                <Calendar size={18} className="text-primary" />
+              </div>
               <p className="text-2xl font-bold text-foreground mb-1">
                 {user?.clients_count ?? "–"}
               </p>
@@ -303,16 +330,22 @@ const ProProfile = () => {
               </p>
             </div>
 
-            <div className="text-center px-3 py-2">
+            <div className="text-center px-3 py-3 group cursor-pointer">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
+                <Star size={18} className="text-primary" />
+              </div>
               <p className="text-2xl font-bold text-foreground mb-1">
                 {user?.avg_rating != null ? user.avg_rating.toFixed(1) : "–"}
               </p>
               <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
-                Note
+                Note moy.
               </p>
             </div>
 
-            <div className="text-center px-3 py-2">
+            <div className="text-center px-3 py-3 group cursor-pointer">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
+                <TrendingUp size={18} className="text-primary" />
+              </div>
               <p className="text-lg font-bold text-foreground mb-1">
                 {user?.years_on_blyss ?? "–"}
               </p>
@@ -375,10 +408,65 @@ const ProProfile = () => {
           </div>
         </div>
 
+        {/* Profil Public - Version Compacte */}
+        <button
+          onClick={() => navigate("/pro/public-profile")}
+          className="w-full blyss-card mb-6 animate-slide-up group hover:shadow-lg active:scale-[0.98] transition-all duration-300 text-left"
+          style={{ animationDelay: "0.4s" }}
+        >
+          <div className="flex items-center gap-4 mb-3">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <Eye size={20} className="text-primary" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-foreground">
+                    Profil public
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Vu par tes clientes
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                    <Edit size={14} className="text-primary" />
+                  </div>
+                  <ChevronRight size={20} className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Info condensée en ligne */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/50">
+              <MapPin size={12} className="text-muted-foreground" />
+              <span className="text-xs font-medium text-foreground">{displayCity}</span>
+            </div>
+
+            {displayInstagram && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/50">
+                <Instagram size={12} className="text-muted-foreground" />
+                <span className="text-xs font-medium text-primary">{displayInstagram}</span>
+              </div>
+            )}
+
+            {profileCompleteness < 100 && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10">
+                <TrendingUp size={12} className="text-primary" />
+                <span className="text-xs font-semibold text-primary">
+                  Complète ton profil
+                </span>
+              </div>
+            )}
+          </div>
+        </button>
+
         {/* Menu */}
         <div
           className="blyss-card p-0 overflow-hidden mb-6 animate-slide-up"
-          style={{ animationDelay: "0.4s" }}
+          style={{ animationDelay: "0.5s" }}
         >
           {menuItems.map((item, index) => (
             <button
@@ -386,7 +474,7 @@ const ProProfile = () => {
               onClick={() => navigate(item.path)}
               className="w-full flex items-center gap-4 px-4 py-4 hover:bg-muted/50 active:bg-muted active:scale-[0.99] transition-all border-b border-border last:border-b-0 group"
             >
-              <div className="w-11 h-11 rounded-xl bg-accent flex items-center justify-center group-hover:scale-110 transition-transform">
+              <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <item.icon size={20} className="text-primary" />
               </div>
               <span className="flex-1 text-left font-semibold text-foreground">
@@ -401,7 +489,7 @@ const ProProfile = () => {
         <button
           onClick={handleLogout}
           className="blyss-card w-full flex items-center gap-4 animate-slide-up active:scale-[0.98] transition-all border-2 border-transparent hover:border-destructive/20 group"
-          style={{ animationDelay: "0.5s" }}
+          style={{ animationDelay: "0.6s" }}
         >
           <div className="w-11 h-11 rounded-xl bg-destructive/10 flex items-center justify-center group-hover:bg-destructive group-hover:scale-110 transition-all">
             <LogOut size={20} className="text-destructive group-hover:text-white transition-colors" />
@@ -413,29 +501,47 @@ const ProProfile = () => {
 
         <p
           className="text-center text-xs text-muted-foreground mt-8 animate-fade-in"
-          style={{ animationDelay: "0.6s" }}
+          style={{ animationDelay: "0.7s" }}
         >
-          Blyss v1.0.0
+          Blyss Pro v1.0.0
         </p>
       </div>
 
       <style>{`
+        @keyframes fade-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        @keyframes slide-up {
+          from { transform: translateY(20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+
+        @keyframes scale-in {
+          from { transform: scale(0.95); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+
         @keyframes pulse-soft {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.8; }
         }
-        
-        @keyframes scale-in {
-          0% { transform: scale(0.9); opacity: 0; }
-          100% { transform: scale(1); opacity: 1; }
+
+        .animate-fade-in {
+          animation: fade-in 0.5s ease-out forwards;
+        }
+
+        .animate-slide-up {
+          animation: slide-up 0.5s ease-out forwards;
+        }
+
+        .animate-scale-in {
+          animation: scale-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
         }
 
         .animate-pulse-soft {
           animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-
-        .animate-scale-in {
-          animation: scale-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
       `}</style>
     </MobileLayout>

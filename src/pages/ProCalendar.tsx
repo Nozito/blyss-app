@@ -11,7 +11,6 @@ import {
   Calendar as CalendarIcon,
   Clock,
   User,
-  Sparkles,
 } from "lucide-react";
 import api from "@/services/api";
 
@@ -28,7 +27,7 @@ const ProCalendar = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const toISODate = (d: Date) => d.toISOString().slice(0, 10);
+  const toISODate = (d: Date) => d.toISOString().slice(0, 10); // "YYYY-MM-DD"
 
   const daysOfWeek = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
   const months = [
@@ -46,14 +45,27 @@ const ProCalendar = () => {
     "Décembre",
   ];
 
+  // Lock scroll when modal is open
+  useEffect(() => {
+    if (isAddModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isAddModalOpen]);
+
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate();
-    let startingDay = firstDay.getDay();
-    startingDay = (startingDay + 6) % 7;
+    let startingDay = firstDay.getDay(); // 0=Dim, 1=Lun,...
+    startingDay = (startingDay + 6) % 7; // Lundi=0,...Dimanche=6
 
     const days: (number | null)[] = [];
     for (let i = 0; i < startingDay; i++) {
@@ -137,10 +149,15 @@ const ProCalendar = () => {
         const sunday = new Date(monday);
         sunday.setDate(sunday.getDate() + 6);
 
+        console.log("[CALENDAR FRONT] selectedDate =", selectedDate);
+        console.log("[CALENDAR FRONT] from =", toISODate(monday), "to =", toISODate(sunday));
+
         const res = await api.pro.getCalendar({
           from: toISODate(monday),
           to: toISODate(sunday),
         });
+
+        console.log("[CALENDAR FRONT] api response =", res);
 
         if (!res.success) {
           throw new Error(res.error || "Erreur serveur");
@@ -170,22 +187,48 @@ const ProCalendar = () => {
 
   const handleAddAppointment = (appointment: any) => {
     console.log("New appointment:", appointment);
+    // Refresh appointments after adding
+    const fetchAppointments = async () => {
+      try {
+        setLoading(true);
+        const base = selectedDate || new Date();
+        const monday = new Date(base);
+        const day = monday.getDay();
+        const diff = (day === 0 ? -6 : 1) - day;
+        monday.setDate(monday.getDate() + diff);
+
+        const sunday = new Date(monday);
+        sunday.setDate(sunday.getDate() + 6);
+
+        const res = await api.pro.getCalendar({
+          from: toISODate(monday),
+          to: toISODate(sunday),
+        });
+
+        if (res.success) {
+          setAppointments(res.data || []);
+        }
+      } catch (e: any) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAppointments();
   };
 
-  const appointmentCount = filteredAppointments.length;
-
   return (
-    <MobileLayout>
-      <div className="pb-6">
-        {/* Header avec gradient */}
-        <div className="relative -mx-4 px-4 pt-6 pb-4 mb-4 bg-gradient-to-b from-primary/5 to-transparent">
+    <MobileLayout hideNav={isAddModalOpen}>
+      <div className="pb-6 min-h-screen">
+        {/* Header */}
+        <div className="relative -mx-4 px-4 pt-6 pb-4 mb-4">
           <div className="flex items-center justify-between">
             <div className="flex-1">
               <h1 className="text-2xl font-bold text-foreground mb-1 animate-fade-in">
                 Calendrier
               </h1>
               <p className="text-sm text-muted-foreground animate-fade-in" style={{ animationDelay: "0.1s" }}>
-                {appointmentCount} rendez-vous {selectedDate ? `le ${selectedDate.getDate()} ${months[selectedDate.getMonth()].toLowerCase()}` : ""}
+                {filteredAppointments.length} rendez-vous {selectedDate ? `le ${selectedDate.getDate()} ${months[selectedDate.getMonth()].toLowerCase()}` : ""}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -247,9 +290,7 @@ const ProCalendar = () => {
         {viewMode === "month" ? (
           <>
             {/* Month Navigation améliorée */}
-            <div
-              className="flex items-center justify-between mb-5 animate-slide-up"
-            >
+            <div className="flex items-center justify-between mb-5 animate-slide-up">
               <button
                 onClick={() => navigateMonth(-1)}
                 className="w-10 h-10 rounded-xl bg-muted hover:bg-muted-foreground/10 flex items-center justify-center active:scale-95 transition-all"
@@ -385,9 +426,9 @@ const ProCalendar = () => {
             <h3 className="text-lg font-bold text-foreground">
               {viewMode === "week" ? "Rendez-vous du jour" : "Rendez-vous"}
             </h3>
-            {appointmentCount > 0 && (
+            {filteredAppointments.length > 0 && (
               <span className="px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold">
-                {appointmentCount}
+                {filteredAppointments.length}
               </span>
             )}
           </div>

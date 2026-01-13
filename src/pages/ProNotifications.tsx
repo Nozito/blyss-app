@@ -1,7 +1,8 @@
 import MobileLayout from "@/components/MobileLayout";
-import { ChevronLeft, Info } from "lucide-react";
+import { ChevronLeft, Info, Bell, Calendar, MessageSquare, CreditCard, TrendingUp, Settings, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
+import { toast } from "sonner";
 
 type ProNotificationKey =
   | "newBookings"
@@ -25,222 +26,373 @@ const ProNotifications = () => {
     activitySummary: false
   });
 
+  const [hasChanges, setHasChanges] = useState(false);
+  const [saving, setSaving] = useState(false);
+
   const togglePreference = (key: ProNotificationKey) => {
     setPreferences((prev) => ({ ...prev, [key]: !prev[key] }));
+    setHasChanges(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    
+    // Simulation API call
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    toast.success("Préférences enregistrées !");
+    setHasChanges(false);
+    setSaving(false);
   };
 
   const goToSystemSettings = () => {
-    // À brancher côté natif (iOS/Android) si besoin
+    toast.info("Ouvre les réglages de ton téléphone pour activer les notifications Blyss");
     // window.open("app-settings:", "_blank");
   };
 
+  // Composant Toggle amélioré
+  const NotificationToggle = ({
+    icon: Icon,
+    title,
+    description,
+    prefKey,
+    isEnabled,
+    recommended = false,
+  }: {
+    icon: any;
+    title: string;
+    description: string;
+    prefKey: ProNotificationKey;
+    isEnabled: boolean;
+    recommended?: boolean;
+  }) => {
+    return (
+      <div className={`
+        blyss-card group hover:shadow-lg transition-all duration-300
+        ${isEnabled ? "bg-gradient-to-br from-primary/5 to-transparent" : ""}
+      `}>
+        <div className="flex items-start gap-4">
+          <div className={`
+            w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0
+            transition-all duration-300
+            ${isEnabled 
+              ? "bg-primary/10 scale-110" 
+              : "bg-muted group-hover:bg-muted-foreground/10"
+            }
+          `}>
+            <Icon size={20} className={isEnabled ? "text-primary" : "text-muted-foreground"} />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-semibold text-sm text-foreground">
+                {title}
+              </span>
+              {recommended && (
+                <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-wide animate-in zoom-in duration-200">
+                  Recommandé
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {description}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => togglePreference(prefKey)}
+            className={`
+              relative w-14 h-8 rounded-full flex-shrink-0
+              transition-all duration-300 ease-out
+              ${isEnabled 
+                ? "bg-primary shadow-lg shadow-primary/30" 
+                : "bg-muted hover:bg-muted-foreground/10"
+              }
+              active:scale-95
+            `}
+          >
+            <div className={`
+              absolute top-1 w-6 h-6 rounded-full bg-white shadow-md
+              transition-all duration-300 ease-out
+              ${isEnabled ? "left-7 scale-110" : "left-1"}
+              flex items-center justify-center
+            `}>
+              {isEnabled && (
+                <div className="w-2 h-2 rounded-full bg-primary animate-in zoom-in duration-200" />
+              )}
+            </div>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const enabledCount = Object.values(preferences).filter(Boolean).length;
+  const totalCount = Object.keys(preferences).length;
+
   return (
     <MobileLayout showNav={false}>
-      <div className="py-6 animate-fade-in">
-        {/* Header */}
-        <div className="flex items-center mb-2">
-          <button
-            onClick={() => navigate("/pro/profile")}
-            className="p-2"
-          >
-            <ChevronLeft size={24} className="text-foreground" />
-          </button>
-          <h1 className="font-display text-2xl font-semibold text-foreground ml-2">
-            Notifications pro
-          </h1>
-        </div>
-        <p className="text-muted-foreground text-sm mb-5">
-          Choisis ce que tu souhaites recevoir pour ton activité Blyss.
-        </p>
-
-        {/* Bloc info */}
-        <div className="blyss-card flex items-center gap-3 mb-5">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-            <Info size={16} className="text-primary" />
+      <div className="min-h-screen py-6">
+        {/* Header avec gradient */}
+        <div className="relative -mx-4 px-4 pt-2 pb-6 mb-6 animate-fade-in">
+          <div className="flex items-center mb-3">
+            <button
+              onClick={() => navigate("/pro/profile")}
+              className="w-10 h-10 rounded-xl bg-muted hover:bg-muted-foreground/10 flex items-center justify-center active:scale-95 transition-all mr-3"
+            >
+              <ChevronLeft size={20} className="text-foreground" />
+            </button>
+            <div className="flex-1">
+              <h1 className="font-display text-2xl font-bold text-foreground">
+                Notifications pro
+              </h1>
+            </div>
           </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-foreground">
-              Nouveaux rendez-vous & changements
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
-              Recommandé : garde activées les notifications de réservations,
-              changements et messages clientes pour éviter les no‑shows.
-            </p>
+          <p className="text-muted-foreground text-sm animate-fade-in" style={{ animationDelay: "0.1s" }}>
+            Gère tes alertes pour ne rien manquer de ton activité.
+          </p>
+        </div>
+
+        {/* Badge de modifications en attente */}
+        {hasChanges && (
+          <div className="blyss-card mb-6 bg-primary/5 border-2 border-primary/20 animate-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Bell size={18} className="text-primary animate-pulse" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-foreground">
+                  Modifications non enregistrées
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  N'oublie pas de sauvegarder tes préférences
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Stats card */}
+        <div className="blyss-card mb-6 animate-scale-in overflow-hidden relative group hover:shadow-lg transition-all duration-300" style={{ animationDelay: "0.1s" }}>
+          <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+          <div className="relative flex items-start gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center flex-shrink-0 shadow-lg">
+              <Bell size={20} className="text-white" />
+            </div>
+            <div className="flex-1 pt-1">
+              <div className="flex items-baseline gap-2 mb-1">
+                <p className="text-2xl font-bold text-foreground">
+                  {enabledCount}/{totalCount}
+                </p>
+                <p className="text-sm text-muted-foreground">notifications actives</p>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Les notifications te permettent de rester informée en temps réel de ton activité Blyss et d'éviter les no-shows.
+              </p>
+            </div>
           </div>
         </div>
 
         {/* SECTION : Rendez-vous & clientes */}
-        <div className="space-y-3 mb-6">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Rendez-vous & clientes
-          </h2>
-
-          {/* Nouvelles réservations */}
-          <div className="blyss-card flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm text-foreground">
-                Nouvelles réservations
-              </span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={preferences.newBookings}
-                  onChange={() => togglePreference("newBookings")}
-                />
-                <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
-                <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
-              </label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Notification dès qu’une cliente réserve un nouveau créneau chez
-              toi.
-            </p>
+        <div className="space-y-3 mb-6 animate-slide-up" style={{ animationDelay: "0.2s" }}>
+          <div className="flex items-center gap-2 px-1">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+            <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <Calendar size={12} />
+              Rendez-vous & clientes
+            </h2>
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
           </div>
 
-          {/* Changements / annulations par les clientes */}
-          <div className="blyss-card flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm text-foreground">
-                Changements & annulations
-              </span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={preferences.changes}
-                  onChange={() => togglePreference("changes")}
-                />
-                <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
-                <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
-              </label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Alertes en cas de modification d’horaire ou d’annulation par la
-              cliente.
-            </p>
-          </div>
+          <div className="space-y-3">
+            <NotificationToggle
+              icon={Bell}
+              title="Nouvelles réservations"
+              description="Notification dès qu'une cliente réserve un nouveau créneau chez toi."
+              prefKey="newBookings"
+              isEnabled={preferences.newBookings}
+              recommended={true}
+            />
 
-          {/* Rappels du jour pour la pro */}
-          <div className="blyss-card flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm text-foreground">
-                Rappels du jour
-              </span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={preferences.todayReminders}
-                  onChange={() => togglePreference("todayReminders")}
-                />
-                <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
-                <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
-              </label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Récap’ de tes rendez-vous du jour et premiers créneaux à venir.
-            </p>
-          </div>
+            <NotificationToggle
+              icon={Calendar}
+              title="Changements & annulations"
+              description="Alertes en cas de modification d'horaire ou d'annulation par la cliente."
+              prefKey="changes"
+              isEnabled={preferences.changes}
+              recommended={true}
+            />
 
-          {/* Messages clientes */}
-          <div className="blyss-card flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm text-foreground">
-                Messages clientes
-              </span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={preferences.clientMessages}
-                  onChange={() => togglePreference("clientMessages")}
-                />
-                <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
-                <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
-              </label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Notification quand une cliente t’écrit ou répond à un message.
-            </p>
+            <NotificationToggle
+              icon={Sparkles}
+              title="Rappels du jour"
+              description="Récap' de tes rendez-vous du jour et premiers créneaux à venir."
+              prefKey="todayReminders"
+              isEnabled={preferences.todayReminders}
+            />
+
+            <NotificationToggle
+              icon={MessageSquare}
+              title="Messages clientes"
+              description="Notification quand une cliente t'écrit ou répond à un message."
+              prefKey="clientMessages"
+              isEnabled={preferences.clientMessages}
+              recommended={true}
+            />
           </div>
         </div>
 
         {/* SECTION : Paiement & activité */}
-        <div className="space-y-3 mb-6">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Paiement & activité
-          </h2>
-
-          {/* Alerte paiement / réservation garantie */}
-          <div className="blyss-card flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm text-foreground">
-                Paiement & réservations garanties
-              </span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={preferences.paymentAlerts}
-                  onChange={() => togglePreference("paymentAlerts")}
-                />
-                <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
-                <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
-              </label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Alertes quand un acompte est encaissé ou qu’une réservation est
-              garantie.
-            </p>
+        <div className="space-y-3 mb-6 animate-slide-up" style={{ animationDelay: "0.3s" }}>
+          <div className="flex items-center gap-2 px-1">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+            <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <CreditCard size={12} />
+              Paiement & activité
+            </h2>
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
           </div>
 
-          {/* Résumé d’activité */}
-          <div className="blyss-card flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm text-foreground">
-                Résumé d’activité
-              </span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={preferences.activitySummary}
-                  onChange={() => togglePreference("activitySummary")}
-                />
-                <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
-                <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
-              </label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Un résumé occasionnel (jour / semaine) avec ton nombre de
-              rendez-vous et ton CA estimé.
-            </p>
+          <div className="space-y-3">
+            <NotificationToggle
+              icon={CreditCard}
+              title="Paiement & réservations garanties"
+              description="Alertes quand un acompte est encaissé ou qu'une réservation est garantie."
+              prefKey="paymentAlerts"
+              isEnabled={preferences.paymentAlerts}
+            />
+
+            <NotificationToggle
+              icon={TrendingUp}
+              title="Résumé d'activité"
+              description="Un résumé occasionnel (jour/semaine) avec ton nombre de rendez-vous et ton CA estimé."
+              prefKey="activitySummary"
+              isEnabled={preferences.activitySummary}
+            />
           </div>
         </div>
 
         {/* SECTION : Réglages système */}
-        <div className="space-y-2">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Réglages de ton téléphone
-          </h2>
+        <div className="space-y-3 mb-6 animate-slide-up" style={{ animationDelay: "0.4s" }}>
+          <div className="flex items-center gap-2 px-1">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+            <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <Settings size={12} />
+              Réglages système
+            </h2>
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+          </div>
 
-          <div className="blyss-card flex flex-col gap-2">
-            <p className="text-xs text-muted-foreground leading-snug">
-              Si les notifications sont désactivées pour Blyss dans les
-              réglages de ton téléphone, certains réglages ci-dessus peuvent ne
-              pas fonctionner.
-            </p>
+          <div className="blyss-card bg-gradient-to-br from-muted/50 to-transparent hover:shadow-lg transition-all duration-300">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Info size={18} className="text-primary" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-foreground mb-1">
+                  Autorisations système
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Si les notifications sont désactivées pour Blyss dans les réglages de ton téléphone, les paramètres ci-dessus ne fonctionneront pas.
+                </p>
+              </div>
+            </div>
             <button
               type="button"
               onClick={goToSystemSettings}
-              className="self-start text-xs text-primary active:opacity-80"
+              className="w-full py-3 px-4 rounded-xl bg-muted hover:bg-muted-foreground/10 text-sm font-medium text-foreground flex items-center justify-center gap-2 active:scale-95 transition-all"
             >
+              <Settings size={16} />
               Ouvrir les réglages de notifications
             </button>
           </div>
         </div>
+
+        {/* Info supplémentaire */}
+        <div className="blyss-card bg-gradient-to-br from-primary/5 to-transparent border border-primary/10 animate-slide-up" style={{ animationDelay: "0.5s" }}>
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <Sparkles size={16} className="text-primary" />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs font-semibold text-foreground mb-1">
+                💡 Conseil pro
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Active au minimum les notifications de nouvelles réservations, changements et messages clientes pour réduire les no-shows et améliorer ton taux de remplissage.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Bouton Enregistrer fixe en bas */}
+        <div className={`
+          sticky bottom-0 -mx-4 px-4 pt-6 pb-6 bg-gradient-to-t from-background via-background to-transparent
+          transition-all duration-300
+          ${hasChanges ? "animate-in slide-in-from-bottom-4" : ""}
+        `}>
+          <button
+            onClick={handleSave}
+            disabled={!hasChanges || saving}
+            className={`
+              w-full py-4 rounded-2xl font-semibold text-sm
+              transition-all duration-300 ease-out
+              flex items-center justify-center gap-2
+              ${hasChanges && !saving
+                ? "gradient-gold text-secondary-foreground active:scale-[0.97] shadow-lg hover:shadow-xl scale-105"
+                : "bg-muted text-muted-foreground cursor-not-allowed scale-100"
+              }
+            `}
+          >
+            {saving ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent"></div>
+                Enregistrement en cours...
+              </>
+            ) : hasChanges ? (
+              <>
+                <Bell size={18} />
+                Enregistrer les préférences
+              </>
+            ) : (
+              <>
+                <Bell size={18} />
+                Préférences à jour
+              </>
+            )}
+          </button>
+        </div>
       </div>
+
+      <style>{`
+        @keyframes fade-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        @keyframes slide-up {
+          from { transform: translateY(20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+
+        @keyframes scale-in {
+          from { transform: scale(0.95); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+
+        .animate-fade-in {
+          animation: fade-in 0.5s ease-out forwards;
+        }
+
+        .animate-slide-up {
+          animation: slide-up 0.5s ease-out forwards;
+        }
+
+        .animate-scale-in {
+          animation: scale-in 0.4s ease-out forwards;
+        }
+      `}</style>
     </MobileLayout>
   );
 };

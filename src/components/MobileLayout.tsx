@@ -45,6 +45,9 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
           w-full
           min-h-[100dvh]
           bg-background
+          display-flex
+          flex-col
+          overflow-x-hidden
         "
       >
         <main
