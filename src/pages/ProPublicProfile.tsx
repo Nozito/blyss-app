@@ -802,7 +802,6 @@ const ProPublicProfile = () => {
           </div>
         </div>
 
-        // Ajoute cette section après la section "Visibilité" (ligne ~600)
         {/* SECTION : Bannière */}
         <div className="space-y-4 mb-6 animate-slide-up" style={{ animationDelay: "0.55s" }}>
           <div className="flex items-center gap-2 px-1">
