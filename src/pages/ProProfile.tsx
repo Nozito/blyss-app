@@ -193,17 +193,77 @@ const ProProfile = () => {
     { icon: HelpCircle, label: "Aide", path: "/pro/help" },
   ];
 
-  const profileCompleteness =
-    (user?.activity_name ? 20 : 0) +
-    (user?.city ? 20 : 0) +
-    // (user?.bio ? 20 : 0) +
-    (user?.instagram_account ? 20 : 0) +
-    (user?.profile_photo && user.profile_photo !== logo ? 20 : 0);
+const calculateProfileCompleteness = () => {
+  let score = 0;
+  let maxScore = 0;
+
+  // 1. Photo de profil (10 points)
+  maxScore += 10;
+  if (user?.profile_photo && user.profile_photo !== logo) {
+    score += 10;
+  }
+
+  // 2. Nom de l'activité (15 points)
+  maxScore += 15;
+  if (user?.activity_name && user.activity_name.trim().length >= 2) {
+    score += 15;
+  }
+
+  // 3. Ville (15 points)
+  maxScore += 15;
+  if (user?.city && user.city.trim().length >= 2) {
+    score += 15;
+  }
+
+  // 4. Biographie (15 points)
+  maxScore += 15;
+  if (user?.bio && user.bio.trim().length >= 20) {
+    score += 15;
+  }
+
+  // 5. Compte Instagram (10 points)
+  maxScore += 10;
+  if (user?.instagram_account && user.instagram_account.startsWith('@')) {
+    score += 10;
+  }
+
+  // 6. Photo de bannière (10 points)
+  maxScore += 10;
+  if (user?.banner_photo) {
+    score += 10;
+  }
+
+  // 7. Visibilité du profil (5 points)
+  maxScore += 5;
+  if (user?.profile_visibility === 'public') {
+    score += 5;
+  }
+
+  // 8. Informations bancaires (20 points) - seulement si paiements en ligne activés
+  if (user?.accept_online_payment === 1) {
+    maxScore += 20;
+    
+    // 8a. Titulaire du compte (10 points)
+    if (user?.bankaccountname && user.bankaccountname.trim().length >= 2) {
+      score += 10;
+    }
+    
+    // 8b. IBAN (10 points)
+    if (user?.IBAN && user.IBAN.length > 10) {
+      score += 10;
+    }
+  }
+
+  // Calcul du pourcentage
+  return maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+};
+
+const profileCompleteness = calculateProfileCompleteness();
 
   return (
     <MobileLayout>
       <div className="min-h-screen pb-6">
-        {/* Header avec gradient */}
+        {/* Header */}
         <div className="relative -mx-4 px-4 pt-6 pb-6 mb-6 animate-fade-in">
           <h1 className="text-2xl font-bold text-foreground mb-1">
             Mon profil pro

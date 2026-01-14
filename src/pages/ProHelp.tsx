@@ -138,8 +138,8 @@ const ProHelp = () => {
   return (
     <MobileLayout showNav={false}>
       <div className="min-h-screen py-6 animate-fade-in">
-        {/* Header avec gradient */}
-        <div className="relative -mx-4 px-4 pt-2 pb-6 mb-6 bg-gradient-to-b from-primary/5 to-transparent">
+        {/* Header */}
+        <div className="relative -mx-4 px-4 pt-2 pb-6 mb-6">
           <div className="flex items-center mb-3 animate-slide-down">
             <button
               onClick={() => navigate("/pro/profile")}

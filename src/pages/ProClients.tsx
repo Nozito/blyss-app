@@ -86,7 +86,7 @@ const ProClients = () => {
   return (
     <MobileLayout showNav={!isEditModalOpen}>
       <div className="pb-6">
-        {/* Header avec gradient */}
+        {/* Header */}
         <div className="relative -mx-4 px-4 pt-6 pb-4 mb-5">
           <h1 className="text-2xl font-bold text-foreground mb-1 animate-fade-in">
             Mes clientes
@@ -95,7 +95,7 @@ const ProClients = () => {
             className="text-sm text-muted-foreground animate-fade-in"
             style={{ animationDelay: "0.1s" }}
           >
-            {filteredClients.length} {filteredClients.length > 1 ? "clientes" : "cliente"}
+            {/* {filteredClients.length} {filteredClients.length > 1 ? "clientes" : "cliente"} */}
             {searchQuery && " trouvée(s)"}
           </p>
         </div>

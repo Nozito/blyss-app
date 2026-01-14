@@ -1,6 +1,7 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
 export interface User {
+  profile_visibility: string;
   id: number;
   first_name: string;
   last_name: string;
@@ -14,6 +15,9 @@ export interface User {
   city?: string | null;
   instagram_account?: string | null;
   profile_photo?: string | null;
+  banner_photo?: string | null;
+  bio?: string | null;
+  pro_specialties?: string[] | null;
   pro_status?: "active" | "inactive" | "suspended" | null;
   clients_count?: number;
   avg_rating?: number | null;
