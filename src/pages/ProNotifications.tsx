@@ -1,7 +1,7 @@
 import MobileLayout from "@/components/MobileLayout";
 import { ChevronLeft, Info, Bell, Calendar, MessageSquare, CreditCard, TrendingUp, Settings, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react"; // AJOUTE useEffect ici
 import { toast } from "sonner";
 
 type ProNotificationKey =
@@ -15,9 +15,7 @@ type ProNotificationKey =
 const ProNotifications = () => {
   const navigate = useNavigate();
 
-  const [preferences, setPreferences] = useState<
-    Record<ProNotificationKey, boolean>
-  >({
+  const [preferences, setPreferences] = useState<Record<ProNotificationKey, boolean>>({
     newBookings: true,
     changes: true,
     todayReminders: true,
@@ -28,6 +26,48 @@ const ProNotifications = () => {
 
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // USEEFFECT DOIT ÊTRE ICI, AVANT LES AUTRES FONCTIONS
+  useEffect(() => {
+    const fetchNotificationSettings = async () => {
+      setIsLoading(true);
+      try {
+        const token = localStorage.getItem("auth_token");
+        if (!token) {
+          setIsLoading(false);
+          return;
+        }
+
+        const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+        const response = await fetch(`${BASE_URL}/api/notification-settings`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!response.ok) {
+          throw new Error("Erreur lors du chargement");
+        }
+
+        const data = await response.json();
+        
+        // Mapping BDD -> React State
+        setPreferences({
+          newBookings: Boolean(data.data.new_reservation),
+          changes: Boolean(data.data.cancel_change),
+          todayReminders: Boolean(data.data.daily_reminder),
+          clientMessages: Boolean(data.data.client_message),
+          paymentAlerts: Boolean(data.data.payment_alert),
+          activitySummary: Boolean(data.data.activity_summary),
+        });
+      } catch (error) {
+        toast.error("Impossible de charger tes préférences");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchNotificationSettings();
+  }, []);
 
   const togglePreference = (key: ProNotificationKey) => {
     setPreferences((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -37,17 +77,45 @@ const ProNotifications = () => {
   const handleSave = async () => {
     setSaving(true);
     
-    // Simulation API call
-    await new Promise(resolve => setTimeout(resolve, 800));
-    
-    toast.success("Préférences enregistrées !");
-    setHasChanges(false);
-    setSaving(false);
+    try {
+      const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+      
+      // Mapping React State -> BDD
+      const payload = {
+        new_reservation: preferences.newBookings ? 1 : 0,
+        cancel_change: preferences.changes ? 1 : 0,
+        daily_reminder: preferences.todayReminders ? 1 : 0,
+        client_message: preferences.clientMessages ? 1 : 0,
+        payment_alert: preferences.paymentAlerts ? 1 : 0,
+        activity_summary: preferences.activitySummary ? 1 : 0,
+      };
+
+      const response = await fetch(`${BASE_URL}/api/notification-settings/update`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        toast.error(errorData.message || "Une erreur est survenue");
+        return;
+      }
+
+      toast.success("Préférences enregistrées !");
+      setHasChanges(false);
+    } catch (error) {
+      toast.error("Une erreur réseau est survenue");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const goToSystemSettings = () => {
     toast.info("Ouvre les réglages de ton téléphone pour activer les notifications Blyss");
-    // window.open("app-settings:", "_blank");
   };
 
   // Composant Toggle amélioré
@@ -131,10 +199,21 @@ const ProNotifications = () => {
   const enabledCount = Object.values(preferences).filter(Boolean).length;
   const totalCount = Object.keys(preferences).length;
 
+  if (isLoading) {
+    return (
+      <MobileLayout showNav={false}>
+        <div className="flex flex-col items-center justify-center h-screen">
+          <div className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary animate-spin mb-4"></div>
+          <p className="text-sm text-muted-foreground animate-pulse">Chargement...</p>
+        </div>
+      </MobileLayout>
+    );
+  }
+
   return (
     <MobileLayout showNav={false}>
       <div className="min-h-screen py-6">
-        {/* Header avec gradient */}
+        {/* Header */}
         <div className="relative -mx-4 px-4 pt-2 pb-6 mb-6 animate-fade-in">
           <div className="flex items-center mb-3">
             <button

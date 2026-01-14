@@ -48,15 +48,25 @@ if (![12, 16].includes(IBAN_IV.length)) {
   process.exit(1);
 }
 
-function encryptIban(plain: string): string {
+// Renomme la fonction pour être plus générique
+function encryptSensitiveData(plain: string): string {
+  if (!plain || plain.trim() === '') {
+    return '';
+  }
   const cipher = crypto.createCipheriv("aes-256-gcm", IBAN_KEY, IBAN_IV);
   const encrypted = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
   return `${encrypted.toString("base64")}:${authTag.toString("base64")}`;
 }
 
-function decryptIban(stored: string): string {
+function decryptSensitiveData(stored: string): string {
+  if (!stored || stored.trim() === '') {
+    return '';
+  }
   const [cipherTextB64, tagB64] = stored.split(":");
+  if (!cipherTextB64 || !tagB64) {
+    throw new Error("Invalid encrypted data format");
+  }
   const encrypted = Buffer.from(cipherTextB64, "base64");
   const authTag = Buffer.from(tagB64, "base64");
 
@@ -65,6 +75,10 @@ function decryptIban(stored: string): string {
   const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
   return decrypted.toString("utf8");
 }
+
+// Garde les alias pour compatibilité
+const encryptIban = encryptSensitiveData;
+const decryptIban = decryptSensitiveData;
 
 app.use(
   cors({
@@ -141,6 +155,8 @@ interface User {
   instagram_account: string | null;
   profile_photo: string | null;
   pro_status?: "active" | "inactive" | null;
+  IBAN?: string | null;
+  bankaccountname?: string | null;
 }
 
 interface UpdatePaymentsBody {
@@ -381,7 +397,7 @@ app.get(
     try {
       const userId = req.user!.id;
 
-      // 1) Récupérer l'utilisateur
+      // Récupère l'utilisateur
       const [userRows] = await db.execute("SELECT * FROM users WHERE id = ?", [
         userId,
       ]);
@@ -392,7 +408,30 @@ app.get(
           .json({ success: false, message: "User not found" });
       }
 
-      // 2) Nombre de clients distincts
+      // Déchiffre les données bancaires si elles existent
+      let decryptedBankData: any = {};
+      if (user.IBAN) {
+        try {
+          const plainIban = decryptSensitiveData(user.IBAN as string);
+          decryptedBankData.IBAN = plainIban.replace(/.(?=.{4})/g, "•"); // Masqué
+        } catch (err) {
+          console.error("Error decrypting IBAN:", err);
+          decryptedBankData.IBAN = null;
+        }
+      }
+
+      if (user.bankaccountname) {
+        try {
+          decryptedBankData.bankaccountname = decryptSensitiveData(
+            user.bankaccountname as string
+          );
+        } catch (err) {
+          console.error("Error decrypting bank account name:", err);
+          decryptedBankData.bankaccountname = null;
+        }
+      }
+
+      // Nombre de clients distincts
       const [clientsRows] = await db.execute(
         `
         SELECT COUNT(DISTINCT client_id) AS clients_count
@@ -406,7 +445,7 @@ app.get(
         (clientsRows as any[])[0]?.clients_count ?? 0
       );
 
-      // 3) Note moyenne
+      // Note moyenne
       const [ratingRows] = await db.execute(
         `
         SELECT AVG(rating) AS avg_rating
@@ -421,7 +460,7 @@ app.get(
           ? Number(avg_rating_raw)
           : 0;
 
-      // 4) Ancienneté : années ou mois
+      // Ancienneté : années ou mois
       const [durationRows] = await db.execute(
         `
         SELECT
@@ -451,16 +490,16 @@ app.get(
         years_on_blyss = "Moins d’1 mois";
       }
 
-      const { password_hash, ...userWithoutPassword } = user;
+      const { password_hash, IBAN, bankaccountname, ...userWithoutSensitive } = user;
 
       const payload = {
-        ...userWithoutPassword,
+        ...userWithoutSensitive,
+        ...decryptedBankData, // Ajoute les données déchiffrées
         clients_count,
         avg_rating,
         years_on_blyss,
       };
 
-      console.log(">>> years_on_blyss envoyé au front =", years_on_blyss);
 
       return res.json({
         success: true,
@@ -738,10 +777,20 @@ app.put(
               message: "Le titulaire du compte est requis.",
             });
         }
+
+        if (bankaccountname.trim().length < 2) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: "Le nom du titulaire doit contenir au moins 2 caractères.",
+            });
+        }
+
         if (!IBAN || !IBAN.trim()) {
           return res
             .status(400)
-            .json({ success: false, message: "L’IBAN est requis." });
+            .json({ success: false, message: "L'IBAN est requis." });
         }
 
         const formattedIban = electronicFormatIBAN(IBAN);
@@ -751,12 +800,23 @@ app.put(
             .json({ success: false, message: "IBAN invalide." });
         }
 
-        const encryptedIban = encryptIban(formattedIban);
+        const encryptedIban = encryptSensitiveData(formattedIban);
+        const encryptedAccountName = encryptSensitiveData(bankaccountname.trim());
+        const ibanLast4 = formattedIban.slice(-4);
+
+        const ibanHash = crypto
+          .createHash('sha256')
+          .update(formattedIban)
+          .digest('hex');
 
         const [existing] = await db.execute(
-          "SELECT id FROM users WHERE IBAN = ? AND id != ?",
-          [encryptedIban, userId]
+          `SELECT id FROM users 
+           WHERE id != ? 
+           AND iban_last4 = ?
+           AND SHA2(IBAN, 256) = ?`,
+          [userId, ibanLast4, ibanHash]
         );
+
         if ((existing as any[]).length > 0) {
           return res.status(409).json({
             success: false,
@@ -767,10 +827,15 @@ app.put(
         await db.execute(
           `
           UPDATE users
-          SET bankaccountname = ?, IBAN = ?, accept_online_payment = 1
+          SET 
+            bankaccountname = ?, 
+            IBAN = ?, 
+            iban_last4 = ?,
+            accept_online_payment = 1,
+            bank_info_updated_at = NOW()
           WHERE id = ?
         `,
-          [bankaccountname.trim(), encryptedIban, userId]
+          [encryptedAccountName, encryptedIban, ibanLast4, userId]
         );
       } else {
         await db.execute(
@@ -784,31 +849,45 @@ app.put(
       }
 
       const [rows] = await db.execute(
-        "SELECT bankaccountname, IBAN, accept_online_payment FROM users WHERE id = ?",
+        `SELECT bankaccountname, IBAN, iban_last4, accept_online_payment 
+         FROM users WHERE id = ?`,
         [userId]
       );
       const record = (rows as any[])[0];
 
       let maskedIban: string | null = null;
+      let accountHolderName: string | null = null;
+
       if (record.IBAN) {
         try {
-          const plain = decryptIban(record.IBAN as string);
-          maskedIban = plain.replace(/.(?=.{4})/g, "•");
-        } catch {
+          const plainIban = decryptSensitiveData(record.IBAN as string);
+          maskedIban = plainIban.replace(/.(?=.{4})/g, "•");
+        } catch (err) {
+          console.error("Error decrypting IBAN:", err);
           maskedIban = null;
+        }
+      }
+
+      if (record.bankaccountname) {
+        try {
+          accountHolderName = decryptSensitiveData(record.bankaccountname as string);
+        } catch (err) {
+          console.error("Error decrypting account name:", err);
+          accountHolderName = null;
         }
       }
 
       res.json({
         success: true,
         data: {
-          bankaccountname: record.bankaccountname,
+          bankaccountname: accountHolderName,
           IBAN: maskedIban,
-          accept_online_payment: record.accept_online_payment,
+          iban_last4: record.iban_last4,
+          accept_online_payment: Boolean(record.accept_online_payment),
         },
       });
     } catch (err) {
-      console.error(err);
+      console.error("Payment update error:", err);
       res.status(500).json({
         success: false,
         message: "Erreur lors de la mise à jour des paiements.",
@@ -816,6 +895,7 @@ app.put(
     }
   }
 );
+
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 

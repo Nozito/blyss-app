@@ -14,7 +14,8 @@ import {
   Star,
   Calendar,
   X,
-  Clock // Import manquant ajouté
+  Clock,
+  Upload // Import manquant ajouté
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
@@ -24,6 +25,13 @@ import { useAuth } from "@/contexts/AuthContext";
 const ProPublicProfile = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  // États pour la gestion de la photo de bannière
+  const [bannerPhoto, setBannerPhoto] = useState<string>("");
+  const [initialBannerPhoto, setInitialBannerPhoto] = useState<string>("");
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string>("");
+  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
 
   // États du formulaire
   const [activityName, setActivityName] = useState("");
@@ -69,12 +77,14 @@ const ProPublicProfile = () => {
         setBio(data.data.bio || "");
         setInstagramAccount(data.data.instagram_account || "");
         setProfileVisibility(data.data.profile_visibility || "public");
+        setBannerPhoto(data.data.banner_photo || ""); // NOUVEAU
 
         setInitialActivityName(data.data.activity_name || "");
         setInitialCity(data.data.city || "");
         setInitialBio(data.data.bio || "");
         setInitialInstagramAccount(data.data.instagram_account || "");
         setInitialProfileVisibility(data.data.profile_visibility || "public");
+        setInitialBannerPhoto(data.data.banner_photo || ""); // NOUVEAU
       } catch (error) {
         toast.error("Impossible de charger tes données");
       } finally {
@@ -84,6 +94,7 @@ const ProPublicProfile = () => {
     fetchUserData();
   }, []);
 
+
   // Détection des changements
   useEffect(() => {
     const changed =
@@ -91,9 +102,13 @@ const ProPublicProfile = () => {
       city !== initialCity ||
       bio !== initialBio ||
       instagramAccount !== initialInstagramAccount ||
-      profileVisibility !== initialProfileVisibility;
+      profileVisibility !== initialProfileVisibility ||
+      bannerFile !== null; // NOUVEAU
     setHasChanges(changed);
-  }, [activityName, city, bio, instagramAccount, profileVisibility, initialActivityName, initialCity, initialBio, initialInstagramAccount, initialProfileVisibility]);
+  }, [activityName, city, bio, instagramAccount, profileVisibility, bannerFile,
+    initialActivityName, initialCity, initialBio, initialInstagramAccount,
+    initialProfileVisibility]);
+
 
   // Lock scroll when preview is open
   useEffect(() => {
@@ -161,8 +176,68 @@ const ProPublicProfile = () => {
     validateField(name, value);
   };
 
+  // Ajoute cette fonction après handleBlur (ligne ~160)
+  const handleBannerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validation du fichier
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      toast.error("Format non supporté. Utilise JPG, PNG ou WebP");
+      return;
+    }
+
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      toast.error("L'image ne doit pas dépasser 5MB");
+      return;
+    }
+
+    setBannerFile(file);
+
+    // Créer un aperçu local
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setBannerPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const uploadBanner = async (): Promise<string | null> => {
+    if (!bannerFile) return null;
+
+    setIsUploadingBanner(true);
+    const formData = new FormData();
+    formData.append('banner', bannerFile);
+
+    try {
+      const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+      const response = await fetch(`${BASE_URL}/api/users/upload-banner`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Erreur lors de l'upload");
+      }
+
+      const result = await response.json();
+      return result.data.banner_photo;
+    } catch (error) {
+      toast.error("Erreur lors de l'upload de la bannière");
+      return null;
+    } finally {
+      setIsUploadingBanner(false);
+    }
+  };
+
+
   const handleSave = async () => {
-    // Validation finale
+    // Validation finale (garde le code existant)
     const errors: { [key: string]: string } = {};
 
     if (!activityName.trim()) {
@@ -186,12 +261,25 @@ const ProPublicProfile = () => {
 
     setIsSaving(true);
 
+    // Upload de la bannière si elle a changé
+    let bannerPath = bannerPhoto;
+    if (bannerFile) {
+      const uploadedPath = await uploadBanner();
+      if (uploadedPath) {
+        bannerPath = uploadedPath;
+      } else {
+        setIsSaving(false);
+        return;
+      }
+    }
+
     const payload: any = {};
     if (activityName !== initialActivityName) payload.activity_name = activityName;
     if (city !== initialCity) payload.city = city;
     if (bio !== initialBio) payload.bio = bio;
     if (instagramAccount !== initialInstagramAccount) payload.instagram_account = instagramAccount;
     if (profileVisibility !== initialProfileVisibility) payload.profile_visibility = profileVisibility;
+    if (bannerPath !== initialBannerPhoto) payload.banner_photo = bannerPath; // NOUVEAU
 
     try {
       const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
@@ -214,12 +302,15 @@ const ProPublicProfile = () => {
       if (result?.data) {
         localStorage.setItem("user", JSON.stringify(result.data));
 
-        // Mise à jour des valeurs initiales
         setInitialActivityName(result.data.activity_name || "");
         setInitialCity(result.data.city || "");
         setInitialBio(result.data.bio || "");
         setInitialInstagramAccount(result.data.instagram_account || "");
         setInitialProfileVisibility(result.data.profile_visibility || "public");
+        setInitialBannerPhoto(result.data.banner_photo || ""); // NOUVEAU
+        setBannerPhoto(result.data.banner_photo || ""); // NOUVEAU
+        setBannerFile(null); // NOUVEAU
+        setBannerPreview(""); // NOUVEAU
       }
 
       toast.success("Profil public mis à jour !");
@@ -231,6 +322,7 @@ const ProPublicProfile = () => {
       setIsSaving(false);
     }
   };
+
 
   const InputField = ({
     label,
@@ -371,12 +463,14 @@ const ProPublicProfile = () => {
             <div className="relative">
               <div className="h-52 w-full overflow-hidden">
                 <img
-                  src={user?.profile_photo || "/default-avatar.png"}
+                  src={
+                    bannerPreview ||
+                    (bannerPhoto ? `${import.meta.env.VITE_API_URL || "http://localhost:3001"}/${bannerPhoto}` : user?.profile_photo || "/default-avatar.png")
+                  }
                   alt="Bannière"
                   className="w-full h-full object-cover"
                 />
-                {/* Overlay gradient */}
-                <div className="absolute inset-0 bg-gradient-to-b from-black/20 to-transparent" />
+                <div className="absolute inset-0 to-transparent" />
               </div>
 
               {/* Back button */}
@@ -707,6 +801,77 @@ const ProPublicProfile = () => {
             </div>
           </div>
         </div>
+
+        // Ajoute cette section après la section "Visibilité" (ligne ~600)
+        {/* SECTION : Bannière */}
+        <div className="space-y-4 mb-6 animate-slide-up" style={{ animationDelay: "0.55s" }}>
+          <div className="flex items-center gap-2 px-1">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+            <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              Photo de bannière
+            </h2>
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+          </div>
+
+          <div className="blyss-card hover:shadow-lg transition-shadow duration-300">
+            <label className="text-xs font-medium mb-2 block text-muted-foreground">
+              Bannière du profil
+            </label>
+
+            {/* Aperçu de la bannière */}
+            <div className="relative w-full h-40 rounded-2xl overflow-hidden bg-muted mb-3 group">
+              {(bannerPreview || bannerPhoto) ? (
+                <img
+                  src={bannerPreview || `${import.meta.env.VITE_API_URL || "http://localhost:3001"}/${bannerPhoto}`}
+                  alt="Bannière"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground">
+                  <Sparkles size={32} className="mb-2 opacity-30" />
+                  <p className="text-sm">Aucune bannière</p>
+                </div>
+              )}
+
+              {/* Overlay au survol */}
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <label htmlFor="banner-upload" className="cursor-pointer px-4 py-2 bg-white rounded-xl text-sm font-semibold text-foreground">
+                  {bannerPhoto || bannerPreview ? "Changer" : "Ajouter"}
+                </label>
+              </div>
+            </div>
+
+            {/* Input caché */}
+            <input
+              id="banner-upload"
+              type="file"
+              accept="image/jpeg,image/jpg,image/png,image/webp"
+              onChange={handleBannerChange}
+              className="hidden"
+            />
+
+            {/* Bouton visible */}
+            <label
+              htmlFor="banner-upload"
+              className="w-full py-3 rounded-xl border-2 border-primary/30 text-primary font-medium flex items-center justify-center gap-2 cursor-pointer hover:bg-primary/5 transition-colors active:scale-95"
+            >
+              <Upload size={18} />
+              {bannerPhoto || bannerPreview ? "Changer la bannière" : "Ajouter une bannière"}
+            </label>
+
+            <p className="text-xs text-muted-foreground mt-2">
+              Format : JPG, PNG ou WebP • Taille max : 5MB • Dimension recommandée : 1200x400px
+            </p>
+
+            {isUploadingBanner && (
+              <div className="mt-3 flex items-center gap-2 text-primary">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent"></div>
+                <span className="text-sm">Upload en cours...</span>
+              </div>
+            )}
+          </div>
+        </div>
+
 
         {/* SECTION : Informations principales */}
         <div className="space-y-4 mb-6 animate-slide-up" style={{ animationDelay: "0.2s" }}>

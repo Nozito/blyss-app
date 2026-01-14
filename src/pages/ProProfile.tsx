@@ -204,7 +204,7 @@ const ProProfile = () => {
     <MobileLayout>
       <div className="min-h-screen pb-6">
         {/* Header avec gradient */}
-        <div className="relative -mx-4 px-4 pt-6 pb-6 mb-6 bg-gradient-to-b from-primary/5 to-transparent animate-fade-in">
+        <div className="relative -mx-4 px-4 pt-6 pb-6 mb-6 animate-fade-in">
           <h1 className="text-2xl font-bold text-foreground mb-1">
             Mon profil pro
           </h1>

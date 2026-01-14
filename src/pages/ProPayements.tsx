@@ -202,7 +202,7 @@ const ProPayments = () => {
   return (
     <MobileLayout showNav={false}>
       <div className="min-h-screen py-6">
-        {/* Header avec gradient */}
+        {/* Header */}
         <div className="relative -mx-4 px-4 pt-2 pb-6 mb-6 animate-fade-in">
           <div className="flex items-center mb-3">
             <button

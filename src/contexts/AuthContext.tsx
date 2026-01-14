@@ -119,7 +119,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const { accessToken, refreshToken, user: respUser } = response.data;
 
           console.log("storing token =", accessToken, "user =", respUser);
-          // Tu peux stocker aussi le refreshToken si besoin
           localStorage.setItem("auth_token", accessToken);
           localStorage.setItem("refresh_token", refreshToken);
           setUser(respUser);

@@ -18,6 +18,9 @@ export interface User {
   clients_count?: number;
   avg_rating?: number | null;
   years_on_blyss?: number;
+  bankaccountname?: string | null;
+  IBAN?: string | null;
+  accept_online_payment?: 0 | 1;
 }
 
 export interface LoginCredentials {
