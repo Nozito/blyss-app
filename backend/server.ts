@@ -694,7 +694,12 @@ app.post(
         commitmentMonths,
         startDate,
         endDate,
-      } = req.body as CreateSubscriptionBody;
+        status,
+        paymentId,
+      } = req.body as CreateSubscriptionBody & { 
+        status?: string; 
+        paymentId?: string; 
+      };
 
       if (!plan || !billingType || !monthlyPrice || !startDate) {
         return res
@@ -702,15 +707,25 @@ app.post(
           .json({ success: false, message: "Missing required fields" });
       }
 
+      if (status === "active" && !paymentId) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Payment ID required for active subscription" 
+        });
+      }
+
       const connection = await db.getConnection();
       try {
         await connection.beginTransaction();
 
+        const subscriptionStatus = status || "pending";
+
         const [result] = await connection.execute(
           `
           INSERT INTO subscriptions
-            (client_id, plan, billing_type, monthly_price, total_price, commitment_months, start_date, end_date, status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+            (client_id, plan, billing_type, monthly_price, total_price, 
+             commitment_months, start_date, end_date, status, payment_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `,
           [
             req.user.id,
@@ -721,13 +736,18 @@ app.post(
             commitmentMonths ?? null,
             startDate,
             endDate ?? null,
+            subscriptionStatus,  // ✅ Utilise le statut reçu
+            paymentId ?? null,   // ✅ Enregistre l'ID du paiement
           ]
         );
 
-        await connection.execute(
-          `UPDATE users SET pro_status = 'active' WHERE id = ?`,
-          [req.user.id]
-        );
+        // ✅ IMPORTANT : Mettre à jour pro_status SEULEMENT si le statut est "active"
+        if (subscriptionStatus === "active") {
+          await connection.execute(
+            `UPDATE users SET pro_status = 'active' WHERE id = ?`,
+            [req.user.id]
+          );
+        }
 
         await connection.commit();
 
@@ -736,7 +756,11 @@ app.post(
 
         res.status(201).json({
           success: true,
-          data: { subscriptionId },
+          data: { 
+            id: subscriptionId,
+            subscriptionId,  // Alias pour compatibilité
+            status: subscriptionStatus 
+          },
         });
       } catch (err) {
         await connection.rollback();
@@ -757,6 +781,344 @@ app.post(
     }
   }
 );
+
+// ✅ ROUTE GET - Récupérer l'abonnement actuel (CORRIGÉE)
+app.get(
+  "/api/subscriptions/current",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const userId = req.user?.id; // ✅ Utilise req.user.id (pas userId)
+      
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "Utilisateur non authentifié"
+        });
+      }
+
+      connection = await db.getConnection();
+
+      // ✅ Chercher l'abonnement actif avec MySQL (pas Mongoose)
+      const [rows] = await connection.query(
+        `
+        SELECT 
+          id,
+          plan,
+          billing_type,
+          monthly_price,
+          total_price,
+          commitment_months,
+          start_date,
+          end_date,
+          status,
+          created_at
+        FROM subscriptions
+        WHERE client_id = ?
+          AND status = 'active'
+        ORDER BY created_at DESC
+        LIMIT 1
+        `,
+        [userId]
+      ) as [{
+        id: number;
+        plan: string;
+        billing_type: string;
+        monthly_price: number;
+        total_price: number | null;
+        commitment_months: number | null;
+        start_date: string;
+        end_date: string | null;
+        status: string;
+        created_at: string;
+      }[], any];
+
+      // ✅ Pas d'abonnement actif
+      if (!rows || rows.length === 0) {
+        return res.json({
+          success: true,
+          data: null,
+          message: "Aucun abonnement actif"
+        });
+      }
+
+      const subscription = rows[0];
+
+      // ✅ Retourner les informations formatées
+      res.json({
+        success: true,
+        data: {
+          id: subscription.id,
+          plan: subscription.plan,
+          billingType: subscription.billing_type,
+          status: subscription.status,
+          startDate: subscription.start_date,
+          endDate: subscription.end_date,
+          monthlyPrice: subscription.monthly_price,
+          totalPrice: subscription.total_price,
+          commitmentMonths: subscription.commitment_months,
+          createdAt: subscription.created_at
+        }
+      });
+
+    } catch (error) {
+      console.error("Erreur lors de la récupération de l'abonnement:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur serveur lors de la récupération de l'abonnement"
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+// ✅ ROUTE POST - Créer un abonnement (OPTIMISÉE)
+app.post(
+  "/api/subscriptions",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "Utilisateur non authentifié"
+        });
+      }
+
+      const {
+        plan,
+        billingType,
+        monthlyPrice,
+        totalPrice,
+        commitmentMonths,
+        startDate,
+        endDate,
+        status,
+        paymentId,
+      } = req.body;
+
+      // ✅ Validation des champs requis
+      if (!plan || !billingType || !monthlyPrice || !startDate) {
+        return res.status(400).json({
+          success: false,
+          message: "Champs requis manquants"
+        });
+      }
+
+      if (status === "active" && !paymentId) {
+        return res.status(400).json({
+          success: false,
+          message: "ID de paiement requis pour un abonnement actif"
+        });
+      }
+
+      connection = await db.getConnection();
+      await connection.beginTransaction();
+
+      try {
+        // ✅ Désactiver les anciens abonnements actifs
+        await connection.execute(
+          `
+          UPDATE subscriptions
+          SET status = 'cancelled'
+          WHERE client_id = ?
+            AND status = 'active'
+          `,
+          [userId]
+        );
+
+        // ✅ Créer le nouvel abonnement
+        const [result] = await connection.execute(
+          `
+          INSERT INTO subscriptions
+            (client_id, plan, billing_type, monthly_price, total_price, 
+             commitment_months, start_date, end_date, status, payment_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            userId,
+            plan,
+            billingType,
+            monthlyPrice,
+            totalPrice ?? null,
+            commitmentMonths ?? null,
+            startDate,
+            endDate ?? null,
+            status || "active",
+            paymentId ?? null,
+          ]
+        );
+
+        // ✅ Mettre à jour le statut pro si abonnement actif
+        if (status === "active" || !status) {
+          await connection.execute(
+            `UPDATE users SET pro_status = 'active' WHERE id = ?`,
+            [userId]
+          );
+        }
+
+        await connection.commit();
+
+        const insertResult = result as any;
+        const subscriptionId = insertResult.insertId;
+
+        res.status(201).json({
+          success: true,
+          data: {
+            id: subscriptionId,
+            subscriptionId,
+            status: status || "active"
+          },
+          message: "Abonnement créé avec succès"
+        });
+
+      } catch (err) {
+        await connection.rollback();
+        throw err;
+      }
+
+    } catch (error) {
+      console.error("Erreur lors de la création de l'abonnement:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur lors de la création de l'abonnement"
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+// ✅ ROUTE PATCH - Annuler un abonnement (NOUVELLE)
+app.patch(
+  "/api/subscriptions/:id/cancel",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const userId = req.user?.id;
+      const subscriptionId = Number(req.params.id);
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "Utilisateur non authentifié"
+        });
+      }
+
+      connection = await db.getConnection();
+
+      // ✅ Vérifier que l'abonnement appartient à l'utilisateur
+      const [rows] = await connection.query(
+        `
+        SELECT id, status
+        FROM subscriptions
+        WHERE id = ? AND client_id = ?
+        `,
+        [subscriptionId, userId]
+      ) as [{ id: number; status: string }[], any];
+
+      if (!rows || rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Abonnement non trouvé"
+        });
+      }
+
+      // ✅ Annuler l'abonnement
+      await connection.execute(
+        `
+        UPDATE subscriptions
+        SET status = 'cancelled'
+        WHERE id = ?
+        `,
+        [subscriptionId]
+      );
+
+      // ✅ Mettre à jour le statut pro de l'utilisateur
+      await connection.execute(
+        `UPDATE users SET pro_status = 'inactive' WHERE id = ?`,
+        [userId]
+      );
+
+      res.json({
+        success: true,
+        message: "Abonnement annulé avec succès"
+      });
+
+    } catch (error) {
+      console.error("Erreur lors de l'annulation:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur lors de l'annulation de l'abonnement"
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+// ✅ ROUTE GET - Historique des abonnements (BONUS)
+app.get(
+  "/api/subscriptions/history",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "Utilisateur non authentifié"
+        });
+      }
+
+      connection = await db.getConnection();
+
+      const [rows] = await connection.query(
+        `
+        SELECT 
+          id,
+          plan,
+          billing_type,
+          monthly_price,
+          total_price,
+          commitment_months,
+          start_date,
+          end_date,
+          status,
+          created_at
+        FROM subscriptions
+        WHERE client_id = ?
+        ORDER BY created_at DESC
+        `,
+        [userId]
+      );
+
+      res.json({
+        success: true,
+        data: rows
+      });
+
+    } catch (error) {
+      console.error("Erreur lors de la récupération de l'historique:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur serveur"
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+
 
 /* UPDATE PAYMENTS */
 app.put(

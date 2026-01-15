@@ -1,17 +1,27 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import MobileLayout from "@/components/MobileLayout";
-import { Check, ArrowLeft, Zap, Heart, Sparkles, TrendingDown, Calendar } from "lucide-react";
+import { Check, ArrowLeft, Zap, Heart, Sparkles, TrendingDown, Calendar, CheckCircle2, ArrowUpRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 type BillingType = "monthly" | "one_time";
 type PlanId = "start" | "serenite" | "signature";
+
+interface CurrentSubscription {
+  plan: PlanId;
+  billingType: BillingType;
+  status: "active" | "cancelled";
+  endDate?: string;
+}
 
 const ProSubscription = () => {
   const navigate = useNavigate();
   const [billingType, setBillingType] = useState<BillingType>("monthly");
   const [selectedPlan, setSelectedPlan] = useState<PlanId | null>("serenite");
   const [isLoading, setIsLoading] = useState(false);
+  const [currentSubscription, setCurrentSubscription] = useState<CurrentSubscription | null>(null);
+  const [loadingSubscription, setLoadingSubscription] = useState(true);
 
+  // ✅ DÉFINIR LES PLANS EN PREMIER (avant le useEffect)
   const plans: {
     id: PlanId;
     name: string;
@@ -72,6 +82,43 @@ const ProSubscription = () => {
       }
     ];
 
+  // Récupérer l'abonnement actuel
+  useEffect(() => {
+    const fetchCurrentSubscription = async () => {
+      try {
+        const token = localStorage.getItem("access_token");
+        if (!token) {
+          setLoadingSubscription(false);
+          return;
+        }
+
+        const res = await fetch("http://localhost:3001/api/subscriptions/current", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.data) {
+            setCurrentSubscription({
+              plan: data.data.plan,
+              billingType: data.data.billingType,
+              status: data.data.status,
+              endDate: data.data.endDate,
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Erreur lors de la récupération de l'abonnement:", error);
+      } finally {
+        setLoadingSubscription(false);
+      }
+    };
+
+    fetchCurrentSubscription();
+  }, []);
+
   const handleSelectPlan = (planId: PlanId) => {
     setSelectedPlan(planId);
   };
@@ -81,11 +128,15 @@ const ProSubscription = () => {
     const plan = plans.find((p) => p.id === selectedPlan);
     if (!plan) return;
 
-    const displayPrice = isAnnual && plan.oneTimePrice
-      ? plan.oneTimePrice
-      : plan.monthlyPrice;
+    // Si c'est le plan actuel, rediriger vers la gestion
+    if (currentSubscription && currentSubscription.plan === selectedPlan) {
+      navigate("/pro/dashboard");
+      return;
+    }
 
-    navigate("/pro/subscription/payment", {
+    const displayPrice = isAnnual && plan.oneTimePrice ? plan.oneTimePrice : plan.monthlyPrice;
+
+    navigate("/pro/subscription-payment", {
       state: {
         plan: {
           id: plan.id,
@@ -93,73 +144,16 @@ const ProSubscription = () => {
           price: displayPrice,
           commitment: plan.commitment,
           billingType: billingType,
+          monthlyPrice: plan.monthlyPrice,
+          totalPrice: isAnnual && plan.oneTimePrice ? plan.oneTimePrice : null,
         },
+        isUpgrade: currentSubscription !== null,
       },
     });
+  };
 
-    const token = localStorage.getItem("access_token");
-    if (!token) {
-      alert("Tu dois être connecté pour t'abonner.");
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const today = new Date();
-      const startDate = today.toISOString().slice(0, 10);
-
-      let endDate: string | null = null;
-      let totalPrice: number | null = null;
-      let commitmentMonths: number | null = plan.commitment ?? null;
-
-      if (billingType === "monthly") {
-        endDate = null;
-        totalPrice = null;
-      } else {
-        if (!plan.oneTimePrice) throw new Error("oneTimePrice manquant");
-        totalPrice = plan.oneTimePrice;
-
-        if (commitmentMonths && commitmentMonths > 0) {
-          const end = new Date(today);
-          end.setMonth(end.getMonth() + commitmentMonths);
-          endDate = end.toISOString().slice(0, 10);
-        } else {
-          endDate = null;
-        }
-      }
-
-      const res = await fetch("http://localhost:3001/api/subscriptions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          plan: plan.id,
-          billingType,
-          monthlyPrice: plan.monthlyPrice,
-          totalPrice,
-          commitmentMonths,
-          startDate,
-          endDate
-        })
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
-        console.error("Subscription error", data);
-        alert("Une erreur est survenue lors de l'activation de ton abonnement.");
-        return;
-      }
-
-      alert("Ton compte pro est maintenant actif ✅");
-      navigate("/pro");
-    } catch (error) {
-      console.error(error);
-      alert("Impossible de finaliser l'abonnement pour le moment.");
-    } finally {
-      setIsLoading(false);
-    }
+  const isCurrentPlan = (planId: PlanId) => {
+    return currentSubscription?.plan === planId && currentSubscription.status === "active";
   };
 
   const isAnnual = billingType === "one_time";
@@ -178,13 +172,43 @@ const ProSubscription = () => {
             </button>
             <div className="flex-1">
               <h1 className="text-lg font-semibold text-foreground">
-                Choisis ta formule
+                {currentSubscription ? "Modifier ta formule" : "Choisis ta formule"}
               </h1>
+              {currentSubscription && (
+                <p className="text-xs text-muted-foreground">
+                  Actuellement : {plans.find(p => p.id === currentSubscription.plan)?.name}
+                </p>
+              )}
             </div>
           </div>
         </div>
 
         <div className="pb-32 space-y-6">
+          {/* Bannière abonnement actif */}
+          {currentSubscription && currentSubscription.status === "active" && (
+            <div className="blyss-card bg-gradient-to-br from-emerald-50 to-transparent border-2 border-emerald-200 animate-fade-in">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center flex-shrink-0">
+                  <CheckCircle2 size={20} className="text-white" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-bold text-foreground mb-1">
+                    Abonnement actif
+                  </h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Tu es actuellement sur le plan{" "}
+                    <span className="font-semibold text-foreground">
+                      {plans.find(p => p.id === currentSubscription.plan)?.name}
+                    </span>
+                    {currentSubscription.billingType === "one_time" && currentSubscription.endDate && (
+                      <span> • Valable jusqu'au {new Date(currentSubscription.endDate).toLocaleDateString('fr-FR')}</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Toggle avec effet accentué */}
           <div className="flex flex-col items-center gap-3 animate-fade-in">
             <div className="relative inline-flex rounded-full bg-muted p-1 shadow-sm">
@@ -193,10 +217,7 @@ const ProSubscription = () => {
                 onClick={() => setBillingType("monthly")}
                 className={`
                   relative z-10 px-6 py-2.5 rounded-full text-sm font-semibold transition-all duration-300
-                  ${billingType === "monthly"
-                    ? "text-white"
-                    : "text-muted-foreground"
-                  }
+                  ${billingType === "monthly" ? "text-white" : "text-muted-foreground"}
                 `}
               >
                 Mensuel
@@ -206,28 +227,20 @@ const ProSubscription = () => {
                 onClick={() => setBillingType("one_time")}
                 className={`
                   relative z-10 px-6 py-2.5 rounded-full text-sm font-semibold transition-all duration-300
-                  ${billingType === "one_time"
-                    ? "text-white"
-                    : "text-muted-foreground"
-                  }
+                  ${billingType === "one_time" ? "text-white" : "text-muted-foreground"}
                 `}
               >
                 Annuel
               </button>
-              {/* Slider animé */}
               <div
                 className={`
                   absolute top-1 bottom-1 rounded-full bg-primary shadow-md
                   transition-all duration-300 ease-out
-                  ${billingType === "monthly"
-                    ? "left-1 right-[50%]"
-                    : "left-[50%] right-1"
-                  }
+                  ${billingType === "monthly" ? "left-1 right-[50%]" : "left-[50%] right-1"}
                 `}
               />
             </div>
 
-            {/* Badge économies avec animation */}
             <div
               className={`
                 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200
@@ -245,13 +258,14 @@ const ProSubscription = () => {
             </div>
           </div>
 
-          {/* Plans avec animations en cascade */}
+          {/* Plans avec indication du plan actuel */}
+          {/* Plans avec mise en avant des upgrades/changements */}
           <div className="space-y-3">
             {plans.map((plan, index) => {
               const isSelected = selectedPlan === plan.id;
+              const isCurrent = isCurrentPlan(plan.id);
               const Icon = plan.icon;
 
-              // Calculs pour l'affichage annuel
               const monthlyTotal = plan.monthlyPrice * (plan.commitment || 1);
               const annualPrice = plan.oneTimePrice || monthlyTotal;
               const monthlyEquivalent = plan.commitment
@@ -262,24 +276,33 @@ const ProSubscription = () => {
                 <button
                   key={plan.id}
                   onClick={() => handleSelectPlan(plan.id)}
-                  style={{
-                    animationDelay: `${index * 100}ms`,
-                  }}
+                  style={{ animationDelay: `${index * 100}ms` }}
+                  disabled={isCurrent} // ✅ Désactiver le clic sur le plan actuel
                   className={`
           w-full text-left rounded-2xl p-5 border-2 
           transition-all duration-300 ease-out
           animate-slide-up relative overflow-hidden
-          ${isSelected
-                      ? "border-primary bg-white shadow-xl shadow-primary/20 scale-[1.02] ring-2 ring-primary/20"
-                      : "border-border bg-card hover:border-primary/30 hover:shadow-md"
+          ${isCurrent
+                      ? "border-muted bg-muted/30 opacity-60 cursor-default" // ✅ Style désactivé/grisé
+                      : isSelected
+                        ? "border-primary bg-white shadow-xl shadow-primary/20 scale-[1.02] ring-2 ring-primary/20"
+                        : "border-border bg-card hover:border-primary/30 hover:shadow-md hover:scale-[1.01]"
                     }
-          active:scale-[0.98]
+          ${!isCurrent && "active:scale-[0.98]"}
         `}
                 >
-                  {/* Gradient de fond subtil pour la sélection */}
-                  {isSelected && (
-                    <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.02] via-transparent to-primary/[0.03] pointer-events-none" />
+                  {/* Badge "Plan actuel" repositionné en haut */}
+                  {isCurrent && (
+                    <div className="absolute top-0 left-0 right-0 z-10">
+                      <div className="flex items-center justify-center gap-1.5 bg-gradient-to-r from-muted via-muted/80 to-muted text-muted-foreground text-[11px] font-bold px-4 py-2 rounded-t-2xl border-b border-border">
+                        <CheckCircle2 size={12} />
+                        TON ABONNEMENT ACTUEL
+                      </div>
+                    </div>
                   )}
+
+                  {/* Espace supplémentaire si plan actuel */}
+                  {isCurrent && <div className="h-4" />}
 
                   {/* Header */}
                   <div className="relative flex items-start justify-between mb-4">
@@ -287,58 +310,69 @@ const ProSubscription = () => {
                       <div className={`
               w-12 h-12 rounded-xl flex items-center justify-center
               transition-all duration-300 shadow-sm
-              ${isSelected
-                          ? "bg-gradient-to-br from-primary to-primary/70 scale-110 shadow-primary/30"
-                          : "bg-muted"
+              ${isCurrent
+                          ? "bg-muted/50" // ✅ Icône grisée
+                          : isSelected
+                            ? "bg-gradient-to-br from-primary to-primary/70 scale-110 shadow-primary/30"
+                            : "bg-muted"
                         }
             `}>
                         <Icon
                           size={24}
-                          className={`transition-all duration-300 ${isSelected ? "text-white" : "text-muted-foreground"}`}
+                          className={`transition-all duration-300 ${isCurrent
+                              ? "text-muted-foreground" // ✅ Gris
+                              : isSelected
+                                ? "text-white"
+                                : "text-muted-foreground"
+                            }`}
                         />
                       </div>
                       <div>
-                        <h3 className="text-base font-bold text-foreground">
+                        <h3 className={`text-base font-bold ${isCurrent ? "text-muted-foreground" : "text-foreground"
+                          }`}>
                           {plan.name}
                         </h3>
-                        {plan.popular && (
-                          <span className="inline-block mt-1 text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                            POPULAIRE
+                        {plan.popular && !isCurrent && (
+                          <span className="inline-block mt-1 text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full animate-pulse">
+                            ⭐ POPULAIRE
                           </span>
                         )}
                       </div>
                     </div>
 
-                    {/* Checkbox amélioré */}
-                    <div className={`
-            w-6 h-6 rounded-full border-2 flex items-center justify-center 
-            transition-all duration-300 shadow-sm
-            ${isSelected
-                        ? "border-primary bg-primary scale-110 shadow-lg shadow-primary/30"
-                        : "border-muted-foreground/30 scale-100 bg-background"
-                      }
-          `}>
-                      <Check
-                        size={14}
-                        className={`text-white transition-all duration-200 ${isSelected ? "scale-100 opacity-100" : "scale-0 opacity-0"}`}
-                        strokeWidth={3}
-                      />
-                    </div>
+                    {/* Checkbox pour les autres plans uniquement */}
+                    {!isCurrent && (
+                      <div className={`
+              w-6 h-6 rounded-full border-2 flex items-center justify-center 
+              transition-all duration-300 shadow-sm
+              ${isSelected
+                          ? "border-primary bg-primary scale-110 shadow-lg shadow-primary/30"
+                          : "border-muted-foreground/30 scale-100 bg-background"
+                        }
+            `}>
+                        <Check
+                          size={14}
+                          className={`text-white transition-all duration-200 ${isSelected ? "scale-100 opacity-100" : "scale-0 opacity-0"
+                            }`}
+                          strokeWidth={3}
+                        />
+                      </div>
+                    )}
                   </div>
 
-                  {/* Prix - Version MENSUELLE (design simple conservé) */}
+                  {/* Prix - Version MENSUELLE */}
                   {!isAnnual && (
                     <div className="relative mb-4 animate-fade-in">
                       <div className="flex items-baseline gap-1 mb-1">
-                        <span className="text-3xl font-bold text-foreground">
+                        <span className={`text-3xl font-bold ${isCurrent ? "text-muted-foreground" : "text-foreground"
+                          }`}>
                           {Math.floor(plan.monthlyPrice)}
                         </span>
-                        <span className="text-lg font-semibold text-foreground">
+                        <span className={`text-lg font-semibold ${isCurrent ? "text-muted-foreground" : "text-foreground"
+                          }`}>
                           €
                         </span>
-                        <span className="text-sm text-muted-foreground">
-                          / mois
-                        </span>
+                        <span className="text-sm text-muted-foreground">/ mois</span>
                       </div>
                       <p className="text-xs text-muted-foreground">
                         {plan.commitment
@@ -349,14 +383,13 @@ const ProSubscription = () => {
                     </div>
                   )}
 
-                  {/* Prix - Version ANNUELLE (redesign avec meilleur contraste) */}
+                  {/* Prix - Version ANNUELLE */}
                   {isAnnual && (
                     <div className="relative mb-4 space-y-3 animate-fade-in">
-                      {/* Badge économies repositionné */}
-                      {plan.savingsAmount && (
+                      {/* Badge économies SEULEMENT si pas le plan actuel */}
+                      {plan.savingsAmount && !isCurrent && (
                         <div className="absolute -top-3 -right-3 z-10">
                           <div className="relative">
-                            {/* Glow effect */}
                             <div className="absolute inset-0 bg-emerald-500 blur-lg opacity-30 animate-pulse-soft" />
                             <div className="relative flex items-center gap-1 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-full shadow-lg animate-bounce-in">
                               <TrendingDown size={11} />
@@ -366,15 +399,15 @@ const ProSubscription = () => {
                         </div>
                       )}
 
-                      {/* Bloc prix annuel avec meilleur contraste */}
                       <div className={`
               relative rounded-xl p-4 border-2 transition-all duration-300
-              ${isSelected
-                          ? "bg-gradient-to-br from-primary/8 via-primary/5 to-transparent border-primary/30 shadow-inner"
-                          : "bg-muted/30 border-muted"
+              ${isCurrent
+                          ? "bg-muted/20 border-muted" // ✅ Version grisée
+                          : isSelected
+                            ? "bg-gradient-to-br from-primary/8 via-primary/5 to-transparent border-primary/30 shadow-inner"
+                            : "bg-muted/30 border-muted"
                         }
             `}>
-                        {/* Header du bloc prix */}
                         <div className="flex items-center justify-between mb-3">
                           <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
                             Paiement unique
@@ -382,9 +415,11 @@ const ProSubscription = () => {
                           {plan.commitment && (
                             <div className={`
                     flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full
-                    ${isSelected
-                                ? "bg-primary/15 text-primary"
-                                : "bg-muted text-muted-foreground"
+                    ${isCurrent
+                                ? "bg-muted/50 text-muted-foreground"
+                                : isSelected
+                                  ? "bg-primary/15 text-primary"
+                                  : "bg-muted text-muted-foreground"
                               }
                   `}>
                               <Calendar size={11} />
@@ -393,43 +428,44 @@ const ProSubscription = () => {
                           )}
                         </div>
 
-                        {/* Prix total en très gros */}
                         <div className="flex items-baseline gap-1.5 mb-3">
-                          <span className={`
-                  text-4xl font-black transition-colors
-                  ${isSelected ? "text-foreground" : "text-foreground/90"}
-                `}>
+                          <span className={`text-4xl font-black transition-colors ${isCurrent
+                              ? "text-muted-foreground"
+                              : isSelected
+                                ? "text-foreground"
+                                : "text-foreground/90"
+                            }`}>
                             {Math.floor(annualPrice)}
                           </span>
-                          <span className={`
-                  text-xl font-bold
-                  ${isSelected ? "text-foreground" : "text-foreground/90"}
-                `}>
+                          <span className={`text-xl font-bold ${isCurrent
+                              ? "text-muted-foreground"
+                              : isSelected
+                                ? "text-foreground"
+                                : "text-foreground/90"
+                            }`}>
                             €
                           </span>
                         </div>
 
-                        {/* Séparateur avec style */}
-                        <div className={`
-                h-px w-full mb-3 transition-colors
-                ${isSelected
-                            ? "bg-gradient-to-r from-primary/30 via-primary/50 to-primary/30"
-                            : "bg-border"
-                          }
-              `} />
+                        <div className={`h-px w-full mb-3 transition-colors ${isCurrent
+                            ? "bg-border"
+                            : isSelected
+                              ? "bg-gradient-to-r from-primary/30 via-primary/50 to-primary/30"
+                              : "bg-border"
+                          }`} />
 
-                        {/* Comparaison mensuelle améliorée */}
                         <div className="space-y-2">
-                          {/* Équivalent mensuel */}
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-medium text-muted-foreground">
                               Équivalent mensuel
                             </span>
                             <div className="flex items-baseline gap-1">
-                              <span className={`
-                      text-xl font-bold transition-colors
-                      ${isSelected ? "text-primary" : "text-foreground"}
-                    `}>
+                              <span className={`text-xl font-bold transition-colors ${isCurrent
+                                  ? "text-muted-foreground"
+                                  : isSelected
+                                    ? "text-primary"
+                                    : "text-foreground"
+                                }`}>
                                 {monthlyEquivalent.toFixed(2)}
                               </span>
                               <span className="text-xs font-semibold text-muted-foreground">
@@ -438,8 +474,7 @@ const ProSubscription = () => {
                             </div>
                           </div>
 
-                          {/* Prix barré si économies */}
-                          {plan.savingsAmount && (
+                          {plan.savingsAmount && !isCurrent && (
                             <div className="flex items-center justify-between">
                               <span className="text-xs text-muted-foreground/80">
                                 Au lieu de
@@ -452,8 +487,7 @@ const ProSubscription = () => {
                         </div>
                       </div>
 
-                      {/* Bandeau récapitulatif de l'économie */}
-                      {plan.savingsAmount && (
+                      {plan.savingsAmount && !isCurrent && (
                         <div className={`
                 flex items-center justify-center gap-2 px-3 py-2 rounded-xl transition-all
                 ${isSelected
@@ -471,10 +505,8 @@ const ProSubscription = () => {
                               strokeWidth={3}
                             />
                           </div>
-                          <span className={`
-                  text-xs font-semibold
-                  ${isSelected ? "text-emerald-700" : "text-emerald-600"}
-                `}>
+                          <span className={`text-xs font-semibold ${isSelected ? "text-emerald-700" : "text-emerald-600"
+                            }`}>
                             Tu économises {plan.savingsAmount}€ sur {plan.commitment} mois
                           </span>
                         </div>
@@ -482,23 +514,28 @@ const ProSubscription = () => {
                     </div>
                   )}
 
-                  {/* Features (inchangé) */}
+                  {/* Features */}
                   <div className="relative space-y-2">
                     {plan.features.map((feature, i) => (
                       <div
                         key={i}
                         className="flex items-start gap-2"
-                        style={{
-                          animationDelay: `${(index * 100) + (i * 50)}ms`
-                        }}
+                        style={{ animationDelay: `${(index * 100) + (i * 50)}ms` }}
                       >
                         <Check
                           size={16}
-                          className={`mt-0.5 flex-shrink-0 transition-colors ${isSelected ? "text-primary" : "text-muted-foreground"
+                          className={`mt-0.5 flex-shrink-0 transition-colors ${isCurrent
+                              ? "text-muted-foreground/50" // ✅ Checks grisés
+                              : isSelected
+                                ? "text-primary"
+                                : "text-muted-foreground"
                             }`}
                           strokeWidth={2.5}
                         />
-                        <span className="text-sm text-muted-foreground leading-relaxed">
+                        <span className={`text-sm leading-relaxed ${isCurrent
+                            ? "text-muted-foreground/70" // ✅ Texte grisé
+                            : "text-muted-foreground"
+                          }`}>
                           {feature}
                         </span>
                       </div>
@@ -517,20 +554,41 @@ const ProSubscription = () => {
           >
             <div className="max-w-md mx-auto">
               <button
-                disabled={!selectedPlan || isLoading}
+                disabled={!selectedPlan || isLoading || loadingSubscription}
                 onClick={handleSubscribe}
-                className="w-full py-4 rounded-2xl bg-primary text-white font-semibold text-base disabled:opacity-50 active:scale-[0.98] transition-all shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30"
+                className={`
+                  w-full py-4 rounded-2xl font-semibold text-base 
+                  disabled:opacity-50 active:scale-[0.98] transition-all 
+                  shadow-lg hover:shadow-xl flex items-center justify-center gap-2
+                  ${selectedPlan && isCurrentPlan(selectedPlan)
+                    ? "bg-emerald-500 text-white shadow-emerald-500/20 hover:shadow-emerald-500/30"
+                    : "bg-primary text-white shadow-primary/20 hover:shadow-primary/30"
+                  }
+                `}
               >
                 {isLoading ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Activation...
+                    {currentSubscription ? "Modification..." : "Activation..."}
                   </span>
+                ) : selectedPlan && isCurrentPlan(selectedPlan) ? (
+                  <>
+                    <CheckCircle2 size={18} />
+                    Gérer mon abonnement
+                  </>
+                ) : currentSubscription ? (
+                  <>
+                    <ArrowUpRight size={18} />
+                    Changer de formule
+                  </>
                 ) : (
                   "Continuer"
                 )}
               </button>
               <p className="text-xs text-center text-muted-foreground mt-3">
+                {currentSubscription && selectedPlan && !isCurrentPlan(selectedPlan) && (
+                  <span className="font-medium text-primary">Changement immédiat • </span>
+                )}
                 {isAnnual ? "Paiement unique • " : ""}Annule à tout moment • Paiement sécurisé
               </p>
             </div>

@@ -184,19 +184,17 @@ const ProSubscriptionSettings = () => {
                   <div
                     className={`
                       inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold backdrop-blur-xl
-                      ${
-                        subscription.status === "active"
-                          ? "bg-emerald-500/10 text-emerald-700 border border-emerald-200/50 shadow-sm"
-                          : "bg-muted/80 text-muted-foreground border border-border/50"
+                      ${subscription.status === "active"
+                        ? "bg-emerald-500/10 text-emerald-700 border border-emerald-200/50 shadow-sm"
+                        : "bg-muted/80 text-muted-foreground border border-border/50"
                       }
                     `}
                   >
                     <div
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        subscription.status === "active"
-                          ? "bg-emerald-500 animate-pulse"
-                          : "bg-muted-foreground"
-                      }`}
+                      className={`w-1.5 h-1.5 rounded-full ${subscription.status === "active"
+                        ? "bg-emerald-500 animate-pulse"
+                        : "bg-muted-foreground"
+                        }`}
                     />
                     {subscription.status === "active" ? "Actif" : "Résilié"}
                   </div>
@@ -221,12 +219,10 @@ const ProSubscriptionSettings = () => {
                       </p>
                       <p className="text-xl font-bold text-primary">
                         {subscription.billingType === "monthly"
-                          ? `${Number(subscription.monthlyPrice || 0).toFixed(
-                              0
-                            )}€`
-                          : subscription.totalPrice
-                          ? `${subscription.totalPrice.toFixed(0)}€`
-                          : ""}
+                          ? `${Number(subscription.monthlyPrice || 0).toFixed(0)}€`
+                          : subscription.totalPrice !== null
+                            ? `${Number(subscription.totalPrice).toFixed(0)}€`
+                            : ''}
                         {subscription.billingType === "monthly" && (
                           <span className="text-sm text-muted-foreground font-normal">
                             {" "}
@@ -234,6 +230,7 @@ const ProSubscriptionSettings = () => {
                           </span>
                         )}
                       </p>
+
                     </>
                   )}
                 </div>
