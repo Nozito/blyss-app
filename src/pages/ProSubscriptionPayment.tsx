@@ -1,6 +1,6 @@
 import MobileLayout from "@/components/MobileLayout";
-import { ArrowLeft, AlertCircle, Check, Lock, CreditCard, Shield, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, AlertCircle, Check, Lock, CreditCard, Shield, Sparkles, Eye, EyeOff } from "lucide-react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 interface LocationState {
@@ -28,6 +28,13 @@ const ProSubscriptionPayment = () => {
   const [isValidating, setIsValidating] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [cardType, setCardType] = useState<"visa" | "mastercard" | null>(null);
+  const [showCvv, setShowCvv] = useState(false);
+  const [touchedFields, setTouchedFields] = useState<{ [key: string]: boolean }>({});
+  const [validatedFields, setValidatedFields] = useState<{ [key: string]: boolean }>({});
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, []);
 
   if (!plan) {
     navigate("/pro/subscription");
@@ -41,22 +48,122 @@ const ProSubscriptionPayment = () => {
     return null;
   };
 
+  const validateField = (field: string, value: string): boolean => {
+    switch (field) {
+      case "cardNumber":
+        const cleaned = value.replace(/\s/g, "");
+        return cleaned.length === 16 && detectCardType(cleaned) !== null;
+      case "expiryDate":
+        if (!value.match(/^\d{2}\/\d{2}$/)) return false;
+        const [month, year] = value.split('/').map(Number);
+        const now = new Date();
+        const currentYear = now.getFullYear() % 100;
+        const currentMonth = now.getMonth() + 1;
+        return month >= 1 && month <= 12 && (year > currentYear || (year === currentYear && month >= currentMonth));
+      case "cvv":
+        return value.length === 3;
+      case "cardHolder":
+        return value.trim().length >= 3;
+      default:
+        return false;
+    }
+  };
+
   const handleCardNumberChange = (value: string) => {
     const cleaned = value.replace(/\D/g, "");
     const formatted = cleaned.match(/.{1,4}/g)?.join(" ") || cleaned;
     setCardNumber(formatted.slice(0, 19));
     setCardType(detectCardType(cleaned));
-    if (errors.cardNumber) setErrors({ ...errors, cardNumber: "" });
+
+    const isValid = validateField("cardNumber", formatted);
+    setValidatedFields(prev => ({ ...prev, cardNumber: isValid }));
+    
+    if (touchedFields.cardNumber) {
+      if (!isValid && cleaned.length === 16) {
+        setErrors(prev => ({ ...prev, cardNumber: "Numéro de carte invalide" }));
+      } else {
+        setErrors(prev => ({ ...prev, cardNumber: "" }));
+      }
+    }
   };
 
   const handleExpiryChange = (value: string) => {
     const cleaned = value.replace(/\D/g, "");
+    let formatted = cleaned;
     if (cleaned.length >= 2) {
-      setExpiryDate(`${cleaned.slice(0, 2)}/${cleaned.slice(2, 4)}`);
-    } else {
-      setExpiryDate(cleaned);
+      formatted = `${cleaned.slice(0, 2)}/${cleaned.slice(2, 4)}`;
     }
-    if (errors.expiryDate) setErrors({ ...errors, expiryDate: "" });
+    setExpiryDate(formatted);
+
+    if (formatted.length === 5) {
+      const isValid = validateField("expiryDate", formatted);
+      setValidatedFields(prev => ({ ...prev, expiryDate: isValid }));
+      
+      if (touchedFields.expiryDate) {
+        if (!isValid) {
+          setErrors(prev => ({ ...prev, expiryDate: "Date d'expiration invalide" }));
+        } else {
+          setErrors(prev => ({ ...prev, expiryDate: "" }));
+        }
+      }
+    }
+  };
+
+  const handleCvvChange = (value: string) => {
+    const cleaned = value.replace(/\D/g, "").slice(0, 3);
+    setCvv(cleaned);
+
+    const isValid = cleaned.length === 3;
+    setValidatedFields(prev => ({ ...prev, cvv: isValid }));
+    
+    if (touchedFields.cvv && isValid) {
+      setErrors(prev => ({ ...prev, cvv: "" }));
+    }
+  };
+
+  const handleCardHolderChange = (value: string) => {
+    setCardHolder(value);
+
+    const isValid = value.trim().length >= 3;
+    setValidatedFields(prev => ({ ...prev, cardHolder: isValid }));
+    
+    if (touchedFields.cardHolder && isValid) {
+      setErrors(prev => ({ ...prev, cardHolder: "" }));
+    }
+  };
+
+  const handleBlur = (field: string) => {
+    setTouchedFields(prev => ({ ...prev, [field]: true }));
+    
+    let value = "";
+    switch(field) {
+      case "cardNumber": value = cardNumber; break;
+      case "expiryDate": value = expiryDate; break;
+      case "cvv": value = cvv; break;
+      case "cardHolder": value = cardHolder; break;
+    }
+    
+    const isValid = validateField(field, value);
+    setValidatedFields(prev => ({ ...prev, [field]: isValid }));
+    
+    if (!isValid) {
+      let errorMessage = "";
+      switch(field) {
+        case "cardNumber": 
+          errorMessage = cardNumber.replace(/\s/g, "").length === 16 ? "Numéro de carte invalide" : "Le numéro doit contenir 16 chiffres";
+          break;
+        case "expiryDate": 
+          errorMessage = "Date d'expiration invalide";
+          break;
+        case "cvv": 
+          errorMessage = "Le CVV doit contenir 3 chiffres";
+          break;
+        case "cardHolder": 
+          errorMessage = "Nom incomplet (minimum 3 caractères)";
+          break;
+      }
+      setErrors(prev => ({ ...prev, [field]: errorMessage }));
+    }
   };
 
   const validate = () => {
@@ -66,7 +173,7 @@ const ProSubscriptionPayment = () => {
     if (cleanedCard.length !== 16) {
       newErrors.cardNumber = "Le numéro doit contenir 16 chiffres";
     } else if (!cardType) {
-      newErrors.cardNumber = "Commencez par 4 (Visa) ou 5 (Mastercard)";
+      newErrors.cardNumber = "Type de carte non supporté";
     }
 
     if (!expiryDate.match(/^\d{2}\/\d{2}$/)) {
@@ -89,7 +196,7 @@ const ProSubscriptionPayment = () => {
     }
 
     if (cardHolder.trim().length < 3) {
-      newErrors.cardHolder = "Le nom doit contenir au moins 3 caractères";
+      newErrors.cardHolder = "Nom incomplet";
     }
 
     setErrors(newErrors);
@@ -108,7 +215,6 @@ const ProSubscriptionPayment = () => {
         throw new Error("Non authentifié");
       }
 
-      // ✅ Afficher l'overlay de validation
       setIsValidating(true);
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
@@ -136,7 +242,6 @@ const ProSubscriptionPayment = () => {
         endDate = end.toISOString().slice(0, 10);
       }
 
-      // ✅ CORRECTION : Envoyer monthlyPrice et totalPrice correctement
       const res = await fetch("http://localhost:3001/api/subscriptions", {
         method: "POST",
         headers: {
@@ -193,29 +298,41 @@ const ProSubscriptionPayment = () => {
     };
   };
 
+  const formProgress = () => {
+    let completed = 0;
+    if (validatedFields.cardNumber) completed += 25;
+    if (validatedFields.expiryDate) completed += 25;
+    if (validatedFields.cvv) completed += 25;
+    if (validatedFields.cardHolder) completed += 25;
+    return completed;
+  };
+
+  const progress = formProgress();
+  const isFormComplete = progress === 100;
+
   return (
     <MobileLayout showNav={false}>
       <div className="min-h-screen pb-6 relative">
-        {/* Header */}
-        <div className="sticky top-0 bg-background/95 backdrop-blur-lg z-10 border-b border-border/50 -mx-4 px-4 py-4 mb-6">
+        {/* ✅ Header simplifié sans barre de progression */}
+        <div className="sticky top-0 bg-background/98 backdrop-blur-xl z-20 border-b border-border/50 -mx-4 px-4 py-4 mb-6 shadow-sm">
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate(-1)}
               disabled={isProcessing}
-              className="w-9 h-9 rounded-full bg-muted/50 flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
+              className="w-10 h-10 rounded-full bg-muted/60 hover:bg-muted flex items-center justify-center active:scale-95 transition-all disabled:opacity-50 shadow-sm"
             >
-              <ArrowLeft size={18} />
+              <ArrowLeft size={20} />
             </button>
             <div className="flex-1">
-              <h1 className="text-lg font-semibold text-foreground">Paiement</h1>
+              <h1 className="text-lg font-bold text-foreground">Paiement sécurisé</h1>
               <p className="text-xs text-muted-foreground">
-                Formule {plan.name} · {plan.price}€
+                {plan.name} · <span className="font-semibold text-primary">{plan.price}€</span>
               </p>
             </div>
           </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-5">
           {errors.general && (
             <div className="blyss-card bg-destructive/10 border-2 border-destructive/30 animate-shake">
               <div className="flex items-start gap-3">
@@ -225,157 +342,217 @@ const ProSubscriptionPayment = () => {
             </div>
           )}
 
-          {/* Récapitulatif */}
-          <div className="blyss-card bg-gradient-to-br from-primary/5 to-transparent border-2 border-primary/20">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="text-base font-bold text-foreground">{plan.name}</h3>
+          {/* Récapitulatif optimisé */}
+          <div className="blyss-card bg-gradient-to-br from-primary/8 via-primary/5 to-transparent border-2 border-primary/25 shadow-lg">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <Sparkles size={16} className="text-primary" />
+                  <h3 className="text-base font-bold text-foreground">{plan.name}</h3>
+                </div>
                 <p className="text-xs text-muted-foreground">
                   {plan.commitment ? `Engagement ${plan.commitment} mois` : "Sans engagement"}
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-bold text-primary">{plan.price}€</p>
-                <p className="text-xs text-muted-foreground">
-                  {plan.billingType === "one_time" ? "Paiement unique" : "Par mois"}
+                <p className="text-3xl font-black text-primary tracking-tight">{plan.price}€</p>
+                <p className="text-xs text-muted-foreground font-medium">
+                  {plan.billingType === "one_time" ? "Paiement unique" : "/mois"}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200">
-              <Check size={14} className="text-emerald-600" />
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200">
+              <Check size={16} className="text-emerald-600" />
               <span className="text-xs font-semibold text-emerald-700">
-                Annulation à tout moment
+                Annulation en un clic à tout moment
               </span>
             </div>
           </div>
 
-          {/* Formulaire de carte */}
-          <div className="blyss-card space-y-4">
-            <div className="flex items-center gap-2 mb-2">
-              <CreditCard size={20} className="text-primary" />
+          {/* Formulaire avec micro-interactions */}
+          <div className="blyss-card space-y-5 shadow-lg">
+            <div className="flex items-center gap-2.5 mb-1">
+              <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
+                <CreditCard size={18} className="text-primary" />
+              </div>
               <h3 className="text-sm font-bold text-foreground">Informations de paiement</h3>
             </div>
 
-            {/* Numéro de carte */}
+            {/* Numéro de carte avec clavier numérique */}
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-2 block">
+              <label className="text-xs font-semibold text-muted-foreground mb-2 block">
                 Numéro de carte
               </label>
               <div className="relative">
                 <input
                   type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   placeholder="4111 1111 1111 1111"
                   value={cardNumber}
                   onChange={(e) => handleCardNumberChange(e.target.value)}
+                  onBlur={() => handleBlur("cardNumber")}
                   disabled={isProcessing}
-                  className={`w-full px-4 py-3 pr-16 rounded-xl border-2 transition-all ${errors.cardNumber
-                      ? "border-destructive"
-                      : cardType
-                        ? "border-emerald-500"
-                        : "border-muted focus:border-primary"
-                    }`}
+                  autoComplete="cc-number"
+                  autoFocus
+                  className={`w-full px-4 py-3.5 pr-16 rounded-xl border-2 transition-all duration-300 font-mono text-base ${
+                    errors.cardNumber && touchedFields.cardNumber
+                      ? "border-destructive bg-destructive/5 animate-shake"
+                      : validatedFields.cardNumber
+                        ? "border-emerald-500 bg-emerald-50/50"
+                        : "border-muted focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  }`}
                 />
 
-                {/* Logos de cartes améliorés */}
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                {/* ✅ Logos de cartes avec vraies images */}
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 transition-all duration-300">
                   {cardType === "visa" && (
-                    <div className="w-12 h-8 bg-white rounded flex items-center justify-center shadow-sm">
+                    <div className="w-12 h-8 bg-white rounded-md flex items-center justify-center shadow-md animate-scaleIn border border-gray-200 px-1">
                       <img
-                        src="/public/visa.svg"
-                        alt="Visa Logo"
-                        width={40}
-                        height={13}
+                        src="/visa.svg"
+                        alt="Visa"
+                        className="w-full h-auto"
                       />
                     </div>
                   )}
 
                   {cardType === "mastercard" && (
-                    <div className="w-12 h-8 bg-black rounded flex items-center justify-center shadow-sm px-1">
+                    <div className="w-12 h-8 bg-white rounded-md flex items-center justify-center shadow-md animate-scaleIn border border-gray-200 px-1">
                       <img
-                        src="/public/mastercard.svg"
-                        alt="Mastercard Logo"
-                        width={32}
-                        height={20}
-                        className="absolute"
+                        src="/mastercard.svg"
+                        alt="Mastercard"
+                        className="w-full h-auto"
                       />
                     </div>
                   )}
 
                   {!cardType && cardNumber.length > 0 && (
-                    <div className="text-xs text-muted-foreground font-medium">
-                      4→Visa | 5→MC
+                    <div className="text-[10px] text-muted-foreground font-semibold animate-fadeIn">
+                      4→V | 5→MC
+                    </div>
+                  )}
+
+                  {validatedFields.cardNumber && (
+                    <div className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center animate-scaleIn shadow-sm">
+                      <Check size={12} className="text-white" />
                     </div>
                   )}
                 </div>
-
               </div>
-              {errors.cardNumber && (
-                <p className="text-xs text-destructive mt-1 flex items-center gap-1">
+              {errors.cardNumber && touchedFields.cardNumber ? (
+                <p className="text-xs text-destructive mt-2 flex items-center gap-1 animate-fadeIn">
                   <AlertCircle size={12} />
                   {errors.cardNumber}
                 </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-2">
+                  💡 Test : <span className="font-semibold">4</span> pour Visa ou <span className="font-semibold">5</span> pour Mastercard
+                </p>
               )}
-              <p className="text-xs text-muted-foreground mt-1.5">
-                💡 Test : Commence par <span className="font-semibold">4</span> pour Visa ou <span className="font-semibold">5</span> pour Mastercard
-              </p>
             </div>
 
-            {/* Expiration + CVV */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Expiration + CVV avec grid responsive */}
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-2 block">Expiration</label>
-                <input
-                  type="text"
-                  placeholder="12/28"
-                  value={expiryDate}
-                  onChange={(e) => handleExpiryChange(e.target.value)}
-                  maxLength={5}
-                  disabled={isProcessing}
-                  className={`w-full px-4 py-3 rounded-xl border-2 transition-all ${errors.expiryDate ? "border-destructive" : "border-muted focus:border-primary"
+                <label className="text-xs font-semibold text-muted-foreground mb-2 block">Expiration</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="12/28"
+                    value={expiryDate}
+                    onChange={(e) => handleExpiryChange(e.target.value)}
+                    onBlur={() => handleBlur("expiryDate")}
+                    maxLength={5}
+                    disabled={isProcessing}
+                    autoComplete="cc-exp"
+                    className={`w-full px-4 py-3.5 rounded-xl border-2 transition-all duration-300 font-mono ${
+                      errors.expiryDate && touchedFields.expiryDate
+                        ? "border-destructive bg-destructive/5"
+                        : validatedFields.expiryDate
+                          ? "border-emerald-500 bg-emerald-50/50"
+                          : "border-muted focus:border-primary focus:ring-2 focus:ring-primary/20"
                     }`}
-                />
-                {errors.expiryDate && <p className="text-xs text-destructive mt-1">{errors.expiryDate}</p>}
+                  />
+                  {validatedFields.expiryDate && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <Check size={16} className="text-emerald-500 animate-scaleIn" />
+                    </div>
+                  )}
+                </div>
+                {errors.expiryDate && touchedFields.expiryDate && (
+                  <p className="text-xs text-destructive mt-1.5 animate-fadeIn">{errors.expiryDate}</p>
+                )}
               </div>
 
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-2 block">CVV</label>
-                <input
-                  type="text"
-                  placeholder="123"
-                  value={cvv}
-                  onChange={(e) => {
-                    setCvv(e.target.value.replace(/\D/g, "").slice(0, 3));
-                    if (errors.cvv) setErrors({ ...errors, cvv: "" });
-                  }}
-                  maxLength={3}
-                  disabled={isProcessing}
-                  className={`w-full px-4 py-3 rounded-xl border-2 transition-all ${errors.cvv ? "border-destructive" : "border-muted focus:border-primary"
+                <label className="text-xs font-semibold text-muted-foreground mb-2 block">CVV</label>
+                <div className="relative">
+                  <input
+                    type={showCvv ? "text" : "password"}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="123"
+                    value={cvv}
+                    onChange={(e) => handleCvvChange(e.target.value)}
+                    onBlur={() => handleBlur("cvv")}
+                    maxLength={3}
+                    disabled={isProcessing}
+                    autoComplete="cc-csc"
+                    className={`w-full px-4 py-3.5 pr-10 rounded-xl border-2 transition-all duration-300 font-mono ${
+                      errors.cvv && touchedFields.cvv
+                        ? "border-destructive bg-destructive/5"
+                        : validatedFields.cvv
+                          ? "border-emerald-500 bg-emerald-50/50"
+                          : "border-muted focus:border-primary focus:ring-2 focus:ring-primary/20"
                     }`}
-                />
-                {errors.cvv && <p className="text-xs text-destructive mt-1">{errors.cvv}</p>}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCvv(!showCvv)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showCvv ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {errors.cvv && touchedFields.cvv && (
+                  <p className="text-xs text-destructive mt-1.5 animate-fadeIn">{errors.cvv}</p>
+                )}
               </div>
             </div>
 
-            {/* Titulaire */}
+            {/* Titulaire sans transformation forcée */}
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-2 block">
+              <label className="text-xs font-semibold text-muted-foreground mb-2 block">
                 Titulaire de la carte
               </label>
-              <input
-                type="text"
-                placeholder="MARIE BEAUTE"
-                value={cardHolder}
-                onChange={(e) => {
-                  setCardHolder(e.target.value.toUpperCase());
-                  if (errors.cardHolder) setErrors({ ...errors, cardHolder: "" });
-                }}
-                disabled={isProcessing}
-                className={`w-full px-4 py-3 rounded-xl border-2 transition-all ${errors.cardHolder ? "border-destructive" : "border-muted focus:border-primary"
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Marie Beauté"
+                  value={cardHolder}
+                  onChange={(e) => handleCardHolderChange(e.target.value)}
+                  onBlur={() => handleBlur("cardHolder")}
+                  disabled={isProcessing}
+                  autoComplete="cc-name"
+                  className={`w-full px-4 py-3.5 rounded-xl border-2 transition-all duration-300 ${
+                    errors.cardHolder && touchedFields.cardHolder
+                      ? "border-destructive bg-destructive/5"
+                      : validatedFields.cardHolder
+                        ? "border-emerald-500 bg-emerald-50/50"
+                        : "border-muted focus:border-primary focus:ring-2 focus:ring-primary/20"
                   }`}
-              />
-              {errors.cardHolder && (
-                <p className="text-xs text-destructive mt-1 flex items-center gap-1">
+                />
+                {validatedFields.cardHolder && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <Check size={16} className="text-emerald-500 animate-scaleIn" />
+                  </div>
+                )}
+              </div>
+              {errors.cardHolder && touchedFields.cardHolder && (
+                <p className="text-xs text-destructive mt-2 flex items-center gap-1 animate-fadeIn">
                   <AlertCircle size={12} />
                   {errors.cardHolder}
                 </p>
@@ -383,84 +560,81 @@ const ProSubscriptionPayment = () => {
             </div>
           </div>
 
-          {/* Sécurité */}
-          <div className="blyss-card bg-muted/30">
+          {/* Badge sécurité redesigné */}
+          <div className="blyss-card bg-gradient-to-br from-emerald-50 to-blue-50 border-2 border-emerald-200/50">
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                <Shield size={18} className="text-primary" />
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center flex-shrink-0 shadow-md">
+                <Shield size={20} className="text-white" />
               </div>
               <div className="flex-1">
-                <p className="text-xs font-semibold text-foreground mb-1">Paiement 100% sécurisé</p>
+                <p className="text-xs font-bold text-foreground mb-1">Paiement 100% sécurisé</p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Tes données bancaires sont chiffrées et conformes aux normes PCI-DSS.
+                  Chiffrement SSL/TLS + norme PCI-DSS. Tes données bancaires sont protégées.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Bouton payer */}
+          {/* Bouton payer amélioré */}
           <button
             onClick={handlePayment}
-            disabled={isProcessing}
-            className="w-full py-4 rounded-2xl bg-primary text-white font-semibold text-base disabled:opacity-50 active:scale-[0.98] transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2"
+            disabled={isProcessing || !isFormComplete}
+            className={`w-full py-4 rounded-2xl font-bold text-base disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all shadow-xl flex items-center justify-center gap-2.5 ${
+              isFormComplete
+                ? "bg-gradient-to-r from-primary to-primary/90 text-white shadow-primary/30 hover:shadow-2xl"
+                : "bg-muted text-muted-foreground"
+            }`}
           >
             {!isValidating && (
               <>
-                <Lock size={18} />
-                Payer {plan.price}€
+                <Lock size={20} />
+                {isFormComplete ? `Payer ${plan.price}€` : "Complète le formulaire"}
               </>
             )}
           </button>
 
-          <p className="text-xs text-center text-muted-foreground">
+          <p className="text-xs text-center text-muted-foreground leading-relaxed">
             En continuant, tu acceptes les{" "}
-            <span className="text-primary underline">conditions générales</span>
+            <button className="text-primary underline font-semibold hover:text-primary/80 transition-colors">
+              conditions générales
+            </button>
           </p>
         </div>
 
-        {/* ✅ OVERLAY PLEIN ÉCRAN AVEC BLUR */}
+        {/* Overlay de validation redesigné */}
         {isValidating && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center animate-fadeIn"
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center animate-fadeIn"
             style={{
-              backgroundColor: 'rgba(0, 0, 0, 0.6)',
-              backdropFilter: 'blur(8px)',
-              WebkitBackdropFilter: 'blur(8px)'
-            }}>
-            <div className="flex flex-col items-center gap-6 animate-scaleIn">
-              {/* Cercles animés */}
-              <div className="relative w-24 h-24">
-                {/* Cercle externe pulsant */}
+              backgroundColor: 'rgba(0, 0, 0, 0.75)',
+              backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)'
+            }}
+          >
+            <div className="flex flex-col items-center gap-8 animate-scaleIn px-6">
+              {/* Animation de paiement */}
+              <div className="relative w-28 h-28">
                 <div className="absolute inset-0 rounded-full border-4 border-white/20 animate-ping" />
-
-                {/* Cercle rotatif */}
-                <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-white border-l-white animate-spin" />
-
-                {/* Cercle interne */}
-                <div className="absolute inset-3 rounded-full bg-white/10 flex items-center justify-center">
-                  <img
-                    src="/src/assets/logo.png"
-                    alt="Logo Blyss"
-                    width={120}
-                    height={120}
-                    className="animate-shake"
-                  />
+                <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-white border-l-white animate-spin"
+                  style={{ animationDuration: '1s' }} />
+                <div className="absolute inset-4 rounded-full bg-gradient-to-br from-white/20 to-white/10 flex items-center justify-center backdrop-blur-sm">
+                  <Lock size={32} className="text-white animate-pulse" />
                 </div>
               </div>
 
-              {/* Texte */}
-              <div className="text-center space-y-2 px-6">
-                <h3 className="text-xl font-bold text-white">
-                  Validation de votre paiement
+              <div className="text-center space-y-3 max-w-xs">
+                <h3 className="text-2xl font-black text-white">
+                  Validation en cours
                 </h3>
-                <p className="text-sm text-white/80">
-                  Veuillez patienter quelques instants...
+                <p className="text-base text-white/90 font-medium">
+                  Vérification sécurisée de votre paiement...
                 </p>
 
-                {/* Points animés */}
-                <div className="flex items-center justify-center gap-2 pt-2">
-                  <div className="w-2 h-2 rounded-full bg-white animate-bounce" style={{ animationDelay: '0s' }} />
-                  <div className="w-2 h-2 rounded-full bg-white animate-bounce" style={{ animationDelay: '0.2s' }} />
-                  <div className="w-2 h-2 rounded-full bg-white animate-bounce" style={{ animationDelay: '0.4s' }} />
+                {/* Animation de points */}
+                <div className="flex items-center justify-center gap-2 pt-3">
+                  <div className="w-2.5 h-2.5 rounded-full bg-white animate-bounce" style={{ animationDelay: '0s' }} />
+                  <div className="w-2.5 h-2.5 rounded-full bg-white animate-bounce" style={{ animationDelay: '0.15s' }} />
+                  <div className="w-2.5 h-2.5 rounded-full bg-white animate-bounce" style={{ animationDelay: '0.3s' }} />
                 </div>
               </div>
             </div>
@@ -471,8 +645,8 @@ const ProSubscriptionPayment = () => {
       <style>{`
         @keyframes shake {
           0%, 100% { transform: translateX(0); }
-          25% { transform: translateX(-10px); }
-          75% { transform: translateX(10px); }
+          25% { transform: translateX(-8px); }
+          75% { transform: translateX(8px); }
         }
         
         @keyframes fadeIn {
@@ -483,7 +657,7 @@ const ProSubscriptionPayment = () => {
         @keyframes scaleIn {
           from { 
             opacity: 0; 
-            transform: scale(0.8) translateY(20px);
+            transform: scale(0.85) translateY(10px);
           }
           to { 
             opacity: 1; 
@@ -492,15 +666,15 @@ const ProSubscriptionPayment = () => {
         }
         
         .animate-shake {
-          animation: shake 0.5s ease-in-out;
+          animation: shake 0.4s ease-in-out;
         }
         
         .animate-fadeIn {
-          animation: fadeIn 0.3s ease-out;
+          animation: fadeIn 0.25s ease-out;
         }
         
         .animate-scaleIn {
-          animation: scaleIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+          animation: scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
       `}</style>
     </MobileLayout>
