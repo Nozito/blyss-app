@@ -1,7 +1,7 @@
 import MobileLayout from "@/components/MobileLayout";
 import { ChevronLeft, Info, Bell, Calendar, MessageSquare, CreditCard, TrendingUp, Settings, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react"; // AJOUTE useEffect ici
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 type ProNotificationKey =
@@ -28,39 +28,64 @@ const ProNotifications = () => {
   const [saving, setSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // USEEFFECT DOIT ÊTRE ICI, AVANT LES AUTRES FONCTIONS
+  // ✅ Charger les préférences au montage
   useEffect(() => {
     const fetchNotificationSettings = async () => {
       setIsLoading(true);
       try {
-        const token = localStorage.getItem("auth_token");
+        // ✅ Utilise access_token au lieu de auth_token (comme dans ton backend)
+        const token = localStorage.getItem("access_token");
         if (!token) {
+          console.warn("Pas de token d'authentification trouvé");
           setIsLoading(false);
           return;
         }
 
         const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+        
+        // ✅ Timeout de 5 secondes pour éviter d'attendre indéfiniment
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
         const response = await fetch(`${BASE_URL}/api/notification-settings`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          signal: controller.signal
         });
 
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
-          throw new Error("Erreur lors du chargement");
+          const errorData = await response.json();
+          throw new Error(errorData.message || "Erreur lors du chargement");
         }
 
         const data = await response.json();
         
-        // Mapping BDD -> React State
-        setPreferences({
-          newBookings: Boolean(data.data.new_reservation),
-          changes: Boolean(data.data.cancel_change),
-          todayReminders: Boolean(data.data.daily_reminder),
-          clientMessages: Boolean(data.data.client_message),
-          paymentAlerts: Boolean(data.data.payment_alert),
-          activitySummary: Boolean(data.data.activity_summary),
-        });
-      } catch (error) {
-        toast.error("Impossible de charger tes préférences");
+        // ✅ Mapping BDD -> React State
+        if (data.success && data.data) {
+          setPreferences({
+            newBookings: Boolean(data.data.new_reservation),
+            changes: Boolean(data.data.cancel_change),
+            todayReminders: Boolean(data.data.daily_reminder),
+            clientMessages: Boolean(data.data.client_message),
+            paymentAlerts: Boolean(data.data.payment_alert),
+            activitySummary: Boolean(data.data.activity_summary),
+          });
+        }
+      } catch (error: any) {
+        console.error("Erreur lors du chargement des préférences:", error);
+        
+        // ✅ Messages d'erreur plus précis
+        if (error.name === 'AbortError') {
+          toast.error("Le serveur met trop de temps à répondre");
+        } else if (error.message.includes('Failed to fetch')) {
+          toast.error("Impossible de se connecter au serveur");
+        } else {
+          toast.error("Impossible de charger tes préférences");
+        }
       } finally {
         setIsLoading(false);
       }
@@ -79,8 +104,15 @@ const ProNotifications = () => {
     
     try {
       const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+      const token = localStorage.getItem("access_token"); // ✅ access_token
       
-      // Mapping React State -> BDD
+      if (!token) {
+        toast.error("Session expirée, veuillez vous reconnecter");
+        navigate("/login");
+        return;
+      }
+      
+      // ✅ Mapping React State -> BDD (format attendu par le backend)
       const payload = {
         new_reservation: preferences.newBookings ? 1 : 0,
         cancel_change: preferences.changes ? 1 : 0,
@@ -90,25 +122,36 @@ const ProNotifications = () => {
         activity_summary: preferences.activitySummary ? 1 : 0,
       };
 
+      console.log("Envoi des préférences:", payload); // ✅ Debug
+
       const response = await fetch(`${BASE_URL}/api/notification-settings/update`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(payload),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        toast.error(errorData.message || "Une erreur est survenue");
-        return;
+        throw new Error(data.message || "Une erreur est survenue");
       }
 
-      toast.success("Préférences enregistrées !");
+      console.log("Réponse du serveur:", data); // ✅ Debug
+
+      toast.success("Préférences enregistrées avec succès !");
       setHasChanges(false);
-    } catch (error) {
-      toast.error("Une erreur réseau est survenue");
+      
+    } catch (error: any) {
+      console.error("Erreur lors de la sauvegarde:", error);
+      
+      if (error.message.includes('Failed to fetch')) {
+        toast.error("Impossible de se connecter au serveur");
+      } else {
+        toast.error(error.message || "Une erreur est survenue");
+      }
     } finally {
       setSaving(false);
     }
@@ -118,7 +161,7 @@ const ProNotifications = () => {
     toast.info("Ouvre les réglages de ton téléphone pour activer les notifications Blyss");
   };
 
-  // Composant Toggle amélioré
+  // Composant Toggle
   const NotificationToggle = ({
     icon: Icon,
     title,
@@ -199,12 +242,13 @@ const ProNotifications = () => {
   const enabledCount = Object.values(preferences).filter(Boolean).length;
   const totalCount = Object.keys(preferences).length;
 
+  // ✅ État de chargement amélioré
   if (isLoading) {
     return (
       <MobileLayout showNav={false}>
         <div className="flex flex-col items-center justify-center h-screen">
           <div className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary animate-spin mb-4"></div>
-          <p className="text-sm text-muted-foreground animate-pulse">Chargement...</p>
+          <p className="text-sm text-muted-foreground animate-pulse">Chargement de tes préférences...</p>
         </div>
       </MobileLayout>
     );
@@ -419,7 +463,7 @@ const ProNotifications = () => {
               transition-all duration-300 ease-out
               flex items-center justify-center gap-2
               ${hasChanges && !saving
-                ? "gradient-gold text-secondary-foreground active:scale-[0.97] shadow-lg hover:shadow-xl scale-105"
+                ? "bg-primary text-white active:scale-[0.97] shadow-lg hover:shadow-xl scale-105"
                 : "bg-muted text-muted-foreground cursor-not-allowed scale-100"
               }
             `}

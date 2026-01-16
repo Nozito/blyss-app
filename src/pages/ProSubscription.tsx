@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import MobileLayout from "@/components/MobileLayout";
-import { Check, ArrowLeft, Zap, Heart, Sparkles, TrendingDown, Calendar, CheckCircle2, ArrowUpRight } from "lucide-react";
+import { Check, ArrowLeft, Zap, Heart, Sparkles, TrendingDown, Calendar, CheckCircle2, ArrowUpRight, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 type BillingType = "monthly" | "one_time";
@@ -20,8 +20,8 @@ const ProSubscription = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentSubscription, setCurrentSubscription] = useState<CurrentSubscription | null>(null);
   const [loadingSubscription, setLoadingSubscription] = useState(true);
+  const [connectionError, setConnectionError] = useState(false); // ✅ Nouveau state
 
-  // ✅ DÉFINIR LES PLANS EN PREMIER (avant le useEffect)
   const plans: {
     id: PlanId;
     name: string;
@@ -34,55 +34,55 @@ const ProSubscription = () => {
     savings?: string;
     savingsAmount?: number;
   }[] = [
-      {
-        id: "start",
-        name: "Start",
-        icon: Zap,
-        monthlyPrice: 34.90,
-        commitment: null,
-        features: [
-          "Réservation en ligne",
-          "Gestion agenda",
-          "Notifications clients",
-          "Tableau de bord"
-        ]
-      },
-      {
-        id: "serenite",
-        name: "Sérénité",
-        icon: Heart,
-        monthlyPrice: 29.90,
-        commitment: 3,
-        oneTimePrice: 79.90,
-        savings: "Économise 10€",
-        savingsAmount: 10,
-        features: [
-          "Module finance",
-          "Portfolio photos",
-          "Rappels automatiques",
-          "Tout Start inclus"
-        ],
-        popular: true
-      },
-      {
-        id: "signature",
-        name: "Signature",
-        icon: Sparkles,
-        monthlyPrice: 24.90,
-        commitment: 12,
-        oneTimePrice: 249.00,
-        savings: "Économise 50€",
-        savingsAmount: 50,
-        features: [
-          "Visibilité premium",
-          "Rappels post-prestation",
-          "Encaissement en ligne",
-          "Tout Sérénité inclus"
-        ]
-      }
-    ];
+    {
+      id: "start",
+      name: "Start",
+      icon: Zap,
+      monthlyPrice: 34.90,
+      commitment: null,
+      features: [
+        "Réservation en ligne",
+        "Gestion agenda",
+        "Notifications clients",
+        "Tableau de bord"
+      ]
+    },
+    {
+      id: "serenite",
+      name: "Sérénité",
+      icon: Heart,
+      monthlyPrice: 29.90,
+      commitment: 3,
+      oneTimePrice: 79.90,
+      savings: "Économise 10€",
+      savingsAmount: 10,
+      features: [
+        "Module finance",
+        "Portfolio photos",
+        "Rappels automatiques",
+        "Tout Start inclus"
+      ],
+      popular: true
+    },
+    {
+      id: "signature",
+      name: "Signature",
+      icon: Sparkles,
+      monthlyPrice: 24.90,
+      commitment: 12,
+      oneTimePrice: 249.00,
+      savings: "Économise 50€",
+      savingsAmount: 50,
+      features: [
+        "Visibilité premium",
+        "Rappels post-prestation",
+        "Encaissement en ligne",
+        "Tout Sérénité inclus"
+      ]
+    }
+  ];
 
-  // Récupérer l'abonnement actuel
+  // ✅ Récupérer l'abonnement actuel avec gestion d'erreur robuste
   useEffect(() => {
     const fetchCurrentSubscription = async () => {
       try {
@@ -92,11 +92,18 @@ const ProSubscription = () => {
           return;
         }
 
+        // ✅ Timeout pour éviter d'attendre indéfiniment
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 secondes max
+
         const res = await fetch("http://localhost:3001/api/subscriptions/current", {
           headers: {
             Authorization: `Bearer ${token}`,
           },
+          signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (res.ok) {
           const data = await res.json();
@@ -107,10 +114,22 @@ const ProSubscription = () => {
               status: data.data.status,
               endDate: data.data.endDate,
             });
+            setConnectionError(false);
           }
+        } else if (res.status === 404) {
+          // Pas d'abonnement actuel, c'est normal
+          setConnectionError(false);
         }
-      } catch (error) {
-        console.error("Erreur lors de la récupération de l'abonnement:", error);
+      } catch (error: any) {
+        // ✅ Gérer proprement les erreurs de connexion
+        if (error.name === 'AbortError') {
+          console.warn("Timeout lors de la récupération de l'abonnement");
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('ERR_CONNECTION_REFUSED')) {
+          console.warn("Backend non accessible, mode hors ligne activé");
+          setConnectionError(true);
+        } else {
+          console.error("Erreur lors de la récupération de l'abonnement:", error);
+        }
       } finally {
         setLoadingSubscription(false);
       }
@@ -184,6 +203,25 @@ const ProSubscription = () => {
         </div>
 
         <div className="pb-32 space-y-6">
+          {/* ✅ Bannière d'avertissement si backend hors ligne */}
+          {connectionError && (
+            <div className="blyss-card bg-amber-50 border-2 border-amber-200 animate-fade-in">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center flex-shrink-0">
+                  <AlertCircle size={20} className="text-white" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-bold text-foreground mb-1">
+                    Mode hors ligne
+                  </h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Impossible de récupérer ton abonnement actuel. Vérifie que le backend est démarré sur le port 3001.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Bannière abonnement actif */}
           {currentSubscription && currentSubscription.status === "active" && (
             <div className="blyss-card bg-gradient-to-br from-emerald-50 to-transparent border-2 border-emerald-200 animate-fade-in">
@@ -258,8 +296,7 @@ const ProSubscription = () => {
             </div>
           </div>
 
-          {/* Plans avec indication du plan actuel */}
-          {/* Plans avec mise en avant des upgrades/changements */}
+          {/* Plans */}
           <div className="space-y-3">
             {plans.map((plan, index) => {
               const isSelected = selectedPlan === plan.id;
@@ -277,13 +314,13 @@ const ProSubscription = () => {
                   key={plan.id}
                   onClick={() => handleSelectPlan(plan.id)}
                   style={{ animationDelay: `${index * 100}ms` }}
-                  disabled={isCurrent} // ✅ Désactiver le clic sur le plan actuel
+                  disabled={isCurrent}
                   className={`
           w-full text-left rounded-2xl p-5 border-2 
           transition-all duration-300 ease-out
           animate-slide-up relative overflow-hidden
           ${isCurrent
-                      ? "border-muted bg-muted/30 opacity-60 cursor-default" // ✅ Style désactivé/grisé
+                      ? "border-muted bg-muted/30 opacity-60 cursor-default"
                       : isSelected
                         ? "border-primary bg-white shadow-xl shadow-primary/20 scale-[1.02] ring-2 ring-primary/20"
                         : "border-border bg-card hover:border-primary/30 hover:shadow-md hover:scale-[1.01]"
@@ -291,7 +328,6 @@ const ProSubscription = () => {
           ${!isCurrent && "active:scale-[0.98]"}
         `}
                 >
-                  {/* Badge "Plan actuel" repositionné en haut */}
                   {isCurrent && (
                     <div className="absolute top-0 left-0 right-0 z-10">
                       <div className="flex items-center justify-center gap-1.5 bg-gradient-to-r from-muted via-muted/80 to-muted text-muted-foreground text-[11px] font-bold px-4 py-2 rounded-t-2xl border-b border-border">
@@ -301,7 +337,6 @@ const ProSubscription = () => {
                     </div>
                   )}
 
-                  {/* Espace supplémentaire si plan actuel */}
                   {isCurrent && <div className="h-4" />}
 
                   {/* Header */}
@@ -311,7 +346,7 @@ const ProSubscription = () => {
               w-12 h-12 rounded-xl flex items-center justify-center
               transition-all duration-300 shadow-sm
               ${isCurrent
-                          ? "bg-muted/50" // ✅ Icône grisée
+                          ? "bg-muted/50"
                           : isSelected
                             ? "bg-gradient-to-br from-primary to-primary/70 scale-110 shadow-primary/30"
                             : "bg-muted"
@@ -320,7 +355,7 @@ const ProSubscription = () => {
                         <Icon
                           size={24}
                           className={`transition-all duration-300 ${isCurrent
-                              ? "text-muted-foreground" // ✅ Gris
+                              ? "text-muted-foreground"
                               : isSelected
                                 ? "text-white"
                                 : "text-muted-foreground"
@@ -340,7 +375,6 @@ const ProSubscription = () => {
                       </div>
                     </div>
 
-                    {/* Checkbox pour les autres plans uniquement */}
                     {!isCurrent && (
                       <div className={`
               w-6 h-6 rounded-full border-2 flex items-center justify-center 
@@ -386,7 +420,6 @@ const ProSubscription = () => {
                   {/* Prix - Version ANNUELLE */}
                   {isAnnual && (
                     <div className="relative mb-4 space-y-3 animate-fade-in">
-                      {/* Badge économies SEULEMENT si pas le plan actuel */}
                       {plan.savingsAmount && !isCurrent && (
                         <div className="absolute -top-3 -right-3 z-10">
                           <div className="relative">
@@ -402,7 +435,7 @@ const ProSubscription = () => {
                       <div className={`
               relative rounded-xl p-4 border-2 transition-all duration-300
               ${isCurrent
-                          ? "bg-muted/20 border-muted" // ✅ Version grisée
+                          ? "bg-muted/20 border-muted"
                           : isSelected
                             ? "bg-gradient-to-br from-primary/8 via-primary/5 to-transparent border-primary/30 shadow-inner"
                             : "bg-muted/30 border-muted"
@@ -525,7 +558,7 @@ const ProSubscription = () => {
                         <Check
                           size={16}
                           className={`mt-0.5 flex-shrink-0 transition-colors ${isCurrent
-                              ? "text-muted-foreground/50" // ✅ Checks grisés
+                              ? "text-muted-foreground/50"
                               : isSelected
                                 ? "text-primary"
                                 : "text-muted-foreground"
@@ -533,7 +566,7 @@ const ProSubscription = () => {
                           strokeWidth={2.5}
                         />
                         <span className={`text-sm leading-relaxed ${isCurrent
-                            ? "text-muted-foreground/70" // ✅ Texte grisé
+                            ? "text-muted-foreground/70"
                             : "text-muted-foreground"
                           }`}>
                           {feature}
@@ -545,7 +578,6 @@ const ProSubscription = () => {
               );
             })}
           </div>
-
 
           {/* Footer fixe */}
           <div

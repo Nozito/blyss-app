@@ -1879,6 +1879,250 @@ app.put(
   }
 );
 
+app.get(
+  "/api/notification-settings",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const userId = req.user!.id;
+
+      connection = await db.getConnection();
+
+      // Récupérer les préférences existantes
+      const [rows] = (await connection.query(
+        "SELECT * FROM notification_settings WHERE user_id = ?",
+        [userId]
+      )) as [{
+        id: number;
+        user_id: number;
+        new_reservation: number;
+        cancel_change: number;
+        daily_reminder: number;
+        client_message: number;
+        payment_alert: number;
+        activity_summary: number;
+        created_at: string;
+        updated_at: string;
+      }[], any];
+
+      // Si aucune préférence n'existe, créer des valeurs par défaut
+      if (rows.length === 0) {
+        const defaultSettings = {
+          user_id: userId,
+          new_reservation: 1,
+          cancel_change: 1,
+          daily_reminder: 1,
+          client_message: 1,
+          payment_alert: 1,
+          activity_summary: 0,
+        };
+
+        await connection.query(
+          "INSERT INTO notification_settings SET ?",
+          defaultSettings
+        );
+
+        return res.status(200).json({
+          success: true,
+          data: defaultSettings,
+          message: "Préférences initialisées avec les valeurs par défaut",
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        data: rows[0],
+      });
+    } catch (error) {
+      console.error("Erreur lors de la récupération des préférences:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur serveur lors de la récupération des préférences",
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+/**
+ * PUT - Mettre à jour les préférences de notification
+ */
+app.put(
+  "/api/notification-settings/update",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const userId = req.user!.id;
+      const {
+        new_reservation,
+        cancel_change,
+        daily_reminder,
+        client_message,
+        payment_alert,
+        activity_summary,
+      } = req.body;
+
+      // Validation : tous les champs doivent être 0 ou 1
+      const fields = {
+        new_reservation,
+        cancel_change,
+        daily_reminder,
+        client_message,
+        payment_alert,
+        activity_summary,
+      };
+
+      for (const [key, value] of Object.entries(fields)) {
+        if (value !== undefined && value !== 0 && value !== 1) {
+          return res.status(400).json({
+            success: false,
+            message: `Le champ ${key} doit être 0 ou 1`,
+          });
+        }
+      }
+
+      connection = await db.getConnection();
+
+      // Vérifier si l'utilisateur a déjà des préférences
+      const [existing] = (await connection.query(
+        "SELECT id FROM notification_settings WHERE user_id = ?",
+        [userId]
+      )) as [{ id: number }[], any];
+
+      if (existing.length === 0) {
+        // Créer les préférences si elles n'existent pas
+        await connection.query(
+          `INSERT INTO notification_settings 
+          (user_id, new_reservation, cancel_change, daily_reminder, client_message, payment_alert, activity_summary) 
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            userId,
+            new_reservation ?? 1,
+            cancel_change ?? 1,
+            daily_reminder ?? 1,
+            client_message ?? 1,
+            payment_alert ?? 1,
+            activity_summary ?? 0,
+          ]
+        );
+      } else {
+        // Mettre à jour les préférences existantes
+        const updateFields: string[] = [];
+        const updateValues: any[] = [];
+
+        Object.entries(fields).forEach(([key, value]) => {
+          if (value !== undefined) {
+            updateFields.push(`${key} = ?`);
+            updateValues.push(value);
+          }
+        });
+
+        if (updateFields.length > 0) {
+          updateValues.push(userId);
+          await connection.query(
+            `UPDATE notification_settings SET ${updateFields.join(", ")}, updated_at = NOW() WHERE user_id = ?`,
+            updateValues
+          );
+        }
+      }
+
+      // Récupérer les préférences mises à jour
+      const [updated] = (await connection.query(
+        "SELECT * FROM notification_settings WHERE user_id = ?",
+        [userId]
+      )) as [{
+        id: number;
+        user_id: number;
+        new_reservation: number;
+        cancel_change: number;
+        daily_reminder: number;
+        client_message: number;
+        payment_alert: number;
+        activity_summary: number;
+        created_at: string;
+        updated_at: string;
+      }[], any];
+
+      res.status(200).json({
+        success: true,
+        data: updated[0],
+        message: "Préférences mises à jour avec succès",
+      });
+    } catch (error) {
+      console.error("Erreur lors de la mise à jour des préférences:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur serveur lors de la mise à jour",
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+/**
+ * POST - Initialiser les préférences par défaut (appelé à l'inscription)
+ */
+app.post(
+  "/api/notification-settings/initialize",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const userId = req.user!.id;
+
+      connection = await db.getConnection();
+
+      // Vérifier si les préférences existent déjà
+      const [existing] = (await connection.query(
+        "SELECT id FROM notification_settings WHERE user_id = ?",
+        [userId]
+      )) as [{ id: number }[], any];
+
+      if (existing.length > 0) {
+        return res.status(200).json({
+          success: true,
+          message: "Les préférences existent déjà",
+        });
+      }
+
+      // Créer les préférences par défaut
+      const defaultSettings = {
+        user_id: userId,
+        new_reservation: 1,
+        cancel_change: 1,
+        daily_reminder: 1,
+        client_message: 1,
+        payment_alert: 1,
+        activity_summary: 0,
+      };
+
+      await connection.query(
+        "INSERT INTO notification_settings SET ?",
+        defaultSettings
+      );
+
+      res.status(201).json({
+        success: true,
+        data: defaultSettings,
+        message: "Préférences initialisées avec succès",
+      });
+    } catch (error) {
+      console.error("Erreur lors de l'initialisation des préférences:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur serveur lors de l'initialisation",
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+
 
 const PORT = process.env.PORT || 3001;
 
