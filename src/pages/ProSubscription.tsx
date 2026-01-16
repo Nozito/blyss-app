@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import MobileLayout from "@/components/MobileLayout";
 import { Check, ArrowLeft, Zap, Heart, Sparkles, TrendingDown, Calendar, CheckCircle2, ArrowUpRight, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { getApiEndpoint } from "@/services/api";
 
 type BillingType = "monthly" | "one_time";
 type PlanId = "start" | "serenite" | "signature";
@@ -96,7 +97,7 @@ const ProSubscription = () => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 secondes max
 
-        const res = await fetch("http://localhost:3001/api/subscriptions/current", {
+        const res = await fetch(getApiEndpoint("/api/subscriptions/current"), {
           headers: {
             Authorization: `Bearer ${token}`,
           },
