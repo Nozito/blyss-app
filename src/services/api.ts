@@ -1,5 +1,12 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
+// ✅ Export de l'URL de base et helper pour construire les endpoints
+export const API_URL = API_BASE_URL;
+
+export const getApiEndpoint = (path: string): string => {
+  return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+};
+
 export interface User {
   profile_visibility: string;
   id: number;

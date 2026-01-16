@@ -1,4 +1,5 @@
 import MobileLayout from "@/components/MobileLayout";
+import { getApiEndpoint } from "@/services/api";
 import { ArrowLeft, AlertCircle, Check, Lock, CreditCard, Shield, Sparkles, Eye, EyeOff } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -77,7 +78,7 @@ const ProSubscriptionPayment = () => {
 
     const isValid = validateField("cardNumber", formatted);
     setValidatedFields(prev => ({ ...prev, cardNumber: isValid }));
-    
+
     if (touchedFields.cardNumber) {
       if (!isValid && cleaned.length === 16) {
         setErrors(prev => ({ ...prev, cardNumber: "Numéro de carte invalide" }));
@@ -98,7 +99,7 @@ const ProSubscriptionPayment = () => {
     if (formatted.length === 5) {
       const isValid = validateField("expiryDate", formatted);
       setValidatedFields(prev => ({ ...prev, expiryDate: isValid }));
-      
+
       if (touchedFields.expiryDate) {
         if (!isValid) {
           setErrors(prev => ({ ...prev, expiryDate: "Date d'expiration invalide" }));
@@ -115,7 +116,7 @@ const ProSubscriptionPayment = () => {
 
     const isValid = cleaned.length === 3;
     setValidatedFields(prev => ({ ...prev, cvv: isValid }));
-    
+
     if (touchedFields.cvv && isValid) {
       setErrors(prev => ({ ...prev, cvv: "" }));
     }
@@ -126,7 +127,7 @@ const ProSubscriptionPayment = () => {
 
     const isValid = value.trim().length >= 3;
     setValidatedFields(prev => ({ ...prev, cardHolder: isValid }));
-    
+
     if (touchedFields.cardHolder && isValid) {
       setErrors(prev => ({ ...prev, cardHolder: "" }));
     }
@@ -134,31 +135,31 @@ const ProSubscriptionPayment = () => {
 
   const handleBlur = (field: string) => {
     setTouchedFields(prev => ({ ...prev, [field]: true }));
-    
+
     let value = "";
-    switch(field) {
+    switch (field) {
       case "cardNumber": value = cardNumber; break;
       case "expiryDate": value = expiryDate; break;
       case "cvv": value = cvv; break;
       case "cardHolder": value = cardHolder; break;
     }
-    
+
     const isValid = validateField(field, value);
     setValidatedFields(prev => ({ ...prev, [field]: isValid }));
-    
+
     if (!isValid) {
       let errorMessage = "";
-      switch(field) {
-        case "cardNumber": 
+      switch (field) {
+        case "cardNumber":
           errorMessage = cardNumber.replace(/\s/g, "").length === 16 ? "Numéro de carte invalide" : "Le numéro doit contenir 16 chiffres";
           break;
-        case "expiryDate": 
+        case "expiryDate":
           errorMessage = "Date d'expiration invalide";
           break;
-        case "cvv": 
+        case "cvv":
           errorMessage = "Le CVV doit contenir 3 chiffres";
           break;
-        case "cardHolder": 
+        case "cardHolder":
           errorMessage = "Nom incomplet (minimum 3 caractères)";
           break;
       }
@@ -242,7 +243,7 @@ const ProSubscriptionPayment = () => {
         endDate = end.toISOString().slice(0, 10);
       }
 
-      const res = await fetch("http://localhost:3001/api/subscriptions", {
+      const res = await fetch(getApiEndpoint('/api/subscriptions'), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -396,13 +397,12 @@ const ProSubscriptionPayment = () => {
                   disabled={isProcessing}
                   autoComplete="cc-number"
                   autoFocus
-                  className={`w-full px-4 py-3.5 pr-16 rounded-xl border-2 transition-all duration-300 font-mono text-base ${
-                    errors.cardNumber && touchedFields.cardNumber
+                  className={`w-full px-4 py-3.5 pr-16 rounded-xl border-2 transition-all duration-300 font-mono text-base ${errors.cardNumber && touchedFields.cardNumber
                       ? "border-destructive bg-destructive/5 animate-shake"
                       : validatedFields.cardNumber
                         ? "border-emerald-500 bg-emerald-50/50"
                         : "border-muted focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  }`}
+                    }`}
                 />
 
                 {/* ✅ Logos de cartes avec vraies images */}
@@ -468,13 +468,12 @@ const ProSubscriptionPayment = () => {
                     maxLength={5}
                     disabled={isProcessing}
                     autoComplete="cc-exp"
-                    className={`w-full px-4 py-3.5 rounded-xl border-2 transition-all duration-300 font-mono ${
-                      errors.expiryDate && touchedFields.expiryDate
+                    className={`w-full px-4 py-3.5 rounded-xl border-2 transition-all duration-300 font-mono ${errors.expiryDate && touchedFields.expiryDate
                         ? "border-destructive bg-destructive/5"
                         : validatedFields.expiryDate
                           ? "border-emerald-500 bg-emerald-50/50"
                           : "border-muted focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    }`}
+                      }`}
                   />
                   {validatedFields.expiryDate && (
                     <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -501,13 +500,12 @@ const ProSubscriptionPayment = () => {
                     maxLength={3}
                     disabled={isProcessing}
                     autoComplete="cc-csc"
-                    className={`w-full px-4 py-3.5 pr-10 rounded-xl border-2 transition-all duration-300 font-mono ${
-                      errors.cvv && touchedFields.cvv
+                    className={`w-full px-4 py-3.5 pr-10 rounded-xl border-2 transition-all duration-300 font-mono ${errors.cvv && touchedFields.cvv
                         ? "border-destructive bg-destructive/5"
                         : validatedFields.cvv
                           ? "border-emerald-500 bg-emerald-50/50"
                           : "border-muted focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    }`}
+                      }`}
                   />
                   <button
                     type="button"
@@ -537,13 +535,12 @@ const ProSubscriptionPayment = () => {
                   onBlur={() => handleBlur("cardHolder")}
                   disabled={isProcessing}
                   autoComplete="cc-name"
-                  className={`w-full px-4 py-3.5 rounded-xl border-2 transition-all duration-300 ${
-                    errors.cardHolder && touchedFields.cardHolder
+                  className={`w-full px-4 py-3.5 rounded-xl border-2 transition-all duration-300 ${errors.cardHolder && touchedFields.cardHolder
                       ? "border-destructive bg-destructive/5"
                       : validatedFields.cardHolder
                         ? "border-emerald-500 bg-emerald-50/50"
                         : "border-muted focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  }`}
+                    }`}
                 />
                 {validatedFields.cardHolder && (
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -579,11 +576,10 @@ const ProSubscriptionPayment = () => {
           <button
             onClick={handlePayment}
             disabled={isProcessing || !isFormComplete}
-            className={`w-full py-4 rounded-2xl font-bold text-base disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all shadow-xl flex items-center justify-center gap-2.5 ${
-              isFormComplete
+            className={`w-full py-4 rounded-2xl font-bold text-base disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all shadow-xl flex items-center justify-center gap-2.5 ${isFormComplete
                 ? "bg-gradient-to-r from-primary to-primary/90 text-white shadow-primary/30 hover:shadow-2xl"
                 : "bg-muted text-muted-foreground"
-            }`}
+              }`}
           >
             {!isValidating && (
               <>
