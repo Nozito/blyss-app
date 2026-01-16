@@ -157,7 +157,6 @@ const ProProfile = () => {
 
   const handleLogout = async () => {
     await logout();
-    toast.success("Déconnexion réussie");
     navigate("/");
   };
 

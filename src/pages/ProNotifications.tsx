@@ -3,6 +3,7 @@ import { ChevronLeft, Info, Bell, Calendar, MessageSquare, CreditCard, TrendingU
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { getApiEndpoint } from "@/services/api";
 
 type ProNotificationKey =
   | "newBookings"
@@ -33,7 +34,6 @@ const ProNotifications = () => {
     const fetchNotificationSettings = async () => {
       setIsLoading(true);
       try {
-        // ✅ Utilise access_token au lieu de auth_token (comme dans ton backend)
         const token = localStorage.getItem("access_token");
         if (!token) {
           console.warn("Pas de token d'authentification trouvé");
@@ -41,13 +41,11 @@ const ProNotifications = () => {
           return;
         }
 
-        const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
-        
-        // ✅ Timeout de 5 secondes pour éviter d'attendre indéfiniment
+        // ✅ Utilise getApiEndpoint au lieu de construire l'URL manuellement
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-        const response = await fetch(`${BASE_URL}/api/notification-settings`, {
+        const response = await fetch(getApiEndpoint('/api/notification-settings'), {
           headers: { 
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json"
@@ -78,7 +76,6 @@ const ProNotifications = () => {
       } catch (error: any) {
         console.error("Erreur lors du chargement des préférences:", error);
         
-        // ✅ Messages d'erreur plus précis
         if (error.name === 'AbortError') {
           toast.error("Le serveur met trop de temps à répondre");
         } else if (error.message.includes('Failed to fetch')) {
@@ -103,8 +100,7 @@ const ProNotifications = () => {
     setSaving(true);
     
     try {
-      const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
-      const token = localStorage.getItem("access_token"); // ✅ access_token
+      const token = localStorage.getItem("access_token");
       
       if (!token) {
         toast.error("Session expirée, veuillez vous reconnecter");
@@ -122,9 +118,10 @@ const ProNotifications = () => {
         activity_summary: preferences.activitySummary ? 1 : 0,
       };
 
-      console.log("Envoi des préférences:", payload); // ✅ Debug
+      console.log("Envoi des préférences:", payload);
 
-      const response = await fetch(`${BASE_URL}/api/notification-settings/update`, {
+      // ✅ Utilise getApiEndpoint au lieu de construire l'URL manuellement
+      const response = await fetch(getApiEndpoint('/api/notification-settings/update'), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -139,7 +136,7 @@ const ProNotifications = () => {
         throw new Error(data.message || "Une erreur est survenue");
       }
 
-      console.log("Réponse du serveur:", data); // ✅ Debug
+      console.log("Réponse du serveur:", data);
 
       toast.success("Préférences enregistrées avec succès !");
       setHasChanges(false);
@@ -242,7 +239,6 @@ const ProNotifications = () => {
   const enabledCount = Object.values(preferences).filter(Boolean).length;
   const totalCount = Object.keys(preferences).length;
 
-  // ✅ État de chargement amélioré
   if (isLoading) {
     return (
       <MobileLayout showNav={false}>
@@ -257,6 +253,7 @@ const ProNotifications = () => {
   return (
     <MobileLayout showNav={false}>
       <div className="min-h-screen py-6">
+        {/* ... Reste du JSX identique ... */}
         {/* Header */}
         <div className="relative -mx-4 px-4 pt-2 pb-6 mb-6 animate-fade-in">
           <div className="flex items-center mb-3">

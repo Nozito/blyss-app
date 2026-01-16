@@ -1946,9 +1946,7 @@ app.get(
   }
 );
 
-/**
- * PUT - Mettre à jour les préférences de notification
- */
+// PUT - Mettre à jour les préférences (ligne ~1990-2050)
 app.put(
   "/api/notification-settings/update",
   authMiddleware,
@@ -1965,15 +1963,8 @@ app.put(
         activity_summary,
       } = req.body;
 
-      // Validation : tous les champs doivent être 0 ou 1
-      const fields = {
-        new_reservation,
-        cancel_change,
-        daily_reminder,
-        client_message,
-        payment_alert,
-        activity_summary,
-      };
+      // Validation
+      const fields = { new_reservation, cancel_change, daily_reminder, client_message, payment_alert, activity_summary };
 
       for (const [key, value] of Object.entries(fields)) {
         if (value !== undefined && value !== 0 && value !== 1) {
@@ -1986,18 +1977,18 @@ app.put(
 
       connection = await db.getConnection();
 
-      // Vérifier si l'utilisateur a déjà des préférences
+      // ✅ CORRECTION : Utilise user_id au lieu de id
       const [existing] = (await connection.query(
-        "SELECT id FROM notification_settings WHERE user_id = ?",
+        `SELECT user_id FROM notification_settings WHERE user_id = ?`,
         [userId]
-      )) as [{ id: number }[], any];
+      )) as [{ user_id: number }[], any];
 
       if (existing.length === 0) {
         // Créer les préférences si elles n'existent pas
         await connection.query(
-          `INSERT INTO notification_settings 
-          (user_id, new_reservation, cancel_change, daily_reminder, client_message, payment_alert, activity_summary) 
-          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO notification_settings
+           (user_id, new_reservation, cancel_change, daily_reminder, client_message, payment_alert, activity_summary)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
             userId,
             new_reservation ?? 1,
@@ -2023,18 +2014,19 @@ app.put(
         if (updateFields.length > 0) {
           updateValues.push(userId);
           await connection.query(
-            `UPDATE notification_settings SET ${updateFields.join(", ")}, updated_at = NOW() WHERE user_id = ?`,
+            `UPDATE notification_settings 
+             SET ${updateFields.join(", ")}, updated_at = NOW() 
+             WHERE user_id = ?`,
             updateValues
           );
         }
       }
 
       // Récupérer les préférences mises à jour
-      const [updated] = (await connection.query(
-        "SELECT * FROM notification_settings WHERE user_id = ?",
+      const [updated] = await connection.query(
+        `SELECT * FROM notification_settings WHERE user_id = ?`,
         [userId]
-      )) as [{
-        id: number;
+      ) as [{
         user_id: number;
         new_reservation: number;
         cancel_change: number;
@@ -2063,6 +2055,7 @@ app.put(
   }
 );
 
+
 /**
  * POST - Initialiser les préférences par défaut (appelé à l'inscription)
  */
@@ -2078,9 +2071,9 @@ app.post(
 
       // Vérifier si les préférences existent déjà
       const [existing] = (await connection.query(
-        "SELECT id FROM notification_settings WHERE user_id = ?",
+        "SELECT user_id FROM notification_settings WHERE user_id = ?",
         [userId]
-      )) as [{ id: number }[], any];
+      )) as [{ user_id: number }[], any];
 
       if (existing.length > 0) {
         return res.status(200).json({
