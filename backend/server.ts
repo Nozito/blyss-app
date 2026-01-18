@@ -2216,6 +2216,7 @@ app.get(
   }
 );
 
+// PUT /api/pro/slots/:id (ligne ~2220)
 app.put(
   "/api/pro/slots/:id",
   authMiddleware,
@@ -2223,7 +2224,7 @@ app.put(
     let connection;
     try {
       const proId = getProId(req);
-      const slotId = parseInt(req.params.id);
+      const slotId = parseInt(String(req.params.id)); // ✅ CORRIGÉ
       const { status } = req.body;
 
       if (!status || !['available', 'blocked'].includes(status)) {
@@ -2253,6 +2254,37 @@ app.put(
     }
   }
 );
+
+// DELETE /api/pro/slots/:id (ligne ~2290)
+app.delete(
+  "/api/pro/slots/:id",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const slotId = parseInt(String(req.params.id)); // ✅ CORRIGÉ
+
+      connection = await db.getConnection();
+
+      await connection.query(
+        `
+        DELETE FROM slots 
+        WHERE id = ? AND pro_id = ?
+        `,
+        [slotId, proId]
+      );
+
+      res.json({ success: true, message: "Créneau supprimé" });
+    } catch (err) {
+      console.error("[DELETE SLOT] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
 
 
 app.patch(
