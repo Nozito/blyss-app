@@ -146,10 +146,26 @@ async function tryRefreshToken(): Promise<boolean> {
 
 // --- apiCall avec gestion 401 + refresh ---
 
-async function apiCall<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<ApiResponse<T>> {
+// Overloads to support both usages:
+// apiCall(endpoint, options?)
+// apiCall(method, endpoint, options?)
+async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>>;
+async function apiCall<T>(method: string, endpoint: string, options?: RequestInit): Promise<ApiResponse<T>>;
+async function apiCall<T>(a: string, b?: any, c: any = {}): Promise<ApiResponse<T>> {
+  // Normalize arguments so callers can use either form
+  let endpoint: string;
+  let options: RequestInit = {};
+
+  if (typeof b === "string") {
+    // Called as apiCall(method, endpoint, options?)
+    endpoint = b;
+    options = { ...(c || {}), method: a };
+  } else {
+    // Called as apiCall(endpoint, options?)
+    endpoint = a;
+    options = b || {};
+  }
+
   try {
     const token = getAccessToken();
 
@@ -348,6 +364,26 @@ export const specialistsApi = {
       `/api/specialists/${id}/availability?date=${encodeURIComponent(date)}`
     );
   },
+
+   getSpecialists: (params?: { 
+      page?: number; 
+      limit?: number; 
+      search?: string;
+      city?: string;
+    }) => {
+      const query = params
+        ? '?' +
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined && v !== null && v !== '')
+            .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+            .join('&')
+        : '';
+      return apiCall('GET', `/api/client/specialists${query}`);
+    },
+    
+    // Méthode pour récupérer un spécialiste par ID
+    getSpecialistById: (id: number) => 
+      apiCall('GET', `/api/client/specialists/${id}`),
 };
 
 // --- Reviews ---
@@ -446,6 +482,29 @@ export const proApi = {
   cancelSubscription: () =>
     apiCall("/api/pro/subscription/cancel", {
       method: "PUT",
+    }),
+
+  // ✅ SLOTS - Ajouté dans proApi
+  getSlots: (params: { date: string }) => {
+    const query = `?date=${encodeURIComponent(params.date)}`;
+    return apiCall<any[]>(`/api/pro/slots${query}`);
+  },
+
+  createSlot: (data: { date: string; time: string; duration: number }) =>
+    apiCall("/api/pro/slots", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  updateSlot: (id: number, data: { status: string }) =>
+    apiCall(`/api/pro/slots/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  deleteSlot: (id: number) =>
+    apiCall(`/api/pro/slots/${id}`, {
+      method: "DELETE",
     }),
 };
 

@@ -204,8 +204,8 @@ const ProHelp = () => {
           })}
         </div>
 
-        {/* Liste FAQ avec animations améliorées */}
-        <div className="space-y-3 mb-6">
+        {/* Liste FAQ sans espaces - CORRECTION ICI */}
+        <div className="space-y-2 mb-6">
           {filteredFaqs.map((faq, index) => {
             const globalIndex = faqs.indexOf(faq);
             const isOpen = openIndex === globalIndex;
@@ -231,7 +231,7 @@ const ProHelp = () => {
                     <div className={`
                       w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0
                       transition-all duration-300
-                      ${isOpen ? "bg-primary rotate-90" : "bg-muted group-hover:bg-muted-foreground/10"}
+                      ${isOpen ? "bg-primary rotate-90" : "bg-muted"}
                     `}>
                       <ChevronRight
                         size={16}

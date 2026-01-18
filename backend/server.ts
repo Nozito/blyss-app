@@ -696,9 +696,9 @@ app.post(
         endDate,
         status,
         paymentId,
-      } = req.body as CreateSubscriptionBody & { 
-        status?: string; 
-        paymentId?: string; 
+      } = req.body as CreateSubscriptionBody & {
+        status?: string;
+        paymentId?: string;
       };
 
       if (!plan || !billingType || !monthlyPrice || !startDate) {
@@ -708,9 +708,9 @@ app.post(
       }
 
       if (status === "active" && !paymentId) {
-        return res.status(400).json({ 
-          success: false, 
-          message: "Payment ID required for active subscription" 
+        return res.status(400).json({
+          success: false,
+          message: "Payment ID required for active subscription"
         });
       }
 
@@ -756,10 +756,10 @@ app.post(
 
         res.status(201).json({
           success: true,
-          data: { 
+          data: {
             id: subscriptionId,
             subscriptionId,  // Alias pour compatibilité
-            status: subscriptionStatus 
+            status: subscriptionStatus
           },
         });
       } catch (err) {
@@ -790,7 +790,7 @@ app.get(
     let connection;
     try {
       const userId = req.user?.id; // ✅ Utilise req.user.id (pas userId)
-      
+
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -882,7 +882,7 @@ app.post(
     let connection;
     try {
       const userId = req.user?.id;
-      
+
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -1554,8 +1554,6 @@ app.get(
       const proId = getProId(req);
       const { from, to } = req.query as { from?: string; to?: string };
 
-      console.log("[CALENDAR] proId =", proId, "from =", from, "to =", to);
-
       connection = await db.getConnection();
 
       const params: any[] = [proId];
@@ -1570,25 +1568,24 @@ app.get(
         params.push(to);
       }
 
-      console.log("[CALENDAR] where =", where, "params =", params);
-
       const [rows] = (await connection.query(
         `
-        SELECT
-          r.id,
-          DATE(r.start_datetime) AS date,
-          DATE_FORMAT(r.start_datetime, '%H:%i') AS time,
-          TIMESTAMPDIFF(MINUTE, r.start_datetime, r.end_datetime) AS duration_minutes,
-          r.price,
-          u.first_name,
-          u.last_name,
-          p.name AS prestation_name
-        FROM reservations r
-        JOIN users u ON u.id = r.client_id
-        JOIN prestations p ON p.id = r.prestation_id
-        WHERE ${where}
-        ORDER BY r.start_datetime ASC
-        `,
+  SELECT
+    r.id,
+    DATE(r.start_datetime) AS date,
+    DATE_FORMAT(r.start_datetime, '%H:%i') AS time,
+    p.duration_minutes AS duration_minutes, -- ✅ ICI
+    r.price,
+    r.status,
+    u.first_name,
+    u.last_name,
+    p.name AS prestation_name
+  FROM reservations r
+  JOIN users u ON u.id = r.client_id
+  JOIN prestations p ON p.id = r.prestation_id
+  WHERE ${where}
+  ORDER BY r.start_datetime ASC
+  `,
         params
       )) as [{
         id: number;
@@ -1596,39 +1593,33 @@ app.get(
         time: string;
         duration_minutes: number;
         price: number;
+        status: string;
         first_name: string;
         last_name: string;
         prestation_name: string;
       }[], any];
 
-      console.log("[CALENDAR] rows length =", rows.length);
-      if (rows.length) {
-        console.log("[CALENDAR] first row =", rows[0]);
-      }
-
       const data = rows.map((r) => ({
         id: r.id,
         date: r.date,
         time: r.time,
-        duration:
-          r.duration_minutes >= 60
-            ? `${Math.floor(r.duration_minutes / 60)}h${r.duration_minutes % 60 ? r.duration_minutes % 60 : ""
-              }`.trim()
-            : `${r.duration_minutes}min`,
+        duration: r.duration_minutes, // ✅ Durée depuis prestations.duration_minutes
         price: Number(r.price),
+        status: r.status,
         client_name: `${r.first_name} ${r.last_name}`,
         prestation_name: r.prestation_name,
       }));
 
-      res.json(data);
+      res.json({ success: true, data });
     } catch (err) {
       console.error("[CALENDAR] error =", err);
-      res.status(500).json({ message: "Erreur serveur" });
+      res.status(500).json({ success: false, error: "Erreur serveur" });
     } finally {
       if (connection) connection.release();
     }
   }
 );
+
 
 app.get(
   "/api/pro/clients",
@@ -1848,8 +1839,8 @@ app.put(
         `,
         [proId]
       )) as {
-        length: any; id: number 
-}[];
+        length: any; id: number
+      }[];
 
       if (!rows.length) {
         return res.json({ success: false, message: "Aucun abonnement actif." });
@@ -2114,6 +2105,216 @@ app.post(
     }
   }
 );
+
+app.post(
+  "/api/pro/slots",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const { date, time, duration = 60 } = req.body;
+
+      if (!date || !time) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "Date et heure requises" 
+        });
+      }
+
+      const startDatetime = `${date} ${time}:00`;
+      
+      connection = await db.getConnection();
+
+      console.log("Creating slot:", { proId, startDatetime, duration });
+
+      await connection.query(
+        `
+        INSERT INTO slots (
+          pro_id, 
+          start_datetime, 
+          end_datetime, 
+          duration, 
+          status, 
+          created_at
+        )
+        VALUES (
+          ?, 
+          ?, 
+          DATE_ADD(?, INTERVAL ? MINUTE), 
+          ?, 
+          'available', 
+          NOW()
+        )
+        `,
+        [proId, startDatetime, startDatetime, duration, duration]
+      );
+
+      res.json({ success: true, message: "Créneau créé" });
+    } catch (err) {
+      console.error("[CREATE SLOT] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+
+app.get(
+  "/api/pro/slots",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const { date } = req.query as { date?: string };
+
+      if (!date) {
+        return res.status(400).json({ success: false, error: "Date requise" });
+      }
+
+      connection = await db.getConnection();
+
+      const [rows] = await connection.query(
+        `
+        SELECT
+          id,
+          DATE_FORMAT(start_datetime, '%H:%i') AS time,
+          duration,
+          CASE 
+            WHEN DATE_ADD(start_datetime, INTERVAL duration MINUTE) < NOW() THEN 'past'
+            ELSE status
+          END AS computed_status,
+          status AS original_status,
+          CASE 
+            WHEN DATE_ADD(start_datetime, INTERVAL duration MINUTE) < NOW() THEN 0
+            WHEN status = 'available' THEN 1
+            ELSE 0
+          END AS isActive,
+          CASE 
+            WHEN DATE_ADD(start_datetime, INTERVAL duration MINUTE) < NOW() THEN 0
+            WHEN status = 'available' THEN 1
+            WHEN status = 'booked' THEN 0
+            ELSE 1
+          END AS isAvailable
+        FROM slots
+        WHERE pro_id = ?
+          AND DATE(start_datetime) = ?
+        ORDER BY start_datetime ASC
+        `,
+        [proId, date]
+      );
+
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      console.error("[GET SLOTS] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+app.put(
+  "/api/pro/slots/:id",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const slotId = parseInt(req.params.id);
+      const { status } = req.body;
+
+      if (!status || !['available', 'blocked'].includes(status)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "Status invalide" 
+        });
+      }
+
+      connection = await db.getConnection();
+
+      await connection.query(
+        `
+        UPDATE slots 
+        SET status = ?
+        WHERE id = ? AND pro_id = ?
+        `,
+        [status, slotId, proId]
+      );
+
+      res.json({ success: true, message: "Créneau mis à jour" });
+    } catch (err) {
+      console.error("[UPDATE SLOT] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+
+app.patch(
+  "/api/pro/slots/:id",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const { id } = req.params;
+      const { status } = req.body; // "available" ou "blocked"
+
+      connection = await db.getConnection();
+
+      await connection.query(
+        `
+        UPDATE slots
+        SET status = ?
+        WHERE id = ? AND pro_id = ?
+        `,
+        [status, id, proId]
+      );
+
+      res.json({ success: true, message: "Créneau mis à jour" });
+    } catch (err) {
+      console.error("[PATCH SLOTS] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+app.delete(
+  "/api/pro/slots/:id",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const slotId = parseInt(req.params.id);
+
+      connection = await db.getConnection();
+
+      await connection.query(
+        `
+        DELETE FROM slots 
+        WHERE id = ? AND pro_id = ?
+        `,
+        [slotId, proId]
+      );
+
+      res.json({ success: true, message: "Créneau supprimé" });
+    } catch (err) {
+      console.error("[DELETE SLOT] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
 
 
 

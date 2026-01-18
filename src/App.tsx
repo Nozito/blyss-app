@@ -39,6 +39,7 @@ import ClientHelp from "./pages/ClientHelp";
 import ClientSettings from "./pages/ClientSettings";
 import ClientNotifications from "./pages/ClientNotifications";
 import ClientPayements from "./pages/ClientPayements";
+import ClientSpecialists from "./pages/ClientSpecialists";
 
 import NotFound from "./pages/NotFound";
 
@@ -99,6 +100,8 @@ const App = () => {
               <Route path="/client/payments" element={<ClientPayements />} />
               <Route path="/client/settings" element={<ClientSettings />} />
               <Route path="/client/booking/:id" element={<ClientBooking/>} />
+              <Route path="/client/specialists" element={<ClientSpecialists />} />
+
 
               {/* CLIENT */}
               <Route

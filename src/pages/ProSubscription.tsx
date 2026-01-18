@@ -23,27 +23,16 @@ const ProSubscription = () => {
   const [loadingSubscription, setLoadingSubscription] = useState(true);
   const [connectionError, setConnectionError] = useState(false); // ✅ Nouveau state
 
-  const plans: {
-    id: PlanId;
-    name: string;
-    icon: any;
-    monthlyPrice: number;
-    commitment: number | null;
-    oneTimePrice?: number;
-    features: string[];
-    popular?: boolean;
-    savings?: string;
-    savingsAmount?: number;
-  }[] = [
+  const plans = [
     {
       id: "start",
       name: "Start",
       icon: Zap,
-      monthlyPrice: 34.90,
+      monthlyPrice: 39.90,
       commitment: null,
       features: [
         "Réservation en ligne",
-        "Gestion agenda",
+        "Gestion des rendez-vous",
         "Notifications clients",
         "Tableau de bord"
       ]
@@ -54,12 +43,13 @@ const ProSubscription = () => {
       icon: Heart,
       monthlyPrice: 29.90,
       commitment: 3,
-      oneTimePrice: 79.90,
+      oneTimePrice: 79.90, // ✅ Au lieu de 89.70€
       savings: "Économise 10€",
       savingsAmount: 10,
       features: [
         "Module finance",
-        "Portfolio photos",
+        "Statistiques & Facturation",
+        "Portfolio photos intégré",
         "Rappels automatiques",
         "Tout Start inclus"
       ],
@@ -71,17 +61,18 @@ const ProSubscription = () => {
       icon: Sparkles,
       monthlyPrice: 24.90,
       commitment: 12,
-      oneTimePrice: 249.00,
+      oneTimePrice: 249.00, // ✅ Au lieu de 298.80€
       savings: "Économise 50€",
       savingsAmount: 50,
       features: [
         "Visibilité premium",
         "Rappels post-prestation",
-        "Encaissement en ligne",
+        "Encaissement en ligne*",
         "Tout Sérénité inclus"
       ]
     }
   ];
+
 
   // ✅ Récupérer l'abonnement actuel avec gestion d'erreur robuste
   useEffect(() => {
@@ -297,23 +288,32 @@ const ProSubscription = () => {
             </div>
           </div>
 
+
           {/* Plans */}
-          <div className="space-y-3">
-            {plans.map((plan, index) => {
-              const isSelected = selectedPlan === plan.id;
-              const isCurrent = isCurrentPlan(plan.id);
-              const Icon = plan.icon;
+<div className="space-y-3">
+  {plans
+    .filter(plan => {
+      // ✅ En mode annuel, cache les plans sans option de paiement unique
+      if (isAnnual && !plan.oneTimePrice) {
+        return false;
+      }
+      return true;
+    })
+    .map((plan, index) => {
+      const isSelected = selectedPlan === plan.id;
+      const isCurrent = isCurrentPlan(plan.id as PlanId);
+      const Icon = plan.icon;
 
-              const monthlyTotal = plan.monthlyPrice * (plan.commitment || 1);
-              const annualPrice = plan.oneTimePrice || monthlyTotal;
-              const monthlyEquivalent = plan.commitment
-                ? (annualPrice / plan.commitment)
-                : plan.monthlyPrice;
+      const monthlyTotal = plan.monthlyPrice * (plan.commitment || 1);
+      const annualPrice = plan.oneTimePrice || monthlyTotal;
+      const monthlyEquivalent = plan.commitment
+        ? (annualPrice / plan.commitment)
+        : plan.monthlyPrice;
 
-              return (
-                <button
-                  key={plan.id}
-                  onClick={() => handleSelectPlan(plan.id)}
+      return (
+        <button
+          key={plan.id}
+                  onClick={() => handleSelectPlan(plan.id as PlanId)}
                   style={{ animationDelay: `${index * 100}ms` }}
                   disabled={isCurrent}
                   className={`
@@ -356,10 +356,10 @@ const ProSubscription = () => {
                         <Icon
                           size={24}
                           className={`transition-all duration-300 ${isCurrent
-                              ? "text-muted-foreground"
-                              : isSelected
-                                ? "text-white"
-                                : "text-muted-foreground"
+                            ? "text-muted-foreground"
+                            : isSelected
+                              ? "text-white"
+                              : "text-muted-foreground"
                             }`}
                         />
                       </div>
@@ -399,9 +399,8 @@ const ProSubscription = () => {
                   {!isAnnual && (
                     <div className="relative mb-4 animate-fade-in">
                       <div className="flex items-baseline gap-1 mb-1">
-                        <span className={`text-3xl font-bold ${isCurrent ? "text-muted-foreground" : "text-foreground"
-                          }`}>
-                          {Math.floor(plan.monthlyPrice)}
+                        <span className={`text-3xl font-bold`}>
+                          {plan.monthlyPrice.toFixed(2).replace('.', ',')}
                         </span>
                         <span className={`text-lg font-semibold ${isCurrent ? "text-muted-foreground" : "text-foreground"
                           }`}>
@@ -464,28 +463,28 @@ const ProSubscription = () => {
 
                         <div className="flex items-baseline gap-1.5 mb-3">
                           <span className={`text-4xl font-black transition-colors ${isCurrent
-                              ? "text-muted-foreground"
-                              : isSelected
-                                ? "text-foreground"
-                                : "text-foreground/90"
+                            ? "text-muted-foreground"
+                            : isSelected
+                              ? "text-foreground"
+                              : "text-foreground/90"
                             }`}>
                             {Math.floor(annualPrice)}
                           </span>
                           <span className={`text-xl font-bold ${isCurrent
-                              ? "text-muted-foreground"
-                              : isSelected
-                                ? "text-foreground"
-                                : "text-foreground/90"
+                            ? "text-muted-foreground"
+                            : isSelected
+                              ? "text-foreground"
+                              : "text-foreground/90"
                             }`}>
                             €
                           </span>
                         </div>
 
                         <div className={`h-px w-full mb-3 transition-colors ${isCurrent
-                            ? "bg-border"
-                            : isSelected
-                              ? "bg-gradient-to-r from-primary/30 via-primary/50 to-primary/30"
-                              : "bg-border"
+                          ? "bg-border"
+                          : isSelected
+                            ? "bg-gradient-to-r from-primary/30 via-primary/50 to-primary/30"
+                            : "bg-border"
                           }`} />
 
                         <div className="space-y-2">
@@ -495,10 +494,10 @@ const ProSubscription = () => {
                             </span>
                             <div className="flex items-baseline gap-1">
                               <span className={`text-xl font-bold transition-colors ${isCurrent
-                                  ? "text-muted-foreground"
-                                  : isSelected
-                                    ? "text-primary"
-                                    : "text-foreground"
+                                ? "text-muted-foreground"
+                                : isSelected
+                                  ? "text-primary"
+                                  : "text-foreground"
                                 }`}>
                                 {monthlyEquivalent.toFixed(2)}
                               </span>
@@ -559,16 +558,16 @@ const ProSubscription = () => {
                         <Check
                           size={16}
                           className={`mt-0.5 flex-shrink-0 transition-colors ${isCurrent
-                              ? "text-muted-foreground/50"
-                              : isSelected
-                                ? "text-primary"
-                                : "text-muted-foreground"
+                            ? "text-muted-foreground/50"
+                            : isSelected
+                              ? "text-primary"
+                              : "text-muted-foreground"
                             }`}
                           strokeWidth={2.5}
                         />
                         <span className={`text-sm leading-relaxed ${isCurrent
-                            ? "text-muted-foreground/70"
-                            : "text-muted-foreground"
+                          ? "text-muted-foreground/70"
+                          : "text-muted-foreground"
                           }`}>
                           {feature}
                         </span>

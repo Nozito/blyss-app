@@ -11,6 +11,9 @@ import {
   ArrowLeft,
   Zap,
   Heart,
+  Download,
+  RefreshCw,
+  TrendingUp,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -91,9 +94,9 @@ const ProSubscriptionSettings = () => {
   };
 
   const getPlanLabel = (plan: Subscription["plan"]) => {
-    if (plan === "start") return "Formule Start";
-    if (plan === "serenite") return "Formule Sérénité";
-    return "Formule Signature";
+    if (plan === "start") return "Start";
+    if (plan === "serenite") return "Sérénité";
+    return "Signature";
   };
 
   const getPlanIcon = (plan: Subscription["plan"]) => {
@@ -102,8 +105,14 @@ const ProSubscriptionSettings = () => {
     return Sparkles;
   };
 
+  const getPlanColor = (plan: Subscription["plan"]) => {
+    if (plan === "start") return "from-blue-500 to-cyan-500";
+    if (plan === "serenite") return "from-pink-500 to-rose-500";
+    return "from-purple-500 to-indigo-500";
+  };
+
   const getBillingLabel = (billingType: Subscription["billingType"]) =>
-    billingType === "monthly" ? "Mensuel" : "Paiement en une fois";
+    billingType === "monthly" ? "Paiement mensuel" : "Paiement annuel";
 
   const handleCancelSubscription = async () => {
     if (!subscription || subscription.status !== "active") return;
@@ -140,6 +149,7 @@ const ProSubscriptionSettings = () => {
 
   const isActive = subscription?.status === "active";
   const PlanIcon = subscription ? getPlanIcon(subscription.plan) : Sparkles;
+  const planColor = subscription ? getPlanColor(subscription.plan) : "from-primary to-primary/60";
 
   if (loadingSub) {
     return (
@@ -157,7 +167,7 @@ const ProSubscriptionSettings = () => {
   return (
     <MobileLayout showNav={false}>
       <div className="pb-6 animate-fade-in">
-        {/* Header iOS-style avec bouton retour */}
+        {/* Header - INCHANGÉ */}
         <div className="sticky top-0 bg-background/95 backdrop-blur-lg z-10 -mx-4 px-4 py-4 mb-4 border-b border-border/50">
           <div className="flex items-center gap-3">
             <button
@@ -175,18 +185,18 @@ const ProSubscriptionSettings = () => {
         </div>
 
         <div className="space-y-6">
-          {/* Carte abonnement premium */}
+          {/* Carte abonnement - TA DA CONSERVÉE avec corrections */}
           <section className="relative">
             <div className="blyss-card bg-gradient-to-br from-primary/5 via-background to-accent/5 border-primary/10 space-y-5 overflow-hidden">
-              {/* Badge statut flottant */}
+              {/* Badge statut - AMÉLIORÉ (plus visible) */}
               {subscription && (
                 <div className="absolute right-3 top-3">
                   <div
                     className={`
                       inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold backdrop-blur-xl
                       ${subscription.status === "active"
-                        ? "bg-emerald-500/10 text-emerald-700 border border-emerald-200/50 shadow-sm"
-                        : "bg-muted/80 text-muted-foreground border border-border/50"
+                        ? "bg-emerald-500/15 text-emerald-700 border-2 border-emerald-300 shadow-sm shadow-emerald-500/20"
+                        : "bg-muted/90 text-muted-foreground border-2 border-border"
                       }
                     `}
                   >
@@ -201,7 +211,7 @@ const ProSubscriptionSettings = () => {
                 </div>
               )}
 
-              {/* Contenu principal */}
+              {/* Contenu principal - INCHANGÉ */}
               <div className="flex items-start gap-4 pr-20">
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg shadow-primary/20">
                   <PlanIcon size={26} className="text-white" />
@@ -217,12 +227,14 @@ const ProSubscriptionSettings = () => {
                       <p className="text-[13px] text-muted-foreground font-medium">
                         {getBillingLabel(subscription.billingType)}
                       </p>
+                      {/* ✅ CORRECTION: Affichage correct des décimales */}
                       <p className="text-xl font-bold text-primary">
                         {subscription.billingType === "monthly"
-                          ? `${Number(subscription.monthlyPrice || 0).toFixed(0)}€`
+                          ? `${Number(subscription.monthlyPrice || 0).toFixed(2).replace('.', ',')}€`
                           : subscription.totalPrice !== null
-                            ? `${Number(subscription.totalPrice).toFixed(0)}€`
-                            : ''}
+                            ? `${Number(subscription.totalPrice).toFixed(2).replace('.', ',')}€`
+                            : ''
+                        }
                         {subscription.billingType === "monthly" && (
                           <span className="text-sm text-muted-foreground font-normal">
                             {" "}
@@ -230,13 +242,19 @@ const ProSubscriptionSettings = () => {
                           </span>
                         )}
                       </p>
-
+                      
+                      {/* ✅ NOUVEAU: Équivalent mensuel pour paiement annuel */}
+                      {subscription.billingType === "one_time" && subscription.totalPrice && subscription.commitmentMonths && (
+                        <p className="text-xs text-muted-foreground">
+                          Soit {(subscription.totalPrice / subscription.commitmentMonths).toFixed(2).replace('.', ',')}€/mois
+                        </p>
+                      )}
                     </>
                   )}
                 </div>
               </div>
 
-              {/* Détails */}
+              {/* Détails - INCHANGÉ */}
               {subscription && (
                 <>
                   <div className="h-px bg-gradient-to-r from-transparent via-border/50 to-transparent" />
@@ -267,20 +285,20 @@ const ProSubscriptionSettings = () => {
             </div>
           </section>
 
-          {/* Actions groupées */}
+          {/* Actions groupées - TA DA avec transitions améliorées */}
           <section className="space-y-3">
             <h2 className="text-[13px] font-bold text-foreground uppercase tracking-wide px-1">
               Gérer mon abonnement
             </h2>
 
             <div className="space-y-2">
-              {/* Modifier l'offre */}
+              {/* Modifier l'offre - ✅ Meilleur feedback visuel */}
               <button
                 type="button"
                 onClick={handleChangePlan}
                 className="w-full group"
               >
-                <div className="blyss-card flex items-center gap-4 group-active:scale-[0.98] transition-all">
+                <div className="blyss-card flex items-center gap-4 group-active:scale-[0.98] group-hover:border-primary/30 transition-all duration-200">
                   <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center group-active:scale-95 transition-transform">
                     <Sparkles size={20} className="text-primary" />
                   </div>
@@ -299,13 +317,13 @@ const ProSubscriptionSettings = () => {
                 </div>
               </button>
 
-              {/* Historique */}
+              {/* Historique - ✅ Meilleur feedback visuel */}
               <button
                 type="button"
                 onClick={handleViewHistory}
                 className="w-full group"
               >
-                <div className="blyss-card flex items-center gap-4 group-active:scale-[0.98] transition-all">
+                <div className="blyss-card flex items-center gap-4 group-active:scale-[0.98] group-hover:border-primary/30 transition-all duration-200">
                   <div className="w-11 h-11 rounded-xl bg-muted/50 flex items-center justify-center group-active:scale-95 transition-transform">
                     <Calendar size={20} className="text-muted-foreground" />
                   </div>
@@ -326,7 +344,7 @@ const ProSubscriptionSettings = () => {
             </div>
           </section>
 
-          {/* Zone danger */}
+          {/* Zone danger - INCHANGÉ */}
           {isActive && subscription && (
             <section className="space-y-3 pt-4">
               <h2 className="text-[13px] font-bold text-destructive uppercase tracking-wide px-1">
@@ -356,7 +374,7 @@ const ProSubscriptionSettings = () => {
             </section>
           )}
 
-          {/* Footer info */}
+          {/* Footer info - INCHANGÉ */}
           <div className="pt-6 pb-2">
             <div className="blyss-card bg-accent/30 border-accent/50">
               <div className="flex items-start gap-3">
