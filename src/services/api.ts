@@ -58,6 +58,26 @@ export interface ApiResponse<T> {
   error?: string;
 }
 
+// ✅ Interfaces pour les préférences de notifications (CLIENT)
+export interface ClientNotificationSettings {
+  reminders: boolean;
+  changes: boolean;
+  messages: boolean;
+  late: boolean;
+  offers: boolean;
+  email_summary: boolean;
+}
+
+// ✅ Interfaces pour les préférences de notifications (PRO)
+export interface ProNotificationSettings {
+  new_reservation: boolean;
+  cancel_change: boolean;
+  daily_reminder: boolean;
+  client_message: boolean;
+  payment_alert: boolean;
+  activity_summary: boolean;
+}
+
 // --- Helpers stockage tokens ---
 
 const ACCESS_TOKEN_KEY = "access_token";
@@ -146,22 +166,16 @@ async function tryRefreshToken(): Promise<boolean> {
 
 // --- apiCall avec gestion 401 + refresh ---
 
-// Overloads to support both usages:
-// apiCall(endpoint, options?)
-// apiCall(method, endpoint, options?)
 async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>>;
 async function apiCall<T>(method: string, endpoint: string, options?: RequestInit): Promise<ApiResponse<T>>;
 async function apiCall<T>(a: string, b?: any, c: any = {}): Promise<ApiResponse<T>> {
-  // Normalize arguments so callers can use either form
   let endpoint: string;
   let options: RequestInit = {};
 
   if (typeof b === "string") {
-    // Called as apiCall(method, endpoint, options?)
     endpoint = b;
     options = { ...(c || {}), method: a };
   } else {
-    // Called as apiCall(endpoint, options?)
     endpoint = a;
     options = b || {};
   }
@@ -169,19 +183,13 @@ async function apiCall<T>(a: string, b?: any, c: any = {}): Promise<ApiResponse<
   try {
     const token = getAccessToken();
 
-    // 1er essai
     let { response, json } = await rawApiCall<T>(endpoint, options, token);
 
-    // Si 401, essayer de refresh
     if (response.status === 401) {
       const refreshed = await tryRefreshToken();
       if (refreshed) {
         const newToken = getAccessToken();
-        ({ response, json } = await rawApiCall<T>(
-          endpoint,
-          options,
-          newToken
-        ));
+        ({ response, json } = await rawApiCall<T>(endpoint, options, newToken));
       } else {
         return {
           success: false,
@@ -365,26 +373,26 @@ export const specialistsApi = {
     );
   },
 
-   getSpecialists: (params?: { 
-      page?: number; 
-      limit?: number; 
-      search?: string;
-      city?: string;
-    }) => {
-      const query = params
-        ? '?' +
-          Object.entries(params)
-            .filter(([, v]) => v !== undefined && v !== null && v !== '')
-            .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
-            .join('&')
-        : '';
-      return apiCall('GET', `/api/client/specialists${query}`);
-    },
-    
-    // Méthode pour récupérer un spécialiste par ID
-    getSpecialistById: (id: number) => 
-      apiCall('GET', `/api/client/specialists/${id}`),
+  getSpecialists: (params?: { 
+    page?: number; 
+    limit?: number; 
+    search?: string;
+    city?: string;
+  }) => {
+    const query = params
+      ? '?' +
+        Object.entries(params)
+          .filter(([, v]) => v !== undefined && v !== null && v !== '')
+          .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+          .join('&')
+      : '';
+    return apiCall('GET', `/api/client/specialists${query}`);
+  },
+  
+  getSpecialistById: (id: number) => 
+    apiCall('GET', `/api/client/specialists/${id}`),
 };
+
 
 // --- Reviews ---
 
@@ -439,6 +447,20 @@ export const notificationsApi = {
       method: "POST",
     });
   },
+
+  // ✅ Préférences de notifications CLIENT
+  getSettings: async (): Promise<ApiResponse<ClientNotificationSettings>> => {
+    return apiCall("/api/client/notification-settings");
+  },
+
+  updateSettings: async (
+    settings: Partial<ClientNotificationSettings>
+  ): Promise<ApiResponse<ClientNotificationSettings>> => {
+    return apiCall("/api/client/notification-settings", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    });
+  },
 };
 
 // --- Pro ---
@@ -484,7 +506,7 @@ export const proApi = {
       method: "PUT",
     }),
 
-  // ✅ SLOTS - Ajouté dans proApi
+  // ✅ Slots
   getSlots: (params: { date: string }) => {
     const query = `?date=${encodeURIComponent(params.date)}`;
     return apiCall<any[]>(`/api/pro/slots${query}`);
@@ -506,6 +528,20 @@ export const proApi = {
     apiCall(`/api/pro/slots/${id}`, {
       method: "DELETE",
     }),
+
+  // ✅ Préférences de notifications PRO
+  getNotificationSettings: async (): Promise<ApiResponse<ProNotificationSettings>> => {
+    return apiCall("/api/pro/notification-settings");
+  },
+
+  updateNotificationSettings: async (
+    settings: Partial<ProNotificationSettings>
+  ): Promise<ApiResponse<ProNotificationSettings>> => {
+    return apiCall("/api/pro/notification-settings", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    });
+  },
 };
 
 // --- Payments ---
@@ -529,6 +565,50 @@ export const paymentsApi = {
   },
 };
 
+// --- Payment Methods (Client) ---
+
+export interface SavedCard {
+  id: number;
+  brand: "visa" | "mastercard" | "amex";
+  last4: string;
+  exp_month: string;
+  exp_year: string;
+  cardholder_name: string;
+  is_default: boolean;
+}
+
+export const paymentMethodsApi = {
+  getAll: async (): Promise<ApiResponse<SavedCard[]>> => {
+    return apiCall("/api/client/payment-methods");
+  },
+
+  create: async (data: {
+    card_number: string;
+    cardholder_name: string;
+    exp_month: string;
+    exp_year: string;
+    cvc: string;
+    set_default: boolean;
+  }): Promise<ApiResponse<void>> => {
+    return apiCall("/api/client/payment-methods", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  setDefault: async (id: number): Promise<ApiResponse<void>> => {
+    return apiCall(`/api/client/payment-methods/${id}/default`, {
+      method: "PUT",
+    });
+  },
+
+  delete: async (id: number): Promise<ApiResponse<void>> => {
+    return apiCall(`/api/client/payment-methods/${id}`, {
+      method: "DELETE",
+    });
+  },
+};
+
 export default {
   auth: authApi,
   bookings: bookingsApi,
@@ -537,5 +617,7 @@ export default {
   favorites: favoritesApi,
   notifications: notificationsApi,
   payments: paymentsApi,
+  paymentMethods: paymentMethodsApi,
   pro: proApi,
 };
+

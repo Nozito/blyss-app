@@ -1,73 +1,29 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapPin, Star, ChevronRight, Search, Calendar, Sparkles, TrendingUp, Clock, Heart } from "lucide-react";
+import { MapPin, Star, ChevronRight, Search, Sparkles, Calendar, Clock, Heart, ArrowRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/AuthContext";
 import api from "@/services/api";
 
-interface Specialist {
+interface Pro {
   id: number;
-  business_name: string;
-  specialty: string;
-  city: string;
-  rating: number;
-  reviews_count: number;
-  profile_image_url: string | null;
-  cover_image_url: string | null;
-  user: {
-    first_name: string;
-    last_name: string;
-  };
+  first_name: string;
+  last_name: string;
+  activity_name: string | null;
+  city: string | null;
+  instagram_account: string | null;
+  profile_photo: string | null;
+  banner_photo: string | null;
+  bio: string | null;
+  pro_status: 'active' | 'inactive';
 }
 
-// Mock data
-const MOCK_SPECIALISTS: Specialist[] = [
-  {
-    id: 1,
-    business_name: "Marie Beauté",
-    specialty: "Pose gel & nail art",
-    city: "Paris 11ème",
-    rating: 4.9,
-    reviews_count: 156,
-    profile_image_url: "https://randomuser.me/api/portraits/women/1.jpg",
-    cover_image_url: "https://images.unsplash.com/photo-1604654894610-df63bc536371?w=800&q=80",
-    user: { first_name: "Marie", last_name: "Dupont" }
-  },
-  {
-    id: 2,
-    business_name: "Sophie Nails",
-    specialty: "Prothésiste ongulaire",
-    city: "Paris 9ème",
-    rating: 4.8,
-    reviews_count: 89,
-    profile_image_url: "https://randomuser.me/api/portraits/women/2.jpg",
-    cover_image_url: "https://images.unsplash.com/photo-1610992015732-2449b76344bc?w=800&q=80",
-    user: { first_name: "Sophie", last_name: "Martin" }
-  },
-  {
-    id: 3,
-    business_name: "Emma Style",
-    specialty: "Nail art détaillé",
-    city: "Paris 15ème",
-    rating: 4.7,
-    reviews_count: 124,
-    profile_image_url: "https://randomuser.me/api/portraits/women/3.jpg",
-    cover_image_url: "https://images.unsplash.com/photo-1519014816548-bf5fe059798b?w=800&q=80",
-    user: { first_name: "Emma", last_name: "Bernard" }
-  },
-  {
-    id: 4,
-    business_name: "Léa Chic",
-    specialty: "Manucure classique",
-    city: "Paris 5ème",
-    rating: 4.6,
-    reviews_count: 102,
-    profile_image_url: "https://randomuser.me/api/portraits/women/4.jpg",
-    cover_image_url: "https://images.unsplash.com/photo-1522338242992-e1a54906a8da?w=800&q=80",
-    user: { first_name: "Léa", last_name: "Petit" }
-  }
-];
+interface Review {
+  id: number;
+  pro_id: number;
+  rating: number;
+}
 
 const ClientHome = () => {
   const navigate = useNavigate();
@@ -75,51 +31,111 @@ const ClientHome = () => {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [specialists, setSpecialists] = useState<Specialist[]>([]);
+  const [pros, setPros] = useState<Pro[]>([]);
+  const [reviewsByPro, setReviewsByPro] = useState<Record<number, Review[]>>({});
+  const [favorites, setFavorites] = useState<Set<number>>(new Set());
 
   const greeting = user?.first_name ? `Salut ${user.first_name}` : "Bienvenue sur Blyss";
 
+  // Formater les données pour affichage
+  const specialists = pros.map(pro => {
+    const proReviews = reviewsByPro[pro.id] || [];
+    const avgRating = proReviews.length > 0
+      ? proReviews.reduce((sum, r) => sum + r.rating, 0) / proReviews.length
+      : 0;
+
+    // ✅ Construire les URLs complètes pour les images
+    const API_BASE_URL = 'http://localhost:3001';
+
+    const profilePhotoUrl = pro.profile_photo
+      ? (pro.profile_photo.startsWith('http')
+        ? pro.profile_photo
+        : `${API_BASE_URL}/${pro.profile_photo}`)
+      : null;
+
+    const bannerPhotoUrl = pro.banner_photo
+      ? (pro.banner_photo.startsWith('http')
+        ? pro.banner_photo
+        : `${API_BASE_URL}/${pro.banner_photo}`)
+      : null;
+
+    return {
+      id: pro.id,
+      business_name: pro.activity_name || `${pro.first_name} ${pro.last_name}`,
+      specialty: 'Prothésiste ongulaire',
+      city: pro.city || 'Paris',
+      rating: avgRating,
+      reviews_count: proReviews.length,
+      profile_image_url: profilePhotoUrl,
+      cover_image_url: bannerPhotoUrl,
+      user: {
+        first_name: pro.first_name,
+        last_name: pro.last_name
+      }
+    };
+  });
+
+
   const filteredSpecialists = useMemo(() => {
-    if (!searchQuery) return specialists.slice(0, 6);
+    if (!searchQuery) return specialists;
     const q = searchQuery.toLowerCase();
     return specialists.filter(
       (s) =>
-        s.business_name.toLowerCase().includes(q) ||
-        s.specialty.toLowerCase().includes(q) ||
-        s.city.toLowerCase().includes(q) ||
-        `${s.user.first_name} ${s.user.last_name}`.toLowerCase().includes(q)
+        s.business_name?.toLowerCase().includes(q) ||
+        s.specialty?.toLowerCase().includes(q) ||
+        s.city?.toLowerCase().includes(q) ||
+        `${s.user?.first_name || ''} ${s.user?.last_name || ''}`.toLowerCase().includes(q)
     );
   }, [searchQuery, specialists]);
 
   useEffect(() => {
-    const fetchSpecialists = async () => {
+    const fetchData = async () => {
       try {
         setIsLoading(true);
-        const clientGetSpecialists = (api as any).client?.getSpecialists ?? (api as any).getSpecialists;
-        if (typeof clientGetSpecialists === "function") {
-          const response = await clientGetSpecialists({ limit: 10 });
-          if (response?.success && response?.data) {
-            setSpecialists(response.data);
-          } else {
-            setSpecialists(MOCK_SPECIALISTS);
+
+        const usersRes = await fetch('http://localhost:3001/api/users/pros');
+        const usersData = await usersRes.json();
+
+        if (usersData?.success && usersData?.data) {
+          const activePros = usersData.data;
+          setPros(activePros);
+
+          // Charger les avis pour chaque pro
+          const reviewsData: Record<number, Review[]> = {};
+
+          for (const pro of activePros) {
+            try {
+              const reviewsRes = await fetch(`http://localhost:3001/api/reviews/pro/${pro.id}`);
+              const reviewsJson = await reviewsRes.json();
+
+              if (reviewsJson?.success && reviewsJson?.data) {
+                reviewsData[pro.id] = Array.isArray(reviewsJson.data)
+                  ? reviewsJson.data
+                  : [];
+              } else {
+                reviewsData[pro.id] = [];
+              }
+            } catch (error) {
+              reviewsData[pro.id] = [];
+            }
           }
-        } else {
-          setSpecialists(MOCK_SPECIALISTS);
+
+          setReviewsByPro(reviewsData);
         }
+
       } catch (error) {
-        console.error("Error fetching specialists:", error);
-        setSpecialists(MOCK_SPECIALISTS);
+        setPros([]);
       } finally {
-        setTimeout(() => setIsLoading(false), 1000);
+        setIsLoading(false);
       }
     };
 
-    fetchSpecialists();
+    fetchData();
   }, []);
 
-  useEffect(() => {
-    console.log("🏠 ClientHome loaded");
-  }, []);
+  const handleSpecialistClick = (proId: number) => {
+    navigate(`/client/specialist/${proId}`);
+  };
 
   if (isLoading) {
     return (
@@ -240,7 +256,7 @@ const ClientHome = () => {
           </p>
         </motion.section>
 
-        {/* SÉLECTION BLYSS - CARROUSEL PLEINE LARGEUR */}
+        {/* SÉLECTION BLYSS */}
         <section className="space-y-4">
           <motion.div
             className="flex items-center justify-between px-6"
@@ -250,35 +266,48 @@ const ClientHome = () => {
           >
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <h2 className="text-xl font-bold text-foreground">Sélection Blyss</h2>
-                <motion.div
-                  animate={{ 
-                    scale: [1, 1.2, 1],
-                    rotate: [0, 5, -5, 0]
-                  }}
-                  transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
-                >
-                  <Sparkles className="w-5 h-5 text-primary" />
-                </motion.div>
+                <h2 className="text-xl font-bold text-foreground">
+                  {searchQuery ? 'Résultats de recherche' : 'Sélection Blyss'}
+                </h2>
+                {!searchQuery && (
+                  <motion.div
+                    animate={{
+                      scale: [1, 1.2, 1],
+                      rotate: [0, 5, -5, 0]
+                    }}
+                    transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
+                  >
+                    <Sparkles className="w-5 h-5 text-primary" />
+                  </motion.div>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground">Les meilleures expertes près de toi</p>
+              <p className="text-xs text-muted-foreground">
+                {searchQuery
+                  ? `${filteredSpecialists.length} résultat(s) trouvé(s)`
+                  : `${specialists.length} expertes disponibles`
+                }
+              </p>
             </div>
-            <button
-              type="button"
-              onClick={() => navigate("/client/specialists")}
-              className="
-                px-4 py-2 rounded-full
-                text-xs font-semibold
-                bg-gradient-to-r from-primary to-primary/80
-                text-white
-                shadow-lg shadow-primary/30
-                hover:shadow-xl hover:shadow-primary/40
-                transition-all duration-300
-                active:scale-95
-              "
-            >
-              Tout voir
-            </button>
+            {!searchQuery && specialists.length > 3 && (
+              <button
+                type="button"
+                onClick={() => navigate("/client/specialists")}
+                className="
+                  px-4 py-2 rounded-full
+                  text-xs font-semibold
+                  bg-gradient-to-r from-primary to-primary/80
+                  text-white
+                  shadow-lg shadow-primary/30
+                  hover:shadow-xl hover:shadow-primary/40
+                  transition-all duration-300
+                  active:scale-95
+                  flex items-center gap-1.5
+                "
+              >
+                Tout voir
+                <ArrowRight size={14} />
+              </button>
+            )}
           </motion.div>
 
           {/* Carrousel */}
@@ -286,131 +315,185 @@ const ClientHome = () => {
             {filteredSpecialists.length > 0 ? (
               <motion.div
                 key="specialists"
-                className="relative"
+                className="space-y-6"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
               >
-                <div className="flex gap-4 overflow-x-auto no-scrollbar px-6 py-2 snap-x snap-mandatory -mx-6 px-6">
-                  {filteredSpecialists.map((s, index) => (
-                    <motion.div
-                      key={s.id}
-                      onClick={() => navigate(`/client/specialist/${s.id}`)}
-                      className="
-                        min-w-[320px] sm:min-w-[340px] flex-shrink-0 snap-center
-                        bg-card/80 backdrop-blur-xl rounded-3xl overflow-hidden
-                        border-2 border-muted
-                        shadow-xl shadow-black/5
-                        cursor-pointer group
-                        hover:shadow-2xl hover:shadow-primary/10
-                        hover:border-primary/30
-                        hover:-translate-y-2
-                        transition-all duration-500
-                        active:scale-[0.98]
-                      "
-                      initial={{ opacity: 0, x: 50 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.5 + index * 0.1, duration: 0.5 }}
-                    >
-                      {/* Cover Image */}
-                      <div className="relative h-52 overflow-hidden bg-gradient-to-br from-primary/20 to-primary/5">
-                        {s.cover_image_url ? (
-                          <img
-                            src={s.cover_image_url}
-                            alt={s.business_name}
-                            className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
-                          />
-                        ) : (
-                          <div className="h-full w-full flex items-center justify-center">
-                            <Sparkles className="w-16 h-16 text-primary/30" />
+                <div className="flex gap-4 overflow-x-auto no-scrollbar px-6 py-2 snap-x snap-mandatory">
+                  {filteredSpecialists.slice(0, 6).map((s, index) => {
+                    const isFavorite = favorites.has(s.id);
+
+                    function toggleFavorite(id: number, e: MouseEvent<HTMLButtonElement>): void {
+                      e.stopPropagation();
+                      setFavorites((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        return next;
+                      });
+                    }
+
+                    return (
+                      <motion.div
+                        key={s.id}
+                        className="
+                          min-w-[320px] sm:min-w-[340px] flex-shrink-0 snap-center
+                          bg-card/80 backdrop-blur-xl rounded-3xl overflow-hidden
+                          border-2 border-muted
+                          shadow-xl shadow-black/5
+                          text-left group
+                          hover:shadow-2xl hover:shadow-primary/10
+                          hover:border-primary/30
+                          hover:-translate-y-2
+                          transition-all duration-500
+                          cursor-pointer
+                        "
+                        initial={{ opacity: 0, x: 50 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.1 * index, duration: 0.5 }}
+                        onClick={() => handleSpecialistClick(s.id)}
+                      >
+                        {/* Cover Image */}
+                        <div className="relative h-52 overflow-hidden bg-gradient-to-br from-primary/20 to-primary/5">
+                          {s.cover_image_url ? (
+                            <img
+                              src={s.cover_image_url}
+                              alt={s.business_name}
+                              className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
+                              style={{ objectPosition: 'center' }}
+                            />
+                          ) : (
+                            <div className="h-full w-full flex items-center justify-center">
+                              <Sparkles className="w-16 h-16 text-primary/30" />
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
+
+
+                          {/* Favorite button */}
+                          <motion.button
+                            className={`
+                              absolute top-4 right-4 w-10 h-10 rounded-full 
+                              bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-lg
+                              ${isFavorite ? 'bg-red-50' : ''}
+                            `}
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={(e) => toggleFavorite(s.id, e)}
+                          >
+                            <Heart
+                              size={18}
+                              className={`transition-colors ${isFavorite
+                                  ? 'text-red-500 fill-red-500'
+                                  : 'text-muted-foreground'
+                                }`}
+                            />
+                          </motion.button>
+
+                          {/* Avatar & Name */}
+                          <div className="absolute bottom-4 left-4 right-4 flex items-center gap-3 text-white">
+                            <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-white/90 shadow-2xl flex-shrink-0 bg-white">
+                              {s.profile_image_url ? (
+                                <img
+                                  src={s.profile_image_url}
+                                  alt={s.business_name}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-primary/10">
+                                  <span className="text-2xl font-bold text-primary">
+                                    {s.user?.first_name?.[0] || s.business_name?.[0] || '?'}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-lg font-bold truncate drop-shadow-lg">
+                                {s.business_name}
+                              </p>
+                              <p className="text-sm text-white/95 truncate drop-shadow">
+                                {s.specialty}
+                              </p>
+                            </div>
                           </div>
-                        )}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
+                        </div>
 
-                        {/* Favorite button - CORRIGÉ : div au lieu de button */}
-                        <motion.div
-                          className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-lg cursor-pointer"
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            // Add to favorites logic
-                          }}
-                        >
-                          <Heart size={18} className="text-muted-foreground" />
-                        </motion.div>
-
-                        {/* Avatar & Name */}
-                        <div className="absolute bottom-4 left-4 right-4 flex items-center gap-3 text-white">
-                          <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-white/90 shadow-2xl flex-shrink-0 bg-white">
-                            {s.profile_image_url ? (
-                              <img
-                                src={s.profile_image_url}
-                                alt={s.business_name}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-primary/10">
-                                <span className="text-2xl font-bold text-primary">
-                                  {s.user.first_name[0]}
+                        {/* Info */}
+                        <div className="p-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <MapPin size={14} />
+                              <span className="text-xs font-medium">{s.city}</span>
+                            </div>
+                            {s.rating > 0 && (
+                              <div className="flex items-center gap-1.5 bg-gradient-to-r from-yellow-50 to-yellow-100 px-2.5 py-1 rounded-full shadow-sm">
+                                <Star size={14} className="fill-yellow-400 text-yellow-400" />
+                                <span className="text-xs font-bold text-foreground">
+                                  {s.rating.toFixed(1)}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({s.reviews_count})
                                 </span>
                               </div>
                             )}
                           </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-lg font-bold truncate drop-shadow-lg">
-                              {s.business_name}
-                            </p>
-                            <p className="text-sm text-white/95 truncate drop-shadow">
-                              {s.specialty}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
 
-                      {/* Info */}
-                      <div className="p-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 text-muted-foreground">
-                            <MapPin size={14} />
-                            <span className="text-xs font-medium">{s.city}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 bg-gradient-to-r from-yellow-50 to-yellow-100 px-2.5 py-1 rounded-full shadow-sm">
-                            <Star size={14} className="fill-yellow-400 text-yellow-400" />
-                            <span className="text-xs font-bold text-foreground">
-                              {s.rating.toFixed(1)}
+                          <div className="flex items-center justify-between pt-2 border-t border-muted">
+                            <span className="text-xs font-semibold text-primary group-hover:text-primary/80 transition-colors">
+                              Voir les créneaux
                             </span>
-                            <span className="text-xs text-muted-foreground">
-                              ({s.reviews_count})
-                            </span>
+                            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary group-hover:shadow-lg transition-all">
+                              <ChevronRight
+                                size={16}
+                                className="text-primary group-hover:text-white transition-all group-hover:translate-x-0.5"
+                              />
+                            </div>
                           </div>
                         </div>
-
-                        <div className="flex items-center justify-between pt-2 border-t border-muted">
-                          <span className="text-xs font-semibold text-primary group-hover:text-primary/80 transition-colors">
-                            Voir les créneaux
-                          </span>
-                          <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary group-hover:shadow-lg transition-all">
-                            <ChevronRight
-                              size={16}
-                              className="text-primary group-hover:text-white transition-all group-hover:translate-x-0.5"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
+                      </motion.div>
+                    );
+                  })}
                 </div>
 
                 {/* Scroll indicators */}
-                <div className="flex justify-center gap-1.5 mt-4 px-6">
-                  {filteredSpecialists.slice(0, 6).map((_, i) => (
-                    <div
-                      key={i}
-                      className="w-1.5 h-1.5 rounded-full bg-muted"
-                    />
-                  ))}
-                </div>
+                {filteredSpecialists.length > 1 && (
+                  <div className="flex justify-center gap-1.5 px-6">
+                    {filteredSpecialists.slice(0, Math.min(6, filteredSpecialists.length)).map((_, i) => (
+                      <div
+                        key={i}
+                        className="w-1.5 h-1.5 rounded-full bg-muted"
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Bouton "Voir toutes les expertes" */}
+                {specialists.length > 0 && (
+                  <motion.div
+                    className="px-6"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5 }}
+                  >
+                    <button
+                      onClick={() => navigate("/client/specialists")}
+                      className="
+                        w-full py-3.5 rounded-2xl
+                        bg-gradient-to-r from-primary to-primary/90
+                        text-white font-semibold text-sm
+                        shadow-lg shadow-primary/30
+                        hover:shadow-xl hover:shadow-primary/40
+                        transition-all duration-300
+                        active:scale-[0.98]
+                        flex items-center justify-center gap-2
+                      "
+                    >
+                      Voir toutes les expertes
+                      <ArrowRight size={18} />
+                    </button>
+                  </motion.div>
+                )}
               </motion.div>
             ) : (
               <motion.div
@@ -424,26 +507,31 @@ const ClientHome = () => {
                   <Search className="w-8 h-8 text-primary" />
                 </div>
                 <p className="text-sm font-bold text-foreground mb-2">
-                  Aucun résultat pour "{searchQuery}"
+                  {searchQuery ? `Aucun résultat pour "${searchQuery}"` : 'Aucune spécialiste disponible'}
                 </p>
                 <p className="text-xs text-muted-foreground mb-4">
-                  Essaie un autre quartier ou une autre experte
+                  {searchQuery
+                    ? 'Essaie un autre quartier ou une autre experte'
+                    : 'Reviens bientôt pour découvrir nos expertes'
+                  }
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="
-                    px-6 py-2.5 rounded-full
-                    bg-gradient-to-r from-primary to-primary/90
-                    text-white text-xs font-semibold
-                    shadow-lg shadow-primary/30
-                    hover:shadow-xl hover:shadow-primary/40
-                    transition-all duration-300
-                    active:scale-95
-                  "
-                >
-                  Effacer la recherche
-                </button>
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="
+                      px-6 py-2.5 rounded-full
+                      bg-gradient-to-r from-primary to-primary/90
+                      text-white text-xs font-semibold
+                      shadow-lg shadow-primary/30
+                      hover:shadow-xl hover:shadow-primary/40
+                      transition-all duration-300
+                      active:scale-95
+                    "
+                  >
+                    Effacer la recherche
+                  </button>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -470,9 +558,9 @@ const ClientHome = () => {
           >
             <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
             <div className="relative flex items-start gap-4">
-              <motion.div 
+              <motion.div
                 className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center flex-shrink-0 shadow-lg"
-                animate={{ 
+                animate={{
                   boxShadow: [
                     "0 10px 25px -5px rgba(var(--primary), 0.3)",
                     "0 10px 35px -5px rgba(var(--primary), 0.5)",

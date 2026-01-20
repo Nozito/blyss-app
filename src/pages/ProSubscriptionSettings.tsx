@@ -114,31 +114,6 @@ const ProSubscriptionSettings = () => {
   const getBillingLabel = (billingType: Subscription["billingType"]) =>
     billingType === "monthly" ? "Paiement mensuel" : "Paiement annuel";
 
-  const handleCancelSubscription = async () => {
-    if (!subscription || subscription.status !== "active") return;
-    if (!window.confirm("Tu es sûre de vouloir résilier ton abonnement ?")) {
-      return;
-    }
-
-    try {
-      setIsWorking(true);
-      const res = await api.pro.cancelSubscription();
-      if (!res.success) {
-        throw new Error(res.error || "Erreur serveur");
-      }
-
-      setSubscription((prev) =>
-        prev ? { ...prev, status: "cancelled", nextBillingDate: null } : prev
-      );
-      toast.success("Ton abonnement a bien été résilié.");
-    } catch (e) {
-      console.error(e);
-      toast.error("Impossible de résilier l'abonnement pour le moment.");
-    } finally {
-      setIsWorking(false);
-    }
-  };
-
   const handleChangePlan = () => {
     navigate("/pro/subscription");
   };
@@ -344,54 +319,6 @@ const ProSubscriptionSettings = () => {
             </div>
           </section>
 
-          {/* Zone danger - INCHANGÉ */}
-          {isActive && subscription && (
-            <section className="space-y-3 pt-4">
-              <h2 className="text-[13px] font-bold text-destructive uppercase tracking-wide px-1">
-                Zone sensible
-              </h2>
-
-              <button
-                type="button"
-                onClick={handleCancelSubscription}
-                disabled={isWorking}
-                className="w-full group disabled:opacity-50 disabled:pointer-events-none"
-              >
-                <div className="bg-destructive/10 border-2 border-destructive/30 rounded-2xl p-4 flex items-center gap-4 group-active:scale-[0.98] transition-all shadow-sm">
-                  <div className="w-11 h-11 rounded-xl bg-destructive flex items-center justify-center group-active:scale-95 transition-transform shadow-md">
-                    <AlertTriangle size={20} className="text-white" />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="text-[15px] font-bold text-destructive">
-                      Résilier mon abonnement
-                    </p>
-                    <p className="text-[12px] text-destructive/70 mt-0.5 font-medium">
-                      Accès maintenu jusqu'à la fin de période
-                    </p>
-                  </div>
-                </div>
-              </button>
-            </section>
-          )}
-
-          {/* Footer info - INCHANGÉ */}
-          <div className="pt-6 pb-2">
-            <div className="blyss-card bg-accent/30 border-accent/50">
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <Sparkles size={16} className="text-primary" />
-                </div>
-                <p className="text-[12px] text-muted-foreground leading-relaxed">
-                  Tu peux revenir sur{" "}
-                  <span className="font-semibold text-foreground">
-                    Blyss Pro
-                  </span>{" "}
-                  quand tu le souhaites. Ton profil et tes clientes restent
-                  sauvegardés.
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </MobileLayout>

@@ -1,244 +1,300 @@
 import MobileLayout from "@/components/MobileLayout";
-import { ChevronLeft, Info } from "lucide-react";
+import { ArrowLeft, Info, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import api, { type ClientNotificationSettings } from "@/services/api";
 
-type NotificationKey =
-  | "reminders"
-  | "changes"
-  | "messages"
-  | "late"
-  | "offers"
-  | "emailSummary";
+type NotificationKey = keyof ClientNotificationSettings;
 
 const ClientNotifications = () => {
   const navigate = useNavigate();
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const [preferences, setPreferences] = useState<Record<NotificationKey, boolean>>({
+  const [preferences, setPreferences] = useState<ClientNotificationSettings>({
     reminders: true,
     changes: true,
     messages: true,
     late: true,
     offers: true,
-    emailSummary: false
+    email_summary: false
   });
 
-  const togglePreference = (key: NotificationKey) => {
-    setPreferences((prev) => ({ ...prev, [key]: !prev[key] }));
+  useEffect(() => {
+    const fetchPreferences = async () => {
+      try {
+        const response = await api.notifications.getSettings();
+        if (response.success && response.data) {
+          setPreferences(response.data);
+        }
+      } catch (error) {
+        console.error("Erreur lors du chargement des préférences:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPreferences();
+  }, []);
+
+  const togglePreference = async (key: NotificationKey) => {
+    const newValue = !preferences[key];
+    
+    setPreferences((prev) => ({ ...prev, [key]: newValue }));
+    
+    setIsSaving(true);
+    try {
+      const payload = { [key]: newValue };
+      await api.notifications.updateSettings(payload);
+    } catch (error) {
+      console.error("Erreur lors de la sauvegarde:", error);
+      setPreferences((prev) => ({ ...prev, [key]: !newValue }));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const goToSystemSettings = () => {
-    // Placeholder : à adapter côté natif si besoin
-    // window.open("app-settings:", "_blank");
+    if (window.confirm("Ouvrir les réglages système de ton téléphone ?")) {
+      console.log("Redirection vers les paramètres système");
+    }
   };
+
+  if (isLoading) {
+    return (
+      <MobileLayout showNav={false}>
+        <div className="min-h-screen flex items-center justify-center">
+          <Loader2 className="w-12 h-12 animate-spin text-primary" />
+        </div>
+      </MobileLayout>
+    );
+  }
 
   return (
     <MobileLayout showNav={false}>
-      <div className="animate-fade-in">
-        {/* Header */}
-        <div className="flex items-center mb-2">
-          <button
-            onClick={() => navigate("/client/profile")}
-            className="p-2"
-          >
-            <ChevronLeft size={24} className="text-foreground" />
-          </button>
-          <h1 className="font-display text-2xl font-semibold text-foreground ml-2">
-            Notifications
-          </h1>
-        </div>
-        <p className="text-muted-foreground text-sm mb-5">
-          Choisis ce que tu souhaites recevoir de Blyss.
-        </p>
-
-        {/* Bloc info – icône à gauche, texte à droite */}
-        <div className="blyss-card flex items-center gap-3 mb-5">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-            <Info size={16} className="text-primary" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-foreground">
-              Rappels & messages importants
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
-              Recommandé : garde activés les rappels de rendez-vous et les
-              messages de tes expertes pour éviter les oublis.
+      <div className="min-h-screen bg-background">
+        {/* ✅ Header fixe avec fond */}
+        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border">
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-3 mb-2">
+              <button
+                onClick={() => navigate("/client/profile")}
+                className="p-2 -ml-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
+              >
+                <ArrowLeft size={24} className="text-foreground" />
+              </button>
+              <h1 className="text-2xl font-bold text-foreground">
+                Notifications
+              </h1>
+              {isSaving && (
+                <div className="ml-auto flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                  <span className="text-xs text-muted-foreground">Enregistrement...</span>
+                </div>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Personnalise tes préférences de notifications
             </p>
           </div>
         </div>
 
-        {/* SECTION : Blyss & rendez-vous */}
-        <div className="space-y-3 mb-6">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Blyss & rendez-vous
-          </h2>
-
-          {/* Confirmation + rappels */}
-          <div className="blyss-card flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm text-foreground">
-                Confirmation & rappels de rendez-vous
-              </span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={preferences.reminders}
-                  onChange={() => togglePreference("reminders")}
-                />
-                <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
-                <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
-              </label>
+        {/* ✅ Contenu avec padding */}
+        <div className="px-5 py-6 space-y-6">
+          {/* ✅ Bloc info amélioré */}
+          <div className="bg-gradient-to-br from-primary/5 to-primary/10 rounded-2xl p-4 border border-primary/20">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+                <Info size={20} className="text-primary" />
+              </div>
+              <div className="flex-1 pt-1">
+                <p className="text-sm font-semibold text-foreground mb-1">
+                  Rappels importants
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Garde activés les rappels de rendez-vous et les messages de tes expertes pour ne rien manquer.
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Confirmation de réservation, rappel la veille, rappel 1h avant ton
-              rendez-vous.
-            </p>
           </div>
 
-          {/* Changements / annulations */}
-          <div className="blyss-card flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm text-foreground">
-                Changements & annulations
-              </span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={preferences.changes}
-                  onChange={() => togglePreference("changes")}
-                />
-                <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
-                <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
-              </label>
+          {/* ✅ SECTION 1 : Rendez-vous */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="h-px flex-1 bg-border" />
+              <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                Rendez-vous
+              </h2>
+              <div className="h-px flex-1 bg-border" />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Notifications en cas de modification d’horaire ou d’annulation par
-              l’experte.
-            </p>
-          </div>
 
-          {/* Messages */}
-          <div className="blyss-card flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm text-foreground">
-                Nouveaux messages
-              </span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={preferences.messages}
-                  onChange={() => togglePreference("messages")}
-                />
-                <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
-                <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
-              </label>
+            <div className="space-y-3">
+              {[
+                {
+                  key: "reminders" as NotificationKey,
+                  label: "Confirmation & rappels",
+                  description: "Confirmation, rappel la veille et 1h avant"
+                },
+                {
+                  key: "changes" as NotificationKey,
+                  label: "Modifications & annulations",
+                  description: "Si l'experte modifie ou annule"
+                },
+                {
+                  key: "late" as NotificationKey,
+                  label: "Retard de l'experte",
+                  description: "Si ton rendez-vous prend du retard"
+                }
+              ].map(({ key, label, description }) => (
+                <div 
+                  key={key} 
+                  className="bg-card rounded-2xl p-4 border-2 border-muted shadow-sm hover:shadow-md transition-shadow"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex-1">
+                      <p className="font-semibold text-sm text-foreground mb-0.5">
+                        {label}
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {description}
+                      </p>
+                    </div>
+                    
+                    <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={preferences[key]}
+                        onChange={() => togglePreference(key)}
+                        disabled={isSaving}
+                      />
+                      <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-all peer-disabled:opacity-50 peer-checked:shadow-lg peer-checked:shadow-primary/30" />
+                      <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md peer-checked:translate-x-5 transition-transform" />
+                    </label>
+                  </div>
+                </div>
+              ))}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Alertes quand une experte t’envoie un message ou répond à une
-              question.
-            </p>
           </div>
 
-          {/* Retards & arrivée */}
-          <div className="blyss-card flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm text-foreground">
-                Retard & arrivée de l’experte
-              </span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={preferences.late}
-                  onChange={() => togglePreference("late")}
-                />
-                <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
-                <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
-              </label>
+          {/* ✅ SECTION 2 : Messages */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="h-px flex-1 bg-border" />
+              <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                Messages
+              </h2>
+              <div className="h-px flex-1 bg-border" />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Notification si ton rendez-vous prend du retard ou quand l’experte
-              arrive sur place (si activé par elle).
-            </p>
-          </div>
-        </div>
 
-        {/* SECTION : Offres & communication */}
-        <div className="space-y-3 mb-6">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Offres & communication
-          </h2>
-
-          {/* Offres / promos */}
-          <div className="blyss-card flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm text-foreground">
-                Offres et promotions
-              </span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={preferences.offers}
-                  onChange={() => togglePreference("offers")}
-                />
-                <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
-                <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
-              </label>
+            <div className="space-y-3">
+              <div className="bg-card rounded-2xl p-4 border-2 border-muted shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="flex-1">
+                    <p className="font-semibold text-sm text-foreground mb-0.5">
+                      Nouveaux messages
+                    </p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Quand une experte t'envoie un message
+                    </p>
+                  </div>
+                  
+                  <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={preferences.messages}
+                      onChange={() => togglePreference("messages")}
+                      disabled={isSaving}
+                    />
+                    <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-all peer-disabled:opacity-50 peer-checked:shadow-lg peer-checked:shadow-primary/30" />
+                    <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md peer-checked:translate-x-5 transition-transform" />
+                  </label>
+                </div>
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Bons plans Blyss, codes promo et offres de tes expertes
-              favorites.
-            </p>
           </div>
 
-          {/* Résumé email */}
-          <div className="blyss-card flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm text-foreground">
-                Résumé par email
-              </span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={preferences.emailSummary}
-                  onChange={() => togglePreference("emailSummary")}
-                />
-                <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-colors" />
-                <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform" />
-              </label>
+          {/* ✅ SECTION 3 : Offres */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="h-px flex-1 bg-border" />
+              <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                Promotions
+              </h2>
+              <div className="h-px flex-1 bg-border" />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Un résumé occasionnel avec tes prochains rendez-vous et les
-              nouveautés Blyss.
-            </p>
-          </div>
-        </div>
 
-        {/* SECTION : Réglages système */}
-        <div className="space-y-2">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
-            Réglages de ton téléphone
-          </h2>
-
-          <div className="blyss-card flex flex-col gap-2">
-            <p className="text-xs text-muted-foreground leading-snug">
-              Si les notifications sont désactivées pour Blyss dans les
-              réglages de ton téléphone, certains réglages ci-dessus peuvent ne
-              pas fonctionner.
-            </p>
-            <button
-              type="button"
-              onClick={goToSystemSettings}
-              className="self-start text-xs text-primary active:opacity-80"
-            >
-              Ouvrir les réglages de notifications
-            </button>
+            <div className="space-y-3">
+              {[
+                {
+                  key: "offers" as NotificationKey,
+                  label: "Offres & promotions",
+                  description: "Codes promo et offres de tes expertes favorites"
+                },
+                {
+                  key: "email_summary" as NotificationKey,
+                  label: "Résumé par email",
+                  description: "Résumé de tes rendez-vous et nouveautés"
+                }
+              ].map(({ key, label, description }) => (
+                <div 
+                  key={key} 
+                  className="bg-card rounded-2xl p-4 border-2 border-muted shadow-sm hover:shadow-md transition-shadow"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex-1">
+                      <p className="font-semibold text-sm text-foreground mb-0.5">
+                        {label}
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {description}
+                      </p>
+                    </div>
+                    
+                    <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={preferences[key]}
+                        onChange={() => togglePreference(key)}
+                        disabled={isSaving}
+                      />
+                      <div className="w-11 h-6 bg-muted peer-checked:bg-primary rounded-full transition-all peer-disabled:opacity-50 peer-checked:shadow-lg peer-checked:shadow-primary/30" />
+                      <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-md peer-checked:translate-x-5 transition-transform" />
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
+
+          {/* ✅ SECTION 4 : Réglages système */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="h-px flex-1 bg-border" />
+              <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                Système
+              </h2>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
+            <div className="bg-gradient-to-br from-muted/50 to-muted/30 rounded-2xl p-4 border-2 border-muted">
+              <p className="text-xs text-muted-foreground leading-relaxed mb-3">
+                Si les notifications sont désactivées dans les réglages de ton téléphone, 
+                certains paramètres ci-dessus ne fonctionneront pas.
+              </p>
+              <button
+                type="button"
+                onClick={goToSystemSettings}
+                className="w-full py-2.5 px-4 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary font-semibold text-sm active:scale-95 transition-all"
+              >
+                Ouvrir les réglages système
+              </button>
+            </div>
+          </div>
+
+          <div className="h-6" />
         </div>
       </div>
     </MobileLayout>

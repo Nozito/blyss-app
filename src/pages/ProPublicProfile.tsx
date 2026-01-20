@@ -21,6 +21,7 @@ import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { set } from "date-fns";
 
 const ProPublicProfile = () => {
   const navigate = useNavigate();
@@ -58,6 +59,9 @@ const ProPublicProfile = () => {
   const MAX_BIO_LENGTH = 500;
   const bioCharsRemaining = MAX_BIO_LENGTH - bio.length;
 
+  const [profilePhoto, setProfilePhoto] = useState<string>("");
+  const [initialProfilePhoto, setInitialProfilePhoto] = useState<string>("");
+
   useEffect(() => {
     const fetchUserData = async () => {
       setIsLoading(true);
@@ -78,6 +82,7 @@ const ProPublicProfile = () => {
         setInstagramAccount(data.data.instagram_account || "");
         setProfileVisibility(data.data.profile_visibility || "public");
         setBannerPhoto(data.data.banner_photo || ""); // NOUVEAU
+        setProfilePhoto(data.data.profile_photo || "");
 
         setInitialActivityName(data.data.activity_name || "");
         setInitialCity(data.data.city || "");
@@ -85,6 +90,7 @@ const ProPublicProfile = () => {
         setInitialInstagramAccount(data.data.instagram_account || "");
         setInitialProfileVisibility(data.data.profile_visibility || "public");
         setInitialBannerPhoto(data.data.banner_photo || ""); // NOUVEAU
+        setInitialProfilePhoto(data.data.profile_photo || "");
       } catch (error) {
         toast.error("Impossible de charger tes données");
       } finally {
@@ -461,17 +467,15 @@ const ProPublicProfile = () => {
           <div className="fixed inset-0 z-50 bg-white overflow-y-auto animate-fade-in">
             {/* Bannière avec avatar */}
             <div className="relative">
-              <div className="h-52 w-full overflow-hidden">
-                <img
-                  src={
-                    bannerPreview ||
-                    (bannerPhoto ? `${import.meta.env.VITE_API_URL || "http://localhost:3001"}/${bannerPhoto}` : user?.profile_photo || "/default-avatar.png")
-                  }
-                  alt="Bannière"
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 to-transparent" />
-              </div>
+              <img
+                src={bannerPreview || (bannerPhoto
+                  ? `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'}/${bannerPhoto}`
+                  : '/default-banner.jpg')
+                }
+                alt="Bannière"
+                className="w-full h-full object-cover"
+              />
+
 
               {/* Back button */}
               <button
@@ -497,7 +501,13 @@ const ProPublicProfile = () => {
               <div className="absolute -bottom-12 left-1/2 -translate-x-1/2 z-20">
                 <div className="w-24 h-24 rounded-full bg-white shadow-elevated flex items-center justify-center border-4 border-primary/20">
                   <img
-                    src={user?.profile_photo || "/default-avatar.png"}
+                    src={
+                      profilePhoto
+                        ? `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'}/${profilePhoto}`
+                        : user?.profile_photo
+                          ? `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'}/${user.profile_photo}`
+                          : '/default-avatar.png'
+                    }
                     alt="Profile"
                     className="w-full h-full object-cover rounded-full"
                   />

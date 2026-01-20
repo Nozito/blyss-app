@@ -45,7 +45,7 @@ const ProNotifications = () => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-        const response = await fetch(getApiEndpoint('/api/notification-settings'), {
+        const response = await fetch(getApiEndpoint('/api/pro/notification-settings'), {
           headers: { 
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json"
@@ -121,7 +121,7 @@ const ProNotifications = () => {
       console.log("Envoi des préférences:", payload);
 
       // ✅ Utilise getApiEndpoint au lieu de construire l'URL manuellement
-      const response = await fetch(getApiEndpoint('/api/notification-settings/update'), {
+      const response = await fetch(getApiEndpoint('/api/pro/notification-settings'), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

@@ -17,6 +17,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  token?: string;
   login: (
     credentials: LoginCredentials
   ) => Promise<
@@ -49,9 +50,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // ✅ AJOUTER CE STATE
+  const [token, setToken] = useState<string | null>(() => {
+    return localStorage.getItem("auth_token");
+  });
+
   useEffect(() => {
     const initAuth = async () => {
-      const token = localStorage.getItem("auth_token");
+      const storedToken = localStorage.getItem("auth_token");
+      setToken(storedToken); // ✅ Mettre à jour le state
+      
       let savedUser: User | null = null;
 
       try {
@@ -63,7 +71,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         localStorage.removeItem("user");
       }
 
-      if (!token) {
+      if (!storedToken) {
         setUser(savedUser);
         setIsLoading(false);
         return;
@@ -87,19 +95,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     initAuth();
   }, []);
 
-  useEffect(() => {
-    if (user) {
-      try {
-        localStorage.setItem("user", JSON.stringify(user));
-      } catch {
-        // ignore
-      }
-    } else {
-      localStorage.removeItem("user");
-      localStorage.removeItem("auth_token");
-    }
-  }, [user]);
-
   const login = async (
     credentials: LoginCredentials
   ): Promise<
@@ -121,6 +116,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           console.log("storing token =", accessToken, "user =", respUser);
           localStorage.setItem("auth_token", accessToken);
           localStorage.setItem("refresh_token", refreshToken);
+          setToken(accessToken); // ✅ AJOUTER CETTE LIGNE
           setUser(respUser);
         } catch (err) {
           console.error("Error storing token or setting user:", err);
@@ -155,6 +151,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const { accessToken, refreshToken, user: respUser } = response.data;
         localStorage.setItem("auth_token", accessToken);
         localStorage.setItem("refresh_token", refreshToken);
+        setToken(accessToken); // ✅ AJOUTER CETTE LIGNE
         setUser(respUser);
       }
 
@@ -172,6 +169,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } finally {
       localStorage.removeItem("auth_token");
       localStorage.removeItem("refresh_token");
+      setToken(null); // ✅ AJOUTER CETTE LIGNE
       setUser(null);
     }
   };
@@ -198,6 +196,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     user,
     isLoading,
     isAuthenticated: Boolean(user),
+    token, // ✅ AJOUTER CETTE LIGNE
     login,
     signup,
     logout,

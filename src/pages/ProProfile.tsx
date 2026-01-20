@@ -25,16 +25,18 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import Cropper from "react-easy-crop";
 import getCroppedImg from "@/utils/cropImage";
 import { proApi } from "@/services/api";
+import { set } from "date-fns";
 
 const ProProfile = () => {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const navigate = useNavigate();
 
+  const baseUrl = import.meta.env.VITE_SERVER_BASE || 'http://localhost:3001';
   const initialPhoto =
     user?.profile_photo && user.profile_photo.startsWith("http")
       ? user.profile_photo
       : user?.profile_photo
-        ? `http://localhost:3001${user.profile_photo}`
+        ? `${baseUrl}${user.profile_photo}`
         : logo;
 
   const [profileImage, setProfileImage] = useState(initialPhoto);
@@ -44,6 +46,9 @@ const ProProfile = () => {
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
   const inputFileRef = useRef<HTMLInputElement>(null);
+
+  // Upload state
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState<boolean>(false);
 
   const [subscription, setSubscription] = useState<{
     id: number;
@@ -67,7 +72,7 @@ const ProProfile = () => {
     if (user?.profile_photo) {
       const url = user.profile_photo.startsWith("http")
         ? user.profile_photo
-        : `http://localhost:3001${user.profile_photo}`;
+        : `http://localhost:3001/${user.profile_photo}`;
       setProfileImage(`${url}?t=${Date.now()}`);
     }
   }, [user?.profile_photo]);
@@ -94,66 +99,95 @@ const ProProfile = () => {
     setCroppedAreaPixels(cropped);
   }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const imageDataUrl = URL.createObjectURL(file);
-    setTempProfileImage(imageDataUrl);
+  const handleProfileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  // Validation du fichier
+  const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+  if (!validTypes.includes(file.type)) {
+    toast.error('Format non supporté. Utilise JPG, PNG ou WebP');
+    return;
+  }
+
+  const maxSize = 5 * 1024 * 1024; // 5MB
+  if (file.size > maxSize) {
+    toast.error("L'image ne doit pas dépasser 5MB");
+    return;
+  }
+
+  // Créer un aperçu local et ouvrir le modal de crop
+  const reader = new FileReader();
+  reader.onloadend = () => {
+    setTempProfileImage(reader.result as string);
     setShowCropModal(true);
-    e.target.value = "";
   };
+  reader.readAsDataURL(file);
+};
+
 
   const uploadCroppedPhoto = async () => {
-    try {
-      if (!user?.id) {
-        toast.error("Impossible d'uploader : l'utilisateur n'est pas défini");
-        return;
-      }
-      if (!tempProfileImage || !croppedAreaPixels) return;
+  if (!tempProfileImage || !croppedAreaPixels) {
+    toast.error("Aucune image sélectionnée ou zone de crop manquante");
+    return;
+  }
 
-      const croppedImageResult = await getCroppedImg(
-        tempProfileImage,
-        croppedAreaPixels
-      );
-      const croppedImageBlob =
-        typeof croppedImageResult === "string"
-          ? await (await fetch(croppedImageResult)).blob()
-          : croppedImageResult;
+  try {
+    setIsUploadingPhoto(true);
 
-      const formData = new FormData();
-      formData.append("photo", croppedImageBlob, "profile.jpg");
-      formData.append("userId", String(user.id));
-
-      const response = await fetch(
-        "http://localhost:3001/api/users/upload-photo",
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Upload failed");
-      }
-
-      const data = await response.json();
-
-      if (data?.photo) {
-        const url = `http://localhost:3001${data.photo}`;
-        setProfileImage(`${url}?t=${Date.now()}`);
-        setShowCropModal(false);
-        setTempProfileImage(null);
-        toast.success("Photo de profil mise à jour");
-      } else {
-        throw new Error("URL de la photo non reçue");
-      }
-    } catch (error) {
-      toast.error(
-        (error as Error).message ||
-        "Erreur lors de la mise à jour de la photo"
-      );
+    // Générer l'image croppée en base64
+    const croppedBase64 = await getCroppedImg(tempProfileImage, croppedAreaPixels);
+    if (!croppedBase64) {
+      toast.error("Impossible de générer l'image recadrée");
+      return;
     }
-  };
+
+    // Convertir l'image base64 en Blob
+    const blob = await fetch(croppedBase64).then((res) => res.blob());
+    
+    const formData = new FormData();
+    formData.append('photo', blob, 'profile-photo.jpg');
+
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      toast.error('Session expirée. Reconnectez-vous.');
+      navigate('/login');
+      return;
+    }
+
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+
+    const response = await fetch(`${API_URL}/users/upload-photo`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      body: formData
+    });
+
+    if (!response.ok) {
+      throw new Error('Upload failed');
+    }
+
+    const result = await response.json();
+    
+    if (result.success) {
+      toast.success('Photo de profil mise à jour !');
+      setProfileImage(result.photo);
+      setShowCropModal(false);
+      setTempProfileImage(null);
+    } else {
+      toast.error(result.message || 'Erreur lors de l\'upload');
+    }
+
+  } catch (error) {
+    console.error('Error uploading photo:', error);
+    toast.error('Erreur lors de l\'upload de la photo');
+  } finally {
+    setIsUploadingPhoto(false);
+  }
+};
+
 
   const handleLogout = async () => {
     await logout();
@@ -290,7 +324,7 @@ const profileCompleteness = calculateProfileCompleteness();
                   type="file"
                   accept="image/*"
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                  onChange={handleFileChange}
+                  onChange={handleProfileChange}
                 />
               </div>
               <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-primary shadow-lg flex items-center justify-center cursor-pointer group-hover:scale-110 transition-transform">
@@ -608,3 +642,5 @@ const profileCompleteness = calculateProfileCompleteness();
 };
 
 export default ProProfile;
+// Removed unused stub functions
+

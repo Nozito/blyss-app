@@ -101,6 +101,9 @@ const App = () => {
               <Route path="/client/settings" element={<ClientSettings />} />
               <Route path="/client/booking/:id" element={<ClientBooking/>} />
               <Route path="/client/specialists" element={<ClientSpecialists />} />
+              <Route path="/client/payment-methods" element={<ClientPayements />} />
+              <Route path="/client/specialist/:id" element={<SpecialistProfile />} />
+              <Route path="/client/booking/:id" element={<BookingDetail />} />
 
 
               {/* CLIENT */}
@@ -113,26 +116,10 @@ const App = () => {
                 }
               />
               <Route
-                path="/client/specialist/:id"
+                path="/client/my-booking"
                 element={
                   <MobileLayout showNav={!showSplash}>
-                    <SpecialistProfile />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/client/booking"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ClientBooking />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/client/booking-detail/:id"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <BookingDetail />
+                    <ClientMyBooking />
                   </MobileLayout>
                 }
               />
@@ -149,46 +136,6 @@ const App = () => {
                 element={
                   <MobileLayout showNav={!showSplash}>
                     <ClientFavorites />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/client/my-booking"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ClientMyBooking />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/client/help"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ClientHelp />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/client/settings"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ClientSettings />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/client/notifications"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ClientNotifications />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/client/payment-methods"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ClientPayements />
                   </MobileLayout>
                 }
               />
