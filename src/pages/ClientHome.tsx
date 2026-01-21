@@ -35,6 +35,8 @@ const ClientHome = () => {
   const [reviewsByPro, setReviewsByPro] = useState<Record<number, Review[]>>({});
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
 
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+
   const greeting = user?.first_name ? `Salut ${user.first_name}` : "Bienvenue sur Blyss";
 
   // Formater les données pour affichage
@@ -43,9 +45,6 @@ const ClientHome = () => {
     const avgRating = proReviews.length > 0
       ? proReviews.reduce((sum, r) => sum + r.rating, 0) / proReviews.length
       : 0;
-
-    // ✅ Construire les URLs complètes pour les images
-    const API_BASE_URL = 'http://localhost:3001';
 
     const profilePhotoUrl = pro.profile_photo
       ? (pro.profile_photo.startsWith('http')
@@ -93,7 +92,7 @@ const ClientHome = () => {
       try {
         setIsLoading(true);
 
-        const usersRes = await fetch('http://localhost:3001/api/users/pros');
+        const usersRes = await fetch(`${API_BASE_URL}/users/pros`);
         const usersData = await usersRes.json();
 
         if (usersData?.success && usersData?.data) {
@@ -105,7 +104,7 @@ const ClientHome = () => {
 
           for (const pro of activePros) {
             try {
-              const reviewsRes = await fetch(`http://localhost:3001/api/reviews/pro/${pro.id}`);
+              const reviewsRes = await fetch(`${API_BASE_URL}/reviews/pro/${pro.id}`);
               const reviewsJson = await reviewsRes.json();
 
               if (reviewsJson?.success && reviewsJson?.data) {
