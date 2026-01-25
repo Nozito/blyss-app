@@ -112,8 +112,8 @@ async function checkNotificationPreference(
 
     const role = (userRows as any[])[0].role;
 
-    const mapping = role === "pro" 
-      ? PRO_NOTIFICATION_MAPPING 
+    const mapping = role === "pro"
+      ? PRO_NOTIFICATION_MAPPING
       : CLIENT_NOTIFICATION_MAPPING;
 
     const column = mapping[notificationType] || (role === "pro" ? "activity_summary" : "offers");
@@ -130,23 +130,23 @@ async function checkNotificationPreference(
     if ((settings as any[]).length === 0) {
       const defaultColumns = role === "pro"
         ? {
-            user_id: userId,
-            new_reservation: 1,
-            cancel_change: 1,
-            daily_reminder: 1,
-            client_message: 1,
-            payment_alert: 1,
-            activity_summary: 1,
-          }
+          user_id: userId,
+          new_reservation: 1,
+          cancel_change: 1,
+          daily_reminder: 1,
+          client_message: 1,
+          payment_alert: 1,
+          activity_summary: 1,
+        }
         : {
-            user_id: userId,
-            reminders: 1,
-            changes: 1,
-            messages: 1,
-            late: 1,
-            offers: 1,
-            email_summary: 0,
-          };
+          user_id: userId,
+          reminders: 1,
+          changes: 1,
+          messages: 1,
+          late: 1,
+          offers: 1,
+          email_summary: 0,
+        };
 
       await db.query(
         `INSERT INTO ${table} SET ?`,
@@ -264,7 +264,7 @@ export async function broadcastNotification(
 }
 
 // ==========================================
-// 8. MIDDLEWARE (UNE SEULE FOIS)
+// 8. MIDDLEWARE
 // ==========================================
 app.use(
   cors({
@@ -330,7 +330,7 @@ wss.on("connection", (ws: WebSocket, req) => {
             data.data.token,
             process.env.JWT_SECRET!
           ) as { id: number };
-          
+
           userId = decoded.id;
           isAuthenticated = true;
 
@@ -361,7 +361,7 @@ wss.on("connection", (ws: WebSocket, req) => {
 
       if (data.type === "mark_read" && isAuthenticated && userId) {
         const notificationId = data.data?.notificationId;
-        
+
         if (notificationId) {
           await db.query(
             `UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?`,
@@ -428,7 +428,7 @@ app.get(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const adminId = req.user?.id;
-      const userId = parseInt(req.params.userId);
+      const userId = parseParamToInt(req.params.userId);
 
       // Vérifier que c'est un admin
       const [adminCheck] = await db.query(
@@ -756,6 +756,27 @@ interface CreateSubscriptionBody {
 // HELPER FUNCTIONS
 // ==========================================
 
+/**
+ * Parse un paramètre de route en nombre
+ * @param param - Le paramètre à parser (string | string[])
+ * @returns Le nombre parsé
+ * @throws Error si le paramètre est invalide
+ */
+function parseParamToInt(param: string | string[] | undefined): number {
+  if (!param) {
+    throw new Error("Paramètre manquant");
+  }
+
+  const value = Array.isArray(param) ? param[0] : param;
+  const parsed = parseInt(value, 10);
+
+  if (isNaN(parsed)) {
+    throw new Error("Paramètre invalide");
+  }
+
+  return parsed;
+}
+
 function generateAccessToken(userId: number) {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET!, { expiresIn: "15m" });
 }
@@ -805,7 +826,7 @@ app.get(
   "/api/users/pros/:id",
   async (req: Request, res: Response) => {
     try {
-      const proId = parseInt(req.params.id);
+      const proId = parseParamToInt(req.params.id);
 
       if (isNaN(proId)) {
         return res.status(400).json({
@@ -850,7 +871,7 @@ app.get(
   "/api/prestations/pro/:id",
   async (req: Request, res: Response) => {
     try {
-      const proId = parseInt(req.params.id);
+      const proId = parseParamToInt(req.params.id);
 
       const [rows] = await db.query(
         `SELECT id, name, description, price, duration_minutes, active
@@ -880,7 +901,7 @@ app.get(
   "/api/slots/available/:proId/:date",
   async (req: Request, res: Response) => {
     try {
-      const proId = parseInt(req.params.proId);
+      const proId = parseParamToInt(req.params.id);
       const dateStr = req.params.date; // Format: YYYY-MM-DD
 
       const startOfDay = `${dateStr} 00:00:00`;
@@ -923,7 +944,7 @@ app.get(
   authenticateToken,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const proId = parseInt(req.params.proId);
+      const proId = parseParamToInt(req.params.id);
 
       // Vérifier que c'est bien le pro qui demande ses slots
       if (req.user?.id !== proId) {
@@ -991,7 +1012,7 @@ app.patch(
   authenticateToken,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const slotId = parseInt(req.params.slotId);
+      const slotId = parseParamToInt(req.params.id);
       const proId = req.user?.id;
 
       // Vérifier que le slot appartient au pro
@@ -1037,7 +1058,7 @@ app.delete(
   authenticateToken,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const slotId = parseInt(req.params.slotId);
+      const slotId = parseParamToInt(req.params.id);
       const proId = req.user?.id;
 
       // Vérifier que le slot appartient au pro
@@ -1073,7 +1094,6 @@ app.delete(
     }
   }
 );
-
 
 // ==========================================
 // AUTH ROUTES
@@ -1182,21 +1202,17 @@ app.post(
         }
       }
 
-      // ✅ Obtenir une connexion avec transaction
       connection = await db.getConnection();
 
-      // ✅ DÉBUT DE LA TRANSACTION
       await connection.beginTransaction();
 
       try {
-        // Vérifier si l'email existe déjà
         const [existing] = await connection.query(
           "SELECT id FROM users WHERE email = ?",
           [trimmedEmail]
         ) as [any[], any];
 
         if (existing.length > 0) {
-          // Rollback implicite en cas d'erreur
           await connection.rollback();
           return res.status(409).json({
             success: false,
@@ -1205,7 +1221,6 @@ app.post(
           });
         }
 
-        // Hash du mot de passe (peut échouer)
         const passwordHash = await bcrypt.hash(password, 12);
 
         // ✅ Insertion de l'utilisateur
@@ -1239,15 +1254,13 @@ app.post(
         });
 
       } catch (transactionError) {
-        // ✅ ROLLBACK en cas d'erreur pendant la transaction
         await connection.rollback();
-        throw transactionError; // Re-throw pour être attrapé par le catch externe
+        throw transactionError;
       }
 
     } catch (err: any) {
       console.error("❌ Signup error:", err);
 
-      // ✅ Gestion des erreurs spécifiques MySQL
       if (err.code === 'ER_DUP_ENTRY') {
         return res.status(409).json({
           success: false,
@@ -1264,7 +1277,6 @@ app.post(
         });
       }
 
-      // Erreur générique
       res.status(500).json({
         success: false,
         message: "Signup failed due to server error",
@@ -1294,7 +1306,6 @@ app.get(
         });
       }
 
-      // ✅ Requête simplifiée sans colonnes qui pourraient ne pas exister
       const [rows] = await db.query(
         `SELECT 
           id, 
@@ -1332,13 +1343,11 @@ app.get(
 
       const user = users[0];
 
-      // ✅ Calculer clients_count et avg_rating séparément
       let clients_count = 0;
       let avg_rating = null;
       let years_on_blyss = 0;
 
       try {
-        // Compter les clients uniques
         const [clientRows] = await db.query(
           `SELECT COUNT(DISTINCT client_id) as count 
            FROM reservations 
@@ -1347,7 +1356,6 @@ app.get(
         );
         clients_count = (clientRows as any[])[0]?.count || 0;
 
-        // Calculer la moyenne des notes
         const [ratingRows] = await db.query(
           `SELECT AVG(rating) as avg 
            FROM reviews 
@@ -1356,7 +1364,6 @@ app.get(
         );
         avg_rating = (ratingRows as any[])[0]?.avg || null;
 
-        // Calculer ancienneté
         const [durationRows] = await db.query(
           `SELECT TIMESTAMPDIFF(YEAR, created_at, NOW()) as years
            FROM users WHERE id = ?`,
@@ -2098,9 +2105,8 @@ app.get(
   async (req: Request, res: Response) => {
     let connection;
     try {
-      const proId = parseInt(req.params.proId);
+      const proId = parseParamToInt(req.params.id);
 
-      // ✅ Validation stricte de l'ID
       if (isNaN(proId) || proId <= 0) {
         console.warn(`⚠️ ID invalide reçu: ${req.params.proId}`);
         return res.status(400).json({
@@ -3669,7 +3675,7 @@ app.get(
   async (req: AuthenticatedRequest, res: Response) => {
     let connection;
     try {
-      const specialistId = parseInt(req.params.id);
+      const specialistId = parseParamToInt(req.params.id);
 
       connection = await db.getConnection();
 
@@ -3835,7 +3841,7 @@ app.put(
     let connection;
     try {
       const userId = req.user?.id;
-      const cardId = parseInt(req.params.id);
+      const cardId = parseParamToInt(req.params.id);
 
       if (!userId) {
         return res.status(401).json({ success: false, message: "Non authentifié" });
@@ -3871,7 +3877,7 @@ app.delete(
     let connection;
     try {
       const userId = req.user?.id;
-      const cardId = parseInt(req.params.id);
+      const cardId = parseParamToInt(req.params.id);
 
       if (!userId) {
         return res.status(401).json({ success: false, message: "Non authentifié" });
@@ -3931,7 +3937,6 @@ app.get(
         [userId]
       ) as [any[], any];
 
-      // Si aucun paramètre n'existe, créer avec les valeurs par défaut
       if (!rows || rows.length === 0) {
         await connection.query(
           `INSERT INTO client_notification_settings 
@@ -3997,7 +4002,6 @@ app.put(
 
       const { reminders, changes, messages, late, offers, emailSummary } = req.body;
 
-      // Validation
       const fields = { reminders, changes, messages, late, offers, emailSummary };
       for (const [key, value] of Object.entries(fields)) {
         if (value !== undefined && typeof value !== "boolean") {
@@ -4010,14 +4014,12 @@ app.put(
 
       connection = await db.getConnection();
 
-      // Vérifier si l'enregistrement existe
       const [existing] = await connection.query(
         `SELECT id FROM client_notification_settings WHERE user_id = ?`,
         [userId]
       ) as [any[], any];
 
       if (existing.length === 0) {
-        // INSERT si n'existe pas
         await connection.query(
           `INSERT INTO client_notification_settings 
            (user_id, reminders, changes, messages, late, offers, email_summary)
@@ -4033,7 +4035,6 @@ app.put(
           ]
         );
       } else {
-        // UPDATE si existe
         const updates: string[] = [];
         const values: any[] = [];
 
@@ -4073,7 +4074,6 @@ app.put(
         }
       }
 
-      // Récupérer les données mises à jour
       const [updated] = await connection.query(
         `SELECT 
           reminders, 
@@ -4273,7 +4273,7 @@ app.put('/client/booking/:id/cancel', authenticateToken, async (req: Authenticat
   let connection;
   try {
     const clientId = req.user?.id;
-    const bookingId = parseInt(req.params.id);
+    const bookingId = parseParamToInt(req.params.id);
 
     if (!clientId) {
       return res.status(401).json({ success: false, message: 'Non authentifié' });
@@ -4339,7 +4339,7 @@ app.get('/client/booking-detail/:id', authenticateToken, async (req: Authenticat
   let connection;
   try {
     const clientId = req.user?.id;
-    const bookingId = parseInt(req.params.id);
+    const bookingId = parseParamToInt(req.params.id);
 
     if (!clientId) {
       return res.status(401).json({ success: false, message: 'Non authentifié' });
@@ -4526,7 +4526,7 @@ app.delete("/api/favorites/:proId", authenticateToken, async (req: Request, res:
   let connection;
   try {
     const clientId = (req as AuthenticatedRequest).user?.id;
-    const proId = parseInt(req.params.proId);
+    const proId = parseParamToInt(req.params.id);
 
     if (!clientId) {
       return res.status(401).json({
@@ -4581,7 +4581,7 @@ app.get("/api/favorites/check/:proId", authenticateToken, async (req: Request, r
   let connection;
   try {
     const clientId = (req as AuthenticatedRequest).user?.id;
-    const proId = parseInt(req.params.proId);
+    const proId = parseParamToInt(req.params.id);
 
     if (!clientId) {
       return res.status(401).json({
@@ -4733,7 +4733,7 @@ app.get(
     let connection;
     try {
       const clientId = req.user?.id;
-      const bookingId = parseInt(req.params.id);
+      const bookingId = parseParamToInt(req.params.id);
 
       if (!clientId) {
         return res.status(401).json({
@@ -4842,7 +4842,7 @@ app.patch(
     let connection;
     try {
       const clientId = req.user?.id;
-      const bookingId = parseInt(req.params.id);
+      const bookingId = parseParamToInt(req.params.id);
 
       if (!clientId) {
         return res.status(401).json({
@@ -5111,11 +5111,11 @@ app.post("/api/admin/users/create", authenticateToken, async (req: Authenticated
       return res.status(403).json({ success: false, message: "Accès réservé aux admins" });
     }
 
-    const { 
-      first_name, 
-      last_name, 
-      phone_number, 
-      email, 
+    const {
+      first_name,
+      last_name,
+      phone_number,
+      email,
       birth_date,
       role,
       is_admin,
@@ -5135,9 +5135,9 @@ app.post("/api/admin/users/create", authenticateToken, async (req: Authenticated
 
     // Validation des champs obligatoires
     if (!first_name || !last_name || !phone_number || !email || !role) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Les champs first_name, last_name, phone_number, email et role sont obligatoires" 
+      return res.status(400).json({
+        success: false,
+        message: "Les champs first_name, last_name, phone_number, email et role sont obligatoires"
       });
     }
 
@@ -5163,7 +5163,7 @@ app.post("/api/admin/users/create", authenticateToken, async (req: Authenticated
     // Hash du mot de passe temporaire
     const tempPassword = 'TempPassword123!';
     const password_hash = await bcrypt.hash(tempPassword, 12);
-    
+
     // Générer iban_hash si IBAN fourni
     let iban_hash = null;
     let computed_iban_last4 = iban_last4 || null;
@@ -5201,10 +5201,10 @@ app.post("/api/admin/users/create", authenticateToken, async (req: Authenticated
         profile_visibility
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        first_name, 
-        last_name, 
+        first_name,
+        last_name,
         phone_number,
-        email, 
+        email,
         formattedBirthDate, // ✅ Date formatée
         password_hash,
         0, // is_verified par défaut
@@ -5244,11 +5244,11 @@ app.put("/api/admin/users/:id", authenticateToken, async (req: AuthenticatedRequ
     }
 
     const userId = req.params.id;
-    const { 
-      first_name, 
-      last_name, 
+    const {
+      first_name,
+      last_name,
       phone_number,
-      email, 
+      email,
       birth_date,
       role,
       is_admin,
@@ -5269,9 +5269,9 @@ app.put("/api/admin/users/:id", authenticateToken, async (req: AuthenticatedRequ
 
     // Validation des champs obligatoires
     if (!first_name || !last_name || !phone_number || !email || !role) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Les champs first_name, last_name, phone_number, email et role sont obligatoires" 
+      return res.status(400).json({
+        success: false,
+        message: "Les champs first_name, last_name, phone_number, email et role sont obligatoires"
       });
     }
 
@@ -5281,9 +5281,9 @@ app.put("/api/admin/users/:id", authenticateToken, async (req: AuthenticatedRequ
       [email, userId]
     );
     if ((emailCheck as any).length > 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Cet email est déjà utilisé" 
+      return res.status(400).json({
+        success: false,
+        message: "Cet email est déjà utilisé"
       });
     }
 
@@ -5336,12 +5336,12 @@ app.put("/api/admin/users/:id", authenticateToken, async (req: AuthenticatedRequ
         is_verified = ?
       WHERE id = ?`,
       [
-        first_name, 
-        last_name, 
+        first_name,
+        last_name,
         phone_number,
-        email, 
+        email,
         formattedBirthDate,
-        role, 
+        role,
         is_admin ? 1 : 0,
         activity_name || null,
         city || null,
@@ -5380,13 +5380,13 @@ app.delete("/api/admin/users/:id", authenticateToken, async (req: AuthenticatedR
     const userId = req.params.id;
 
     const [userRows] = await db.query("SELECT is_admin FROM users WHERE id = ?", [userId]);
-    
+
     if ((userRows as any[])[0]?.is_admin) {
       const [adminsRows] = await db.query("SELECT COUNT(*) as count FROM users WHERE is_admin = 1");
       if ((adminsRows as any[])[0].count <= 1) {
-        return res.status(400).json({ 
-          success: false, 
-          message: "Impossible de supprimer le dernier administrateur" 
+        return res.status(400).json({
+          success: false,
+          message: "Impossible de supprimer le dernier administrateur"
         });
       }
     }
@@ -5450,12 +5450,12 @@ app.post("/api/admin/bookings/create", authenticateToken, async (req: Authentica
 
     // Validation
     if (!client_id || !pro_id || !prestation_id || !start_datetime || !end_datetime || !price) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Tous les champs requis doivent être remplis" 
+      return res.status(400).json({
+        success: false,
+        message: "Tous les champs requis doivent être remplis"
       });
     }
-    
+
     await db.query(
       `INSERT INTO reservations (
         client_id, 
@@ -5491,12 +5491,12 @@ app.put("/api/admin/bookings/:id", authenticateToken, async (req: AuthenticatedR
 
     // Validation
     if (!client_id || !pro_id || !prestation_id || !start_datetime || !end_datetime || !price) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Tous les champs requis doivent être remplis" 
+      return res.status(400).json({
+        success: false,
+        message: "Tous les champs requis doivent être remplis"
       });
     }
-    
+
     await db.query(
       `UPDATE reservations SET 
         client_id = ?, 
