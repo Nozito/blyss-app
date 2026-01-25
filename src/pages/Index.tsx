@@ -122,20 +122,6 @@ const Index = () => {
           </button>
         </div>
 
-        {/* ✅ Social proof badge [web:62][web:65] */}
-        <div className="animate-in fade-in duration-700 delay-1200 relative z-10 mb-4">
-          <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20">
-            <div className="flex -space-x-2">
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-pink-400 to-pink-600 border-2 border-background" />
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-400 to-purple-600 border-2 border-background" />
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 border-2 border-background" />
-            </div>
-            <p className="text-xs font-semibold text-primary">
-              Rejoins 2 500+ nail artists
-            </p>
-          </div>
-        </div>
-
         {/* Footer Text [web:66] */}
         <p className="text-center text-[10px] text-muted-foreground/70 leading-relaxed animate-in fade-in duration-700 delay-1400 relative z-10 px-8">
           En continuant, tu acceptes nos{" "}

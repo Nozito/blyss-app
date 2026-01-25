@@ -6,7 +6,12 @@ export const getApiEndpoint = (path: string): string => {
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
 };
 
+// =====================
+// TYPES & INTERFACES
+// =====================
+
 export interface User {
+  is_admin: boolean;
   profile_visibility: string;
   id: number;
   first_name: string;
@@ -45,10 +50,24 @@ export interface SignupData {
   password: string;
   phone_number: string;
   birth_date: string;
-  role?: "client" | "pro";
-  activity_name?: string;
-  city?: string;
-  instagram_account?: string;
+  role: "client" | "pro";
+  activity_name?: string | null;
+  city?: string | null;
+  instagram_account?: string | null;
+}
+
+export interface SignupResponse {
+  success: boolean;
+  message?: string;
+  error?: 
+    | "email_exists"
+    | "weak_password"
+    | "age_restriction"
+    | "invalid_phone"
+    | "invalid_email"
+    | "missing_fields"
+    | "data_too_long"
+    | "server_error";
 }
 
 export interface ApiResponse<T> {
@@ -58,7 +77,6 @@ export interface ApiResponse<T> {
   error?: string;
 }
 
-// ✅ Interfaces pour les préférences de notifications (CLIENT)
 export interface ClientNotificationSettings {
   reminders: boolean;
   changes: boolean;
@@ -68,7 +86,6 @@ export interface ClientNotificationSettings {
   email_summary: boolean;
 }
 
-// ✅ Interfaces pour les préférences de notifications (PRO)
 export interface ProNotificationSettings {
   new_reservation: boolean;
   cancel_change: boolean;
@@ -78,9 +95,27 @@ export interface ProNotificationSettings {
   activity_summary: boolean;
 }
 
-// --- Helpers stockage tokens ---
+export interface PaymentsSettings {
+  bankaccountname: string | null;
+  IBAN: string | null;
+  accept_online_payment: 0 | 1;
+}
 
-const ACCESS_TOKEN_KEY = "access_token";
+export interface SavedCard {
+  id: number;
+  brand: "visa" | "mastercard" | "amex";
+  last4: string;
+  exp_month: string;
+  exp_year: string;
+  cardholder_name: string;
+  is_default: boolean;
+}
+
+// =====================
+// SESSION MANAGEMENT
+// =====================
+
+const ACCESS_TOKEN_KEY = "auth_token";
 const REFRESH_TOKEN_KEY = "refresh_token";
 const USER_KEY = "user";
 
@@ -106,7 +141,9 @@ function clearSession() {
   localStorage.removeItem(USER_KEY);
 }
 
-// --- Appel brut sans refresh automatique ---
+// =====================
+// HTTP UTILITIES
+// =====================
 
 async function rawApiCall<T>(
   endpoint: string,
@@ -133,8 +170,6 @@ async function rawApiCall<T>(
 
   return { response, json };
 }
-
-// --- Refresh token ---
 
 async function tryRefreshToken(): Promise<boolean> {
   const refreshToken = getRefreshToken();
@@ -163,8 +198,6 @@ async function tryRefreshToken(): Promise<boolean> {
     return false;
   }
 }
-
-// --- apiCall avec gestion 401 + refresh ---
 
 async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>>;
 async function apiCall<T>(method: string, endpoint: string, options?: RequestInit): Promise<ApiResponse<T>>;
@@ -222,7 +255,9 @@ async function apiCall<T>(a: string, b?: any, c: any = {}): Promise<ApiResponse<
   }
 }
 
-// --- Auth ---
+// =====================
+// AUTH API
+// =====================
 
 export const authApi = {
   login: async (
@@ -260,67 +295,75 @@ export const authApi = {
     };
   },
 
-  signup: async (
-    data: SignupData
-  ): Promise<
-    ApiResponse<{
-      user: User;
-      accessToken: string;
-      refreshToken: string;
-    }>
-  > => {
-    const { response, json } = await rawApiCall<{
-      user: User;
-      accessToken: string;
-      refreshToken: string;
-    }>("/api/auth/signup", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+  signup: async (data: SignupData): Promise<SignupResponse> => {
+    try {
+      const response = await fetch(`${API_URL}/api/auth/signup`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
 
-    if (!response.ok || !json?.success) {
+      const json = await response.json();
+
+      if (response.ok) {
+        return {
+          success: true,
+          message: json.message || "Account created successfully",
+        };
+      } else {
+        return {
+          success: false,
+          message: json.message || "Signup failed",
+          error: json.error,
+        };
+      }
+    } catch (error) {
+      console.error("Signup API error:", error);
       return {
         success: false,
-        error: json?.message || json?.error || "Une erreur est survenue",
+        message: "Network error",
+        error: "server_error",
       };
     }
-
-    const { user, accessToken, refreshToken } = json.data;
-    setSession(accessToken, refreshToken, user);
-
-    return {
-      success: true,
-      data: { user, accessToken, refreshToken },
-      message: json.message,
-    };
-  },
-
-  logout: async (): Promise<ApiResponse<void>> => {
-    const refreshToken = getRefreshToken();
-    if (refreshToken) {
-      await rawApiCall("/api/auth/logout", {
-        method: "POST",
-        body: JSON.stringify({ refreshToken }),
-      });
-    }
-    clearSession();
-    return { success: true };
   },
 
   getProfile: async (): Promise<ApiResponse<User>> => {
-    const res = await apiCall<User>("/api/users");
-    console.log("[authApi.getProfile] response =", res);
-    return res;
+    return apiCall("/api/auth/profile");
   },
 
-  updateProfile: (data: Partial<User>) =>
-    apiCall<User>("/api/users/update", {
+  updateProfile: async (data: Partial<User>): Promise<ApiResponse<User>> => {
+    return apiCall("/api/auth/profile", {
       method: "PUT",
       body: JSON.stringify(data),
-    }),
+    });
+  },
+
+  logout: async (): Promise<void> => {
+    try {
+      const refreshToken = localStorage.getItem("refresh_token");
+      
+      if (refreshToken) {
+        await fetch(`${API_URL}/api/auth/logout`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ refreshToken }),
+        });
+      }
+    } catch (error) {
+      console.error("Logout API error:", error);
+    } finally {
+      clearSession();
+    }
+  },
 };
 
-// --- Bookings ---
+// =====================
+// BOOKINGS API
+// =====================
 
 export const bookingsApi = {
   getAll: async (): Promise<ApiResponse<any[]>> => {
@@ -352,7 +395,9 @@ export const bookingsApi = {
   },
 };
 
-// --- Specialists ---
+// =====================
+// SPECIALISTS API
+// =====================
 
 export const specialistsApi = {
   getAll: async (query?: string): Promise<ApiResponse<any[]>> => {
@@ -393,8 +438,9 @@ export const specialistsApi = {
     apiCall('GET', `/api/client/specialists/${id}`),
 };
 
-
-// --- Reviews ---
+// =====================
+// REVIEWS API
+// =====================
 
 export const reviewsApi = {
   create: async (
@@ -414,28 +460,36 @@ export const reviewsApi = {
   },
 };
 
-// --- Favorites ---
+// =====================
+// FAVORITES API
+// =====================
 
 export const favoritesApi = {
   getAll: async (): Promise<ApiResponse<any[]>> => {
     return apiCall("/api/favorites");
   },
 
-  add: async (specialistId: string): Promise<ApiResponse<void>> => {
+  add: async (proId: number): Promise<ApiResponse<{ id: number; pro_id: number; isFavorite: boolean }>> => {
     return apiCall("/api/favorites", {
       method: "POST",
-      body: JSON.stringify({ specialistId }),
+      body: JSON.stringify({ pro_id: proId }),
     });
   },
 
-  remove: async (specialistId: string): Promise<ApiResponse<void>> => {
-    return apiCall(`/api/favorites/${specialistId}`, {
+  remove: async (proId: number): Promise<ApiResponse<{ isFavorite: boolean }>> => {
+    return apiCall(`/api/favorites/${proId}`, {
       method: "DELETE",
     });
   },
+
+  check: async (proId: number): Promise<ApiResponse<{ isFavorite: boolean; favoriteId: number | null }>> => {
+    return apiCall(`/api/favorites/check/${proId}`);
+  },
 };
 
-// --- Notifications ---
+// =====================
+// NOTIFICATIONS API
+// =====================
 
 export const notificationsApi = {
   getAll: async (): Promise<ApiResponse<any[]>> => {
@@ -448,7 +502,6 @@ export const notificationsApi = {
     });
   },
 
-  // ✅ Préférences de notifications CLIENT
   getSettings: async (): Promise<ApiResponse<ClientNotificationSettings>> => {
     return apiCall("/api/client/notification-settings");
   },
@@ -463,7 +516,9 @@ export const notificationsApi = {
   },
 };
 
-// --- Pro ---
+// =====================
+// PRO API
+// =====================
 
 export const proApi = {
   getDashboard: async (): Promise<ApiResponse<any>> => {
@@ -506,7 +561,6 @@ export const proApi = {
       method: "PUT",
     }),
 
-  // ✅ Slots
   getSlots: (params: { date: string }) => {
     const query = `?date=${encodeURIComponent(params.date)}`;
     return apiCall<any[]>(`/api/pro/slots${query}`);
@@ -529,7 +583,6 @@ export const proApi = {
       method: "DELETE",
     }),
 
-  // ✅ Préférences de notifications PRO
   getNotificationSettings: async (): Promise<ApiResponse<ProNotificationSettings>> => {
     return apiCall("/api/pro/notification-settings");
   },
@@ -544,13 +597,9 @@ export const proApi = {
   },
 };
 
-// --- Payments ---
-
-export interface PaymentsSettings {
-  bankaccountname: string | null;
-  IBAN: string | null;
-  accept_online_payment: 0 | 1;
-}
+// =====================
+// PAYMENTS API
+// =====================
 
 export const paymentsApi = {
   updateProPayments: async (data: {
@@ -565,17 +614,9 @@ export const paymentsApi = {
   },
 };
 
-// --- Payment Methods (Client) ---
-
-export interface SavedCard {
-  id: number;
-  brand: "visa" | "mastercard" | "amex";
-  last4: string;
-  exp_month: string;
-  exp_year: string;
-  cardholder_name: string;
-  is_default: boolean;
-}
+// =====================
+// PAYMENT METHODS API
+// =====================
 
 export const paymentMethodsApi = {
   getAll: async (): Promise<ApiResponse<SavedCard[]>> => {
@@ -609,6 +650,10 @@ export const paymentMethodsApi = {
   },
 };
 
+// =====================
+// DEFAULT EXPORT
+// =====================
+
 export default {
   auth: authApi,
   bookings: bookingsApi,
@@ -620,4 +665,3 @@ export default {
   paymentMethods: paymentMethodsApi,
   pro: proApi,
 };
-

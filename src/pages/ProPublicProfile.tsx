@@ -465,184 +465,190 @@ const ProPublicProfile = () => {
         {/* Modal Aperçu - Version fidèle au SpecialistProfile */}
         {showPreview && (
           <div className="fixed inset-0 z-50 bg-white overflow-y-auto animate-fade-in">
-            {/* Bannière avec avatar */}
-            <div className="relative">
-              <img
-                src={bannerPreview || (bannerPhoto
-                  ? `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'}/${bannerPhoto}`
-                  : '/default-banner.jpg')
-                }
-                alt="Bannière"
-                className="w-full h-full object-cover"
-              />
+            {/* Bannière */}
+            <div className="relative h-64 w-full overflow-hidden bg-muted">
+              {(bannerPreview || bannerPhoto) ? (
+                <img
+                  src={bannerPreview || `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'}/${bannerPhoto}`}
+                  alt="Bannière"
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <Sparkles size={48} className="text-muted-foreground/30" />
+                </div>
+              )}
 
+              {/* Overlay sombre */}
+              <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent" />
 
               {/* Back button */}
               <button
                 onClick={() => setShowPreview(false)}
-                className="absolute left-4 top-4 w-10 h-10 rounded-full 
-          bg-white/12 border border-white/30 
-          backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.25)]
-          flex items-center justify-center z-10 
-          active:scale-95 transition-transform"
+                className="absolute left-4 top-4 w-10 h-10 rounded-full bg-white/90 backdrop-blur-sm shadow-lg flex items-center justify-center z-30 active:scale-95 transition-transform"
               >
-                <X size={20} className="text-white drop-shadow" />
+                <X size={20} className="text-foreground" />
               </button>
 
               {/* Badge aperçu */}
-              <div className="absolute right-4 top-4 px-3 py-1.5 rounded-full 
-        bg-primary/90 backdrop-blur-sm
-        flex items-center gap-2 z-10">
+              <div className="absolute right-4 top-4 px-3 py-1.5 rounded-full bg-primary/90 backdrop-blur-sm flex items-center gap-2 z-30">
                 <Eye size={14} className="text-white" />
                 <span className="text-xs font-semibold text-white">Aperçu</span>
               </div>
+            </div>
 
-              {/* Avatar chevauchant le bas de la bannière */}
-              <div className="absolute -bottom-12 left-1/2 -translate-x-1/2 z-20">
-                <div className="w-24 h-24 rounded-full bg-white shadow-elevated flex items-center justify-center border-4 border-primary/20">
+            {/* Avatar */}
+            <div className="absolute top-[200px] left-1/2 -translate-x-1/2 z-[100]">
+              <div className="w-32 h-32 rounded-2xl bg-background border-4 border-background shadow-xl overflow-hidden">
+                {profilePhoto ? (
                   <img
-                    src={
-                      profilePhoto
-                        ? `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'}/${profilePhoto}`
-                        : user?.profile_photo
-                          ? `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'}/${user.profile_photo}`
-                          : '/default-avatar.png'
-                    }
+                    src={`${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'}/${profilePhoto}`}
                     alt="Profile"
-                    className="w-full h-full object-cover rounded-full"
+                    className="w-full h-full object-cover"
                   />
-                </div>
+                ) : (
+                  <div className="w-full h-full bg-primary/10 flex items-center justify-center">
+                    <span className="text-5xl font-bold text-primary">
+                      {user?.first_name?.[0] || 'P'}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Contenu */}
-            <div className="pt-16 pb-8 space-y-6 px-4 bg-white">
+            <div className="pt-20 space-y-6 px-4">
               {/* Header infos */}
-              <section className="text-center space-y-2">
+              <section className="text-center space-y-3">
                 <div>
-                  <h1 className="text-2xl font-semibold text-foreground">
+                  <h1 className="text-2xl font-bold text-foreground mb-1">
                     {activityName || "Nom de l'activité"}
                   </h1>
                   <p className="text-sm text-muted-foreground">
-                    {/* {user?.specialty || "Spécialité"} */}
+                    Prothésiste ongulaire
                   </p>
                 </div>
 
-                <div className="flex items-center justify-center gap-3">
-                  <div className="flex items-center gap-1">
-                    <Star
-                      size={16}
-                      className="text-primary fill-primary"
-                    />
-                    <span className="font-semibold text-foreground">
-                      {user?.avg_rating?.toFixed(1) || "5.0"}
-                    </span>
-                    <span className="text-sm text-muted-foreground">
-                      ({user?.clients_count || "0"} avis)
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-center gap-1">
-                  <MapPin size={14} className="text-muted-foreground" />
+                {/* Stats */}
+                <div className="flex items-center justify-center gap-2">
+                  <Star size={16} className="text-yellow-400 fill-yellow-400" />
+                  <span className="font-semibold text-foreground">
+                    {user?.avg_rating?.toFixed(1) || "5.0"}
+                  </span>
                   <span className="text-sm text-muted-foreground">
-                    {city || "Ville"}
+                    ({user?.clients_count || "0"} avis)
                   </span>
                 </div>
+
+                {city && (
+                  <div className="flex items-center justify-center gap-1.5">
+                    <MapPin size={14} className="text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">{city}</span>
+                  </div>
+                )}
+
+                {/* Instagram */}
+                {instagramAccount && (
+                  <a
+                    href={`https://instagram.com/${instagramAccount.replace('@', '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-sm text-primary font-medium hover:underline active:scale-95 transition-transform"
+                  >
+                    <Instagram size={16} />
+                    {instagramAccount.startsWith('@') ? instagramAccount : `@${instagramAccount}`}
+                  </a>
+                )}
               </section>
 
               {/* À propos */}
               {bio && (
-                <section className="bg-card rounded-2xl p-4 shadow-card">
-                  <h2 className="text-lg font-semibold text-foreground mb-2">
+                <section className="bg-card rounded-2xl p-4 shadow-sm border-2 border-border">
+                  <h2 className="text-base font-bold text-foreground mb-2">
                     À propos
                   </h2>
-                  <p className="text-muted-foreground text-sm leading-relaxed">
+                  <p className="text-sm text-muted-foreground leading-relaxed">
                     {bio}
                   </p>
                 </section>
               )}
 
-              {/* Instagram */}
-              {instagramAccount && (
-                <section className="bg-card rounded-2xl p-4 shadow-card">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center shadow-lg">
-                      <Instagram size={20} className="text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-xs text-muted-foreground mb-0.5">
-                        Retrouve-moi sur Instagram
-                      </p>
-                      <p className="text-sm font-semibold text-primary">
-                        {instagramAccount}
-                      </p>
-                    </div>
-                  </div>
-                </section>
-              )}
-
               {/* Prestations - Exemple */}
               <section className="space-y-3">
-                <div className="flex items-center justify-between mb-1">
-                  <h2 className="text-lg font-semibold text-foreground">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-bold text-foreground">
                     Prestations
                   </h2>
                   <span className="text-xs text-muted-foreground">
-                    Exemples
+                    3 services
                   </span>
                 </div>
 
                 <div className="space-y-3">
-                  <div className="bg-card rounded-2xl p-4 shadow-card flex items-center justify-between">
-                    <div>
-                      <h3 className="font-medium text-foreground text-sm">
-                        Pose complète
-                      </h3>
-                      <div className="flex items-center gap-1 mt-1">
-                        <Clock size={12} className="text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">
-                          1h30
-                        </span>
+                  <div className="bg-card rounded-2xl p-4 shadow-sm border-2 border-border">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-foreground text-sm mb-1">
+                          Pose complète
+                        </h3>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Extension gel ou résine avec forme au choix
+                        </p>
+                        <div className="flex items-center gap-1">
+                          <Clock size={12} className="text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">
+                            1h30
+                          </span>
+                        </div>
                       </div>
+                      <span className="font-bold text-lg text-foreground">
+                        65€
+                      </span>
                     </div>
-                    <span className="font-semibold text-lg text-foreground">
-                      65€
-                    </span>
                   </div>
 
-                  <div className="bg-card rounded-2xl p-4 shadow-card flex items-center justify-between">
-                    <div>
-                      <h3 className="font-medium text-foreground text-sm">
-                        Remplissage
-                      </h3>
-                      <div className="flex items-center gap-1 mt-1">
-                        <Clock size={12} className="text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">
-                          1h
-                        </span>
+                  <div className="bg-card rounded-2xl p-4 shadow-sm border-2 border-border">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-foreground text-sm mb-1">
+                          Remplissage
+                        </h3>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Remplissage 3 semaines + vernis semi-permanent
+                        </p>
+                        <div className="flex items-center gap-1">
+                          <Clock size={12} className="text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">
+                            1h
+                          </span>
+                        </div>
                       </div>
+                      <span className="font-bold text-lg text-foreground">
+                        45€
+                      </span>
                     </div>
-                    <span className="font-semibold text-lg text-foreground">
-                      45€
-                    </span>
                   </div>
 
-                  <div className="bg-card rounded-2xl p-4 shadow-card flex items-center justify-between">
-                    <div>
-                      <h3 className="font-medium text-foreground text-sm">
-                        Manucure simple
-                      </h3>
-                      <div className="flex items-center gap-1 mt-1">
-                        <Clock size={12} className="text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">
-                          45min
-                        </span>
+                  <div className="bg-card rounded-2xl p-4 shadow-sm border-2 border-border">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-foreground text-sm mb-1">
+                          Manucure simple
+                        </h3>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Soin des mains et pose de vernis semi-permanent
+                        </p>
+                        <div className="flex items-center gap-1">
+                          <Clock size={12} className="text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">
+                            45min
+                          </span>
+                        </div>
                       </div>
+                      <span className="font-bold text-lg text-foreground">
+                        35€
+                      </span>
                     </div>
-                    <span className="font-semibold text-lg text-foreground">
-                      35€
-                    </span>
                   </div>
                 </div>
               </section>
@@ -651,86 +657,142 @@ const ProPublicProfile = () => {
               <section>
                 <button
                   disabled
-                  className="w-full py-3.5 rounded-2xl gradient-gold text-secondary-foreground font-semibold text-base shadow-elevated opacity-60 cursor-not-allowed"
+                  className="w-full py-4 rounded-2xl bg-primary text-white font-semibold shadow-lg shadow-primary/30 opacity-60 cursor-not-allowed"
                 >
-                  Réserver avec {activityName?.split(" ")[0] || "moi"}
+                  Réserver avec {activityName?.split(' ')[0] || user?.first_name}
                 </button>
                 <p className="text-center text-xs text-muted-foreground mt-2">
-                  Le bouton de réservation sera actif pour tes clientes
-                </p>
-              </section>
-
-              {/* Portfolio - Placeholder */}
-              <section>
-                <h2 className="text-lg font-semibold text-foreground mb-3">
-                  Portfolio
-                </h2>
-                <div className="grid grid-cols-3 gap-2">
-                  {[1, 2, 3, 4, 5, 6].map((id) => (
-                    <div
-                      key={id}
-                      className="aspect-square rounded-xl bg-muted border border-border flex items-center justify-center"
-                    >
-                      <Sparkles size={24} className="text-muted-foreground/30" />
-                    </div>
-                  ))}
-                </div>
-                <p className="text-center text-xs text-muted-foreground mt-3">
-                  Ajoute tes photos depuis les paramètres
+                  Le bouton sera actif pour tes clientes
                 </p>
               </section>
 
               {/* Avis - Exemple */}
-              <section>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-lg font-semibold text-foreground">
+              <section className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-bold text-foreground">
                     Avis clients
                   </h2>
                   <div className="flex items-center gap-1">
-                    <Star size={16} className="text-primary fill-primary" />
-                    <span className="font-semibold text-foreground">
+                    <Star size={14} className="text-yellow-400 fill-yellow-400" />
+                    <span className="font-semibold text-foreground text-sm">
                       {user?.avg_rating?.toFixed(1) || "5.0"}
                     </span>
-                    <span className="text-sm text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       ({user?.clients_count || "0"})
                     </span>
                   </div>
                 </div>
 
-                {/* Exemple d'avis */}
-                <div className="bg-card rounded-2xl p-4 shadow-card space-y-3">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <span className="text-sm font-semibold text-primary">SM</span>
+                <div className="space-y-3">
+                  {/* Exemple d'avis 1 */}
+                  <div className="bg-card rounded-2xl p-4 shadow-sm border-2 border-border">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-semibold text-primary">SM</span>
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-medium text-foreground text-sm">
+                            Sophie M.
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Il y a 2 jours
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-0.5 mb-2">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Star
+                              key={star}
+                              size={12}
+                              className="text-yellow-400 fill-yellow-400"
+                            />
+                          ))}
+                        </div>
+
+                        <p className="text-sm text-muted-foreground leading-relaxed">
+                          Prestation impeccable ! Très professionnelle et à l'écoute. Je recommande vivement 💖
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium text-foreground text-sm">
-                          Sophie M.
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          Il y a 2 jours
-                        </span>
+                  </div>
+
+                  {/* Exemple d'avis 2 */}
+                  <div className="bg-card rounded-2xl p-4 shadow-sm border-2 border-border">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-semibold text-primary">JD</span>
                       </div>
-                      <div className="flex items-center gap-1 mb-2">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <Star
-                            key={star}
-                            size={12}
-                            className="text-primary fill-primary"
-                          />
-                        ))}
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-medium text-foreground text-sm">
+                            Julie D.
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Il y a 1 semaine
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-0.5 mb-2">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Star
+                              key={star}
+                              size={12}
+                              className="text-yellow-400 fill-yellow-400"
+                            />
+                          ))}
+                        </div>
+
+                        <p className="text-sm text-muted-foreground leading-relaxed">
+                          Mes ongles sont magnifiques ! Travail soigné et ambiance très agréable.
+                        </p>
                       </div>
-                      <p className="text-sm text-muted-foreground leading-relaxed">
-                        Exemple d'avis client. Tes vrais avis apparaîtront ici après tes premières réservations.
-                      </p>
+                    </div>
+                  </div>
+
+                  {/* Exemple d'avis 3 */}
+                  <div className="bg-card rounded-2xl p-4 shadow-sm border-2 border-border">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-semibold text-primary">CL</span>
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-medium text-foreground text-sm">
+                            Camille L.
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Il y a 2 semaines
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-0.5 mb-2">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Star
+                              key={star}
+                              size={12}
+                              className={`${star <= 4
+                                  ? "text-yellow-400 fill-yellow-400"
+                                  : "text-muted-foreground/30"
+                                }`}
+                            />
+                          ))}
+                        </div>
+
+                        <p className="text-sm text-muted-foreground leading-relaxed">
+                          Super expérience, je reviendrai sans hésiter !
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 <button
                   disabled
-                  className="w-full py-3 mt-3 rounded-xl border-2 border-primary/30 text-primary/50 font-medium cursor-not-allowed text-sm"
+                  className="w-full py-3 rounded-xl border-2 border-primary text-primary font-medium opacity-60 cursor-not-allowed text-sm"
                 >
                   Laisser un avis
                 </button>
@@ -758,15 +820,15 @@ const ProPublicProfile = () => {
               )}
 
               {/* Footer */}
-              <div className="pt-4 pb-8 text-center">
+              <div className="pt-4 pb-8">
                 <button
                   onClick={() => setShowPreview(false)}
-                  className="w-full py-3.5 rounded-2xl bg-primary text-white font-semibold shadow-lg shadow-primary/30 active:scale-95 transition-transform"
+                  className="w-full py-4 rounded-2xl bg-primary text-white font-semibold shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 active:scale-[0.98] transition-all"
                 >
                   Fermer l'aperçu
                 </button>
-                <p className="text-xs text-muted-foreground mt-3">
-                  Ceci est un aperçu. Le profil réel sera enrichi avec tes prestations et portfolio.
+                <p className="text-xs text-muted-foreground mt-3 text-center">
+                  Ceci est un aperçu. Tes vraies prestations et avis s'afficheront automatiquement.
                 </p>
               </div>
             </div>

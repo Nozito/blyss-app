@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { Toaster } from "@/components/ui/toaster";
@@ -9,6 +9,8 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import SplashScreen from "@/components/SplashScreen";
 import MobileLayout from "@/components/MobileLayout";
 import ScrollToTop from "@/components/ScrollToTop";
+import { NotificationProvider } from "@/contexts/NotificationContext";
+
 
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -45,6 +47,14 @@ import NotFound from "./pages/NotFound";
 
 import "./index.css";
 import "./App.css";
+import AdminNotifications from "./pages/AdminNotifications";
+import AdminDashboard from "./pages/AdminDashboard";
+import AdminUsers from "./pages/AdminUsers";
+import AdminLayout from "./components/AdminLayout";
+import AdminBookings from "./pages/AdminBooking";
+import AdminLogs from "./pages/AdminLogs";
+import AdminAnalytics from "./pages/AdminAnalytics";
+import AdminPayments from "./pages/AdminPayments";
 
 const queryClient = new QueryClient();
 
@@ -63,162 +73,176 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
+        <NotificationProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
 
-          <BrowserRouter>
-            <ScrollToTop />
+            <BrowserRouter>
+              <ScrollToTop />
 
-            {/* Splash au-dessus de tout */}
-            {showSplash && (
-              <div className="fixed inset-0 z-[9999]">
-                <SplashScreen onComplete={handleSplashComplete} />
-              </div>
-            )}
+              {/* Splash au-dessus de tout */}
+              {showSplash && (
+                <div className="fixed inset-0 z-[9999]">
+                  <SplashScreen onComplete={handleSplashComplete} />
+                </div>
+              )}
 
-            <Routes>
-              {/* Pages sans bottom nav */}
-              <Route path="/" element={<Index />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/signup" element={<Signup />} />
-              
-              {/* PRO */}
-              <Route path="/pro/subscription" element={<ProSubscription />} />
-              <Route path="/pro/subscription-settings" element={<ProSubscriptionSettings />} />
-              <Route path="/pro/subscription-payment" element={<ProSubscriptionPayment />} />
-              <Route path="/pro/subscription-success" element={<ProSubscriptionSuccess />} />
-              <Route path="/pro/help" element={<ProHelp />} />
-              <Route path="/pro/notifications" element={<ProNotifications />} />
-              <Route path="/pro/payments" element={<ProPayments />} />
-              <Route path="/pro/settings" element={<ProSettings />} />
-              <Route path="/pro/public-profile" element={<ProPublicProfile />} />
+              <Routes>
+                {/* Pages sans bottom nav */}
+                <Route path="/" element={<Index />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/signup" element={<Signup />} />
 
-              {/* CLIENT */}
-              <Route path="/client/help" element={<ClientHelp />} />
-              <Route path="/client/notifications" element={<ClientNotifications />} />
-              <Route path="/client/payments" element={<ClientPayements />} />
-              <Route path="/client/settings" element={<ClientSettings />} />
-              <Route path="/client/booking/:id" element={<ClientBooking/>} />
-              <Route path="/client/specialists" element={<ClientSpecialists />} />
-              <Route path="/client/payment-methods" element={<ClientPayements />} />
-              <Route path="/client/specialist/:id" element={<SpecialistProfile />} />
-              <Route path="/client/booking/:id" element={<BookingDetail />} />
+                {/* PRO */}
+                <Route path="/pro/subscription" element={<ProSubscription />} />
+                <Route path="/pro/subscription-settings" element={<ProSubscriptionSettings />} />
+                <Route path="/pro/subscription-payment" element={<ProSubscriptionPayment />} />
+                <Route path="/pro/subscription-success" element={<ProSubscriptionSuccess />} />
+                <Route path="/pro/help" element={<ProHelp />} />
+                <Route path="/pro/notifications" element={<ProNotifications />} />
+                <Route path="/pro/payments" element={<ProPayments />} />
+                <Route path="/pro/settings" element={<ProSettings />} />
+                <Route path="/pro/public-profile" element={<ProPublicProfile />} />
 
+                {/* CLIENT */}
+                <Route path="/client/help" element={<ClientHelp />} />
+                <Route path="/client/notifications" element={<ClientNotifications />} />
+                <Route path="/client/payments" element={<ClientPayements />} />
+                <Route path="/client/settings" element={<ClientSettings />} />
+                <Route path="/client/booking/:id" element={<ClientBooking />} />
+                <Route path="/client/specialists" element={<ClientSpecialists />} />
+                <Route path="/client/payment-methods" element={<ClientPayements />} />
+                <Route path="/client/specialist/:id" element={<SpecialistProfile />} />
+                <Route path="/client/booking-detail/:bookingId" element={<BookingDetail />} />
 
-              {/* CLIENT */}
-              <Route
-                path="/client"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ClientHome />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/client/my-booking"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ClientMyBooking />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/client/profile"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ClientProfile />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/client/favorites"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ClientFavorites />
-                  </MobileLayout>
-                }
-              />
+                {/*ADMIN*/}
+                {/* Routes Admin */}
+                <Route path="/admin" element={<AdminLayout />}>
+                <Route index element={<Navigate to="/admin/dashboard" replace />} />
+                <Route path="dashboard" element={<AdminDashboard />} />
+                <Route path="users" element={<AdminUsers />} />
+                <Route path="notifications" element={<AdminNotifications />} />
+                <Route path="bookings" element={<AdminBookings/>} />
+                <Route path="payments" element={<AdminPayments />} />
+                <Route path="analytics" element={<AdminAnalytics />} />
+                <Route path="logs" element={<AdminLogs />} />
+                </Route>
 
-              {/* PRO */}
-              <Route
-                path="/pro/subscription"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ProSubscription />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/pro/dashboard"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ProDashboard />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/pro/calendar"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ProCalendar />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/pro/clients"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ProClients />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/pro/profile"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ProProfile />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/pro/settings"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ProSettings />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/pro/payment"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ProPayments />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/pro/notifications"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ProNotifications />
-                  </MobileLayout>
-                }
-              />
-              <Route
-                path="/pro/help"
-                element={
-                  <MobileLayout showNav={!showSplash}>
-                    <ProHelp />
-                  </MobileLayout>
-                }
-              />
+                {/* CLIENT */}
+                <Route
+                  path="/client"
+                  element={
+                    <MobileLayout showNav={!showSplash}>
+                      <ClientHome />
+                    </MobileLayout>
+                  }
+                />
+                <Route
+                  path="/client/my-booking"
+                  element={
+                    <MobileLayout showNav={!showSplash}>
+                      <ClientMyBooking />
+                    </MobileLayout>
+                  }
+                />
+                <Route
+                  path="/client/profile"
+                  element={
+                    <MobileLayout showNav={!showSplash}>
+                      <ClientProfile />
+                    </MobileLayout>
+                  }
+                />
+                <Route
+                  path="/client/favorites"
+                  element={
+                    <MobileLayout showNav={!showSplash}>
+                      <ClientFavorites />
+                    </MobileLayout>
+                  }
+                />
 
-              {/* 404 */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
+                {/* PRO */}
+                <Route
+                  path="/pro/subscription"
+                  element={
+                    <MobileLayout showNav={!showSplash}>
+                      <ProSubscription />
+                    </MobileLayout>
+                  }
+                />
+                <Route
+                  path="/pro/dashboard"
+                  element={
+                    <MobileLayout showNav={!showSplash}>
+                      <ProDashboard />
+                    </MobileLayout>
+                  }
+                />
+                <Route
+                  path="/pro/calendar"
+                  element={
+                    <MobileLayout showNav={!showSplash}>
+                      <ProCalendar />
+                    </MobileLayout>
+                  }
+                />
+                <Route
+                  path="/pro/clients"
+                  element={
+                    <MobileLayout showNav={!showSplash}>
+                      <ProClients />
+                    </MobileLayout>
+                  }
+                />
+                <Route
+                  path="/pro/profile"
+                  element={
+                    <MobileLayout showNav={!showSplash}>
+                      <ProProfile />
+                    </MobileLayout>
+                  }
+                />
+                <Route
+                  path="/pro/settings"
+                  element={
+                    <MobileLayout showNav={!showSplash}>
+                      <ProSettings />
+                    </MobileLayout>
+                  }
+                />
+                <Route
+                  path="/pro/payment"
+                  element={
+                    <MobileLayout showNav={!showSplash}>
+                      <ProPayments />
+                    </MobileLayout>
+                  }
+                />
+                <Route
+                  path="/pro/notifications"
+                  element={
+                    <MobileLayout showNav={!showSplash}>
+                      <ProNotifications />
+                    </MobileLayout>
+                  }
+                />
+                <Route
+                  path="/pro/help"
+                  element={
+                    <MobileLayout showNav={!showSplash}>
+                      <ProHelp />
+                    </MobileLayout>
+                  }
+                />
+
+                {/* 404 */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </NotificationProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

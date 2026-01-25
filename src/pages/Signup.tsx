@@ -1,18 +1,62 @@
-import { useState, useMemo, forwardRef } from "react";
+import { useState, useMemo, useCallback, forwardRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
+// ✅ Types
 type Role = "client" | "pro";
+
+interface FormData {
+  role: Role;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  birthDate: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  activityName: string;
+  city: string;
+  instagramAccount: string;
+}
+
+// ✅ Constantes de validation
+const VALIDATION = {
+  PHONE_LENGTH: 10,
+  MIN_AGE: 16,
+  PASSWORD_MIN_LENGTH: 8,
+  PASSWORD_MAX_LENGTH: 128,
+  EMAIL_MAX_LENGTH: 254,
+  NAME_MAX_LENGTH: 50,
+  TEXT_MAX_LENGTH: 100,
+  EMAIL_REGEX: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  PHONE_REGEX: /^[0-9]{10}$/,
+  PASSWORD_REGEX: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/,
+} as const;
+
+const ERROR_MESSAGES = {
+  EMAIL_INVALID: "Email invalide",
+  EMAIL_TOO_LONG: "Email trop long",
+  PASSWORD_TOO_SHORT: "Le mot de passe doit contenir au moins 8 caractères",
+  PASSWORD_TOO_LONG: "Mot de passe trop long",
+  PASSWORD_WEAK: "Mot de passe trop faible (minuscule, majuscule, chiffre requis)",
+  PASSWORD_MISMATCH: "Les mots de passe ne correspondent pas",
+  AGE_RESTRICTION: "Tu dois avoir au moins 16 ans pour utiliser Blyss",
+  PHONE_INVALID: "Numéro de téléphone invalide",
+  NAME_TOO_LONG: "Nom trop long",
+  SIGNUP_FAILED: "Erreur lors de la création du compte",
+  NETWORK_ERROR: "Erreur de connexion. Vérifie ta connexion internet.",
+} as const;
 
 const Signup = forwardRef<HTMLDivElement>((_, ref) => {
   const navigate = useNavigate();
   const { signup, isLoading } = useAuth();
+
   const [step, setStep] = useState(1);
-  const [formData, setFormData] = useState({
-    role: "client" as Role,
+  const [formData, setFormData] = useState<FormData>({
+    role: "client",
     firstName: "",
     lastName: "",
     phone: "",
@@ -32,119 +76,113 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
     [formData.role]
   );
 
-  const formatPhoneNumber = (value: string) => {
-    const digits = value.replace(/\D/g, "");
+  // ✅ Formatage du téléphone sécurisé [web:106][web:107]
+  const formatPhoneNumber = useCallback((value: string): string => {
+    const digits = value.replace(/\D/g, "").slice(0, VALIDATION.PHONE_LENGTH);
     return digits.replace(/(\d{2})(?=\d)/g, "$1 ");
-  };
+  }, []);
 
-  const getAgeFromBirthDate = (birthDate: string) => {
+  // ✅ Calcul de l'âge sécurisé [web:106]
+  const getAgeFromBirthDate = useCallback((birthDate: string): number => {
+    if (!birthDate) return 0;
+
     const today = new Date();
     const birth = new Date(birthDate);
+
+    if (isNaN(birth.getTime())) return 0;
+
     let age = today.getFullYear() - birth.getFullYear();
-    const m = today.getMonth() - birth.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+    const monthDiff = today.getMonth() - birth.getMonth();
+
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
       age--;
     }
+
     return age;
-  };
+  }, []);
 
-  const validateEmail = (email: string): boolean => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  };
+  // ✅ Validation email sécurisée [web:106]
+  const validateEmail = useCallback((email: string): boolean => {
+    const trimmed = email.trim();
+    return (
+      trimmed.length > 0 &&
+      trimmed.length <= VALIDATION.EMAIL_MAX_LENGTH &&
+      VALIDATION.EMAIL_REGEX.test(trimmed)
+    );
+  }, []);
 
-  const handleNext = async () => {
+  // ✅ Validation mot de passe fort [web:106]
+  const validatePassword = useCallback((password: string): string | null => {
+    if (password.length < VALIDATION.PASSWORD_MIN_LENGTH) {
+      return ERROR_MESSAGES.PASSWORD_TOO_SHORT;
+    }
+
+    if (password.length > VALIDATION.PASSWORD_MAX_LENGTH) {
+      return ERROR_MESSAGES.PASSWORD_TOO_LONG;
+    }
+
+    if (!VALIDATION.PASSWORD_REGEX.test(password)) {
+      return ERROR_MESSAGES.PASSWORD_WEAK;
+    }
+
+    return null;
+  }, []);
+
+  // ✅ Validation téléphone [web:106]
+  const validatePhone = useCallback((phone: string): boolean => {
+    const cleaned = phone.replace(/\s/g, "");
+    return VALIDATION.PHONE_REGEX.test(cleaned);
+  }, []);
+
+  // ✅ Sanitization des entrées [web:106]
+  const sanitizeInput = useCallback((value: string, maxLength: number): string => {
+    return value
+      .trim()
+      .slice(0, maxLength)
+      .replace(/[<>]/g, "");
+  }, []);
+
+  // ✅ Mise à jour du formulaire [web:102][web:104]
+  const updateFormData = useCallback((updates: Partial<FormData>) => {
+    setFormData(prev => ({ ...prev, ...updates }));
     setError("");
+  }, []);
 
-    if (step === 4) {
-      if (!validateEmail(formData.email)) {
-        setError("Email invalide");
-        return;
-      }
-    }
+  // ✅ Toggle password visibility [web:107]
+  const togglePasswordVisibility = useCallback(() => {
+    setShowPassword(prev => !prev);
+  }, []);
 
-    if (step === 5) {
-      const age = getAgeFromBirthDate(formData.birthDate);
-      if (isNaN(age) || age < 16) {
-        setError("Tu dois avoir au moins 16 ans pour utiliser Blyss");
-        return;
-      }
-    }
-
-    const isClientLastStep = formData.role === "client" && step === 6;
-    const isProLastStep = formData.role === "pro" && step === 9;
-
-    if (isClientLastStep || isProLastStep) {
-      if (formData.password !== formData.confirmPassword) {
-        setError("Les mots de passe ne correspondent pas");
-        return;
-      }
-      if (formData.password.length < 8) {
-        setError("Le mot de passe doit contenir au moins 8 caractères");
-        return;
-      }
-
-      const payload = {
-        first_name: formData.firstName.trim(),
-        last_name: formData.lastName.trim(),
-        email: formData.email.trim().toLowerCase(),
-        password: formData.password,
-        phone_number: formData.phone.replace(/\s/g, ""),
-        birth_date: formData.birthDate,
-        role: formData.role,
-        activity_name:
-          formData.role === "pro" && formData.activityName.trim()
-            ? formData.activityName.trim()
-            : null,
-        city:
-          formData.role === "pro" && formData.city.trim()
-            ? formData.city.trim()
-            : null,
-        instagram_account:
-          formData.role === "pro" && formData.instagramAccount.trim()
-            ? formData.instagramAccount.trim()
-            : null,
-      };
-
-      const response = await signup(payload);
-
-      if (response.success) {
-        toast.success("Compte créé avec succès !");
-        if (formData.role === "pro") {
-          navigate("/pro/new-subscription");
-        } else {
-          navigate("/client");
-        }
-      } else {
-        setError(response.error || "Erreur lors de la création du compte");
-      }
-      return;
-    }
-
-    setStep((prev) => prev + 1);
-  };
-
-  const handleBack = () => {
+  // ✅ Navigation arrière sécurisée [web:102][web:104]
+  const handleBack = useCallback(() => {
     if (step === 1) {
-      navigate("/");
+      navigate("/", { replace: true });
     } else {
-      setStep((prev) => prev - 1);
+      setStep(prev => prev - 1);
+      setError("");
     }
-  };
+  }, [step, navigate]);
 
-  const isStepValid = () => {
+  // ✅ Validation de l'étape courante [web:102][web:104]
+  const isStepValid = useCallback((): boolean => {
     switch (step) {
       case 1:
         return true;
       case 2:
-        return formData.firstName.trim() && formData.lastName.trim();
+        return (
+          formData.firstName.trim().length > 0 &&
+          formData.lastName.trim().length > 0 &&
+          formData.firstName.length <= VALIDATION.NAME_MAX_LENGTH &&
+          formData.lastName.length <= VALIDATION.NAME_MAX_LENGTH
+        );
       case 3:
-        return formData.phone.replace(/\s/g, "").length === 10;
+        return validatePhone(formData.phone);
       case 4:
-        return validateEmail(formData.email.trim());
+        return validateEmail(formData.email);
       case 5:
         return (
           !!formData.birthDate &&
-          getAgeFromBirthDate(formData.birthDate) >= 16
+          getAgeFromBirthDate(formData.birthDate) >= VALIDATION.MIN_AGE
         );
       case 6:
       case 7:
@@ -154,8 +192,139 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
       default:
         return false;
     }
-  };
+  }, [step, formData, validatePhone, validateEmail, getAgeFromBirthDate]);
 
+  // ✅ Navigation et soumission [web:102][web:104][web:105]
+  const handleNext = useCallback(async () => {
+    setError("");
+
+    // Validation email (step 4)
+    if (step === 4) {
+      if (!validateEmail(formData.email)) {
+        setError(ERROR_MESSAGES.EMAIL_INVALID);
+        return;
+      }
+    }
+
+    // Validation âge (step 5)
+    if (step === 5) {
+      const age = getAgeFromBirthDate(formData.birthDate);
+      if (age < VALIDATION.MIN_AGE) {
+        setError(ERROR_MESSAGES.AGE_RESTRICTION);
+        return;
+      }
+    }
+
+    const isClientLastStep = formData.role === "client" && step === 6;
+    const isProLastStep = formData.role === "pro" && step === 9;
+
+    // ✅ Validation finale et soumission
+    if (isClientLastStep || isProLastStep) {
+      if (formData.password !== formData.confirmPassword) {
+        setError(ERROR_MESSAGES.PASSWORD_MISMATCH);
+        return;
+      }
+
+      const passwordError = validatePassword(formData.password);
+      if (passwordError) {
+        setError(passwordError);
+        return;
+      }
+
+      try {
+        const payload = {
+          first_name: sanitizeInput(formData.firstName, VALIDATION.NAME_MAX_LENGTH),
+          last_name: sanitizeInput(formData.lastName, VALIDATION.NAME_MAX_LENGTH),
+          email: formData.email.trim().toLowerCase(),
+          password: formData.password,
+          phone_number: formData.phone.replace(/\s/g, ""),
+          birth_date: formData.birthDate,
+          role: formData.role,
+          activity_name:
+            formData.role === "pro" && formData.activityName.trim()
+              ? sanitizeInput(formData.activityName, VALIDATION.TEXT_MAX_LENGTH)
+              : null,
+          city:
+            formData.role === "pro" && formData.city.trim()
+              ? sanitizeInput(formData.city, VALIDATION.TEXT_MAX_LENGTH)
+              : null,
+          instagram_account:
+            formData.role === "pro" && formData.instagramAccount.trim()
+              ? sanitizeInput(formData.instagramAccount, VALIDATION.TEXT_MAX_LENGTH)
+              : null,
+        };
+
+        const response = await signup(payload);
+
+        if (response.success) {
+          toast.success("Compte créé avec succès !");
+
+          const targetRoute = formData.role === "pro"
+            ? "/pro/new-subscription"
+            : "/client";
+
+          setTimeout(() => {
+            navigate(targetRoute, { replace: true });
+          }, 300);
+        } else {
+          // ✅ Gestion des erreurs [web:105][web:108]
+          switch (response.error) {
+            case "email_exists":
+              setError("Cet email est déjà utilisé");
+              toast.error("Cet email est déjà utilisé");
+              break;
+            case "weak_password":
+              setError("Mot de passe trop faible");
+              toast.error("Le mot de passe doit contenir minuscule, majuscule et chiffre");
+              break;
+            case "age_restriction":
+              setError("Tu dois avoir au moins 16 ans");
+              toast.error("Tu dois avoir au moins 16 ans pour utiliser Blyss");
+              break;
+            case "invalid_phone":
+              setError("Numéro de téléphone invalide");
+              toast.error("Format de téléphone invalide");
+              break;
+            case "invalid_email":
+              setError("Email invalide");
+              toast.error("Format d'email invalide");
+              break;
+            case "missing_fields":
+              setError("Champs obligatoires manquants");
+              toast.error("Veuillez remplir tous les champs obligatoires");
+              break;
+            case "data_too_long":
+              setError("Un ou plusieurs champs sont trop longs");
+              toast.error("Informations trop longues");
+              break;
+            default:
+              setError(response.message || ERROR_MESSAGES.SIGNUP_FAILED);
+              toast.error(response.message || "Une erreur est survenue");
+          }
+        }
+      } catch (error) {
+        console.error("Signup error:", error);
+        setError(ERROR_MESSAGES.NETWORK_ERROR);
+        toast.error("Erreur de connexion. Vérifie ta connexion internet.");
+      }
+
+      return;
+    }
+
+    // Étape suivante
+    setStep(prev => prev + 1);
+  }, [
+    step,
+    formData,
+    validateEmail,
+    validatePassword,
+    getAgeFromBirthDate,
+    sanitizeInput,
+    signup,
+    navigate,
+  ]);
+
+  // ✅ Rendu des étapes
   const renderStep = () => {
     if (step === 1) {
       return (
@@ -169,19 +338,18 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
             </p>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-4" role="radiogroup" aria-label="Type de compte">
             <button
               type="button"
-              onClick={() =>
-                setFormData((prev) => ({ ...prev, role: "client" as Role }))
-              }
+              onClick={() => updateFormData({ role: "client" })}
+              role="radio"
+              aria-checked={formData.role === "client"}
               className={`
                 w-full flex items-center gap-4 rounded-2xl px-5 py-5 border-2 
                 transition-all duration-300 text-left
-                ${
-                  formData.role === "client"
-                    ? "bg-primary/5 border-primary shadow-lg shadow-primary/10 scale-[1.02]"
-                    : "bg-card border-muted hover:border-muted-foreground/30 hover:scale-[1.01]"
+                ${formData.role === "client"
+                  ? "bg-primary/5 border-primary shadow-lg shadow-primary/10 scale-[1.02]"
+                  : "bg-card border-muted hover:border-muted-foreground/30 hover:scale-[1.01]"
                 }
               `}
               disabled={isLoading}
@@ -198,12 +366,12 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
                 className={`
                   w-6 h-6 rounded-full border-2 flex items-center justify-center
                   transition-all duration-300
-                  ${
-                    formData.role === "client"
-                      ? "border-primary bg-primary"
-                      : "border-muted-foreground/40"
+                  ${formData.role === "client"
+                    ? "border-primary bg-primary"
+                    : "border-muted-foreground/40"
                   }
                 `}
+                aria-hidden="true"
               >
                 {formData.role === "client" && (
                   <div className="w-2.5 h-2.5 rounded-full bg-white animate-in zoom-in duration-200" />
@@ -213,16 +381,15 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
 
             <button
               type="button"
-              onClick={() =>
-                setFormData((prev) => ({ ...prev, role: "pro" as Role }))
-              }
+              onClick={() => updateFormData({ role: "pro" })}
+              role="radio"
+              aria-checked={formData.role === "pro"}
               className={`
                 w-full flex items-center gap-4 rounded-2xl px-5 py-5 border-2 
                 transition-all duration-300 text-left
-                ${
-                  formData.role === "pro"
-                    ? "bg-primary/5 border-primary shadow-lg shadow-primary/10 scale-[1.02]"
-                    : "bg-card border-muted hover:border-muted-foreground/30 hover:scale-[1.01]"
+                ${formData.role === "pro"
+                  ? "bg-primary/5 border-primary shadow-lg shadow-primary/10 scale-[1.02]"
+                  : "bg-card border-muted hover:border-muted-foreground/30 hover:scale-[1.01]"
                 }
               `}
               disabled={isLoading}
@@ -239,12 +406,12 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
                 className={`
                   w-6 h-6 rounded-full border-2 flex items-center justify-center
                   transition-all duration-300
-                  ${
-                    formData.role === "pro"
-                      ? "border-primary bg-primary"
-                      : "border-muted-foreground/40"
+                  ${formData.role === "pro"
+                    ? "border-primary bg-primary"
+                    : "border-muted-foreground/40"
                   }
                 `}
+                aria-hidden="true"
               >
                 {formData.role === "pro" && (
                   <div className="w-2.5 h-2.5 rounded-full bg-white animate-in zoom-in duration-200" />
@@ -283,11 +450,10 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
 
           <div className="space-y-4">
             <input
+              id="firstName"
               type="text"
               value={formData.firstName}
-              onChange={(e) =>
-                setFormData({ ...formData, firstName: e.target.value })
-              }
+              onChange={(e) => updateFormData({ firstName: e.target.value })}
               className="
                 w-full h-14 px-4 rounded-2xl 
                 bg-card border-2 border-muted
@@ -298,13 +464,16 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               placeholder="Prénom"
               autoFocus
               disabled={isLoading}
+              maxLength={VALIDATION.NAME_MAX_LENGTH}
+              autoComplete="given-name"
+              aria-label="Prénom"
+              aria-required="true"
             />
             <input
+              id="lastName"
               type="text"
               value={formData.lastName}
-              onChange={(e) =>
-                setFormData({ ...formData, lastName: e.target.value })
-              }
+              onChange={(e) => updateFormData({ lastName: e.target.value })}
               className="
                 w-full h-14 px-4 rounded-2xl 
                 bg-card border-2 border-muted
@@ -314,6 +483,10 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               "
               placeholder="Nom"
               disabled={isLoading}
+              maxLength={VALIDATION.NAME_MAX_LENGTH}
+              autoComplete="family-name"
+              aria-label="Nom"
+              aria-required="true"
             />
           </div>
         </div>
@@ -329,15 +502,12 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
           <p className="text-muted-foreground mb-8">Un 06 ?</p>
 
           <input
+            id="phone"
             type="tel"
             value={formData.phone}
             onChange={(e) => {
-              const raw = e.target.value.replace(/\D/g, "");
-              const limited = raw.slice(0, 10);
-              setFormData({
-                ...formData,
-                phone: formatPhoneNumber(limited),
-              });
+              const formatted = formatPhoneNumber(e.target.value);
+              updateFormData({ phone: formatted });
             }}
             className="
               w-full h-14 px-4 rounded-2xl 
@@ -349,6 +519,10 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
             placeholder="06 12 34 56 78"
             autoFocus
             disabled={isLoading}
+            autoComplete="tel"
+            inputMode="numeric"
+            aria-label="Numéro de téléphone"
+            aria-required="true"
           />
         </div>
       );
@@ -363,12 +537,10 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
           <p className="text-muted-foreground mb-8">Ton email ?</p>
 
           <input
+            id="email"
             type="email"
             value={formData.email}
-            onChange={(e) => {
-              setFormData({ ...formData, email: e.target.value });
-              setError("");
-            }}
+            onChange={(e) => updateFormData({ email: e.target.value })}
             className="
               w-full h-14 px-4 rounded-2xl 
               bg-card border-2 border-muted
@@ -379,9 +551,21 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
             placeholder="ton@email.com"
             autoFocus
             disabled={isLoading}
+            autoComplete="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck="false"
+            maxLength={VALIDATION.EMAIL_MAX_LENGTH}
+            aria-label="Email"
+            aria-required="true"
+            aria-invalid={!!error}
           />
           {error && (
-            <p className="text-destructive text-sm mt-3 animate-in slide-in-from-top-2 duration-200">
+            <p
+              className="text-destructive text-sm mt-3 animate-in slide-in-from-top-2 duration-200"
+              role="alert"
+              aria-live="polite"
+            >
               {error}
             </p>
           )}
@@ -400,11 +584,10 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
           </p>
 
           <input
+            id="birthDate"
             type="date"
             value={formData.birthDate}
-            onChange={(e) =>
-              setFormData({ ...formData, birthDate: e.target.value })
-            }
+            onChange={(e) => updateFormData({ birthDate: e.target.value })}
             className="
               w-full h-14 px-4 rounded-2xl 
               bg-card border-2 border-muted
@@ -414,10 +597,19 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
             "
             autoFocus
             disabled={isLoading}
+            max={new Date().toISOString().split('T')[0]}
+            autoComplete="bday"
+            aria-label="Date de naissance"
+            aria-required="true"
+            aria-invalid={!!error}
           />
 
           {error && (
-            <p className="text-destructive text-sm mt-3 animate-in slide-in-from-top-2 duration-200">
+            <p
+              className="text-destructive text-sm mt-3 animate-in slide-in-from-top-2 duration-200"
+              role="alert"
+              aria-live="polite"
+            >
               {error}
             </p>
           )}
@@ -425,7 +617,6 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
       );
     }
 
-    // CLIENT : step 6 = mot de passe
     if (formData.role === "client" && step === 6) {
       return (
         <div className="animate-in fade-in slide-in-from-right-4 duration-300 w-full space-y-6">
@@ -441,12 +632,10 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
           <div className="space-y-4">
             <div className="relative">
               <input
+                id="password"
                 type={showPassword ? "text" : "password"}
                 value={formData.password}
-                onChange={(e) => {
-                  setFormData({ ...formData, password: e.target.value });
-                  setError("");
-                }}
+                onChange={(e) => updateFormData({ password: e.target.value })}
                 className="
                   w-full h-14 px-4 pr-12 rounded-2xl 
                   bg-card border-2 border-muted
@@ -457,27 +646,35 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
                 placeholder="Mot de passe (min. 8 caractères)"
                 autoFocus
                 disabled={isLoading}
+                autoComplete="new-password"
+                maxLength={VALIDATION.PASSWORD_MAX_LENGTH}
+                aria-label="Mot de passe"
+                aria-required="true"
+                aria-describedby="password-hint"
               />
               <button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
+                onClick={togglePasswordVisibility}
                 className="
                   absolute right-4 top-1/2 -translate-y-1/2 
                   text-muted-foreground hover:text-primary
                   p-1 rounded-lg hover:bg-muted/50
                   transition-all active:scale-90
                 "
+                aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                aria-pressed={showPassword}
               >
-                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                {showPassword ? <EyeOff size={20} aria-hidden="true" /> : <Eye size={20} aria-hidden="true" />}
               </button>
             </div>
+            <p id="password-hint" className="text-xs text-muted-foreground">
+              1 minuscule, 1 majuscule, 1 chiffre minimum
+            </p>
             <input
+              id="confirmPassword"
               type={showPassword ? "text" : "password"}
               value={formData.confirmPassword}
-              onChange={(e) => {
-                setFormData({ ...formData, confirmPassword: e.target.value });
-                setError("");
-              }}
+              onChange={(e) => updateFormData({ confirmPassword: e.target.value })}
               className="
                 w-full h-14 px-4 rounded-2xl 
                 bg-card border-2 border-muted
@@ -487,9 +684,17 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               "
               placeholder="Confirmer le mot de passe"
               disabled={isLoading}
+              autoComplete="new-password"
+              maxLength={VALIDATION.PASSWORD_MAX_LENGTH}
+              aria-label="Confirmer le mot de passe"
+              aria-required="true"
             />
             {error && (
-              <p className="text-destructive text-sm animate-in slide-in-from-top-2 duration-200">
+              <p
+                className="text-destructive text-sm animate-in slide-in-from-top-2 duration-200"
+                role="alert"
+                aria-live="polite"
+              >
                 {error}
               </p>
             )}
@@ -498,7 +703,6 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
       );
     }
 
-    // PRO : steps 6–9
     if (formData.role === "pro") {
       if (step === 6) {
         return (
@@ -511,11 +715,10 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
             </p>
 
             <input
+              id="activityName"
               type="text"
               value={formData.activityName}
-              onChange={(e) =>
-                setFormData({ ...formData, activityName: e.target.value })
-              }
+              onChange={(e) => updateFormData({ activityName: e.target.value })}
               className="
                 w-full h-14 px-4 rounded-2xl 
                 bg-card border-2 border-muted
@@ -526,6 +729,9 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               placeholder="Ex. : Studio Blyss"
               autoFocus
               disabled={isLoading}
+              maxLength={VALIDATION.TEXT_MAX_LENGTH}
+              autoComplete="organization"
+              aria-label="Nom de l'activité"
             />
           </div>
         );
@@ -542,11 +748,10 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
             </p>
 
             <input
+              id="city"
               type="text"
               value={formData.city}
-              onChange={(e) =>
-                setFormData({ ...formData, city: e.target.value })
-              }
+              onChange={(e) => updateFormData({ city: e.target.value })}
               className="
                 w-full h-14 px-4 rounded-2xl 
                 bg-card border-2 border-muted
@@ -557,6 +762,9 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               placeholder="Ex. : Paris 11"
               autoFocus
               disabled={isLoading}
+              maxLength={VALIDATION.TEXT_MAX_LENGTH}
+              autoComplete="address-level2"
+              aria-label="Ville"
             />
           </div>
         );
@@ -573,11 +781,10 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
             </p>
 
             <input
+              id="instagram"
               type="text"
               value={formData.instagramAccount}
-              onChange={(e) =>
-                setFormData({ ...formData, instagramAccount: e.target.value })
-              }
+              onChange={(e) => updateFormData({ instagramAccount: e.target.value })}
               className="
                 w-full h-14 px-4 rounded-2xl 
                 bg-card border-2 border-muted
@@ -588,6 +795,9 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               placeholder="@ton_instagram"
               autoFocus
               disabled={isLoading}
+              maxLength={VALIDATION.TEXT_MAX_LENGTH}
+              autoComplete="off"
+              aria-label="Compte Instagram"
             />
           </div>
         );
@@ -608,12 +818,10 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
             <div className="space-y-4">
               <div className="relative">
                 <input
+                  id="password-pro"
                   type={showPassword ? "text" : "password"}
                   value={formData.password}
-                  onChange={(e) => {
-                    setFormData({ ...formData, password: e.target.value });
-                    setError("");
-                  }}
+                  onChange={(e) => updateFormData({ password: e.target.value })}
                   className="
                     w-full h-14 px-4 pr-12 rounded-2xl 
                     bg-card border-2 border-muted
@@ -624,30 +832,35 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
                   placeholder="Mot de passe (min. 8 caractères)"
                   autoFocus
                   disabled={isLoading}
+                  autoComplete="new-password"
+                  maxLength={VALIDATION.PASSWORD_MAX_LENGTH}
+                  aria-label="Mot de passe"
+                  aria-required="true"
+                  aria-describedby="password-hint-pro"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={togglePasswordVisibility}
                   className="
                     absolute right-4 top-1/2 -translate-y-1/2 
                     text-muted-foreground hover:text-primary
                     p-1 rounded-lg hover:bg-muted/50
                     transition-all active:scale-90
                   "
+                  aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                  aria-pressed={showPassword}
                 >
-                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  {showPassword ? <EyeOff size={20} aria-hidden="true" /> : <Eye size={20} aria-hidden="true" />}
                 </button>
               </div>
+              <p id="password-hint-pro" className="text-xs text-muted-foreground">
+                1 minuscule, 1 majuscule, 1 chiffre minimum
+              </p>
               <input
+                id="confirmPassword-pro"
                 type={showPassword ? "text" : "password"}
                 value={formData.confirmPassword}
-                onChange={(e) => {
-                  setFormData({
-                    ...formData,
-                    confirmPassword: e.target.value,
-                  });
-                  setError("");
-                }}
+                onChange={(e) => updateFormData({ confirmPassword: e.target.value })}
                 className="
                   w-full h-14 px-4 rounded-2xl 
                   bg-card border-2 border-muted
@@ -657,9 +870,17 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
                 "
                 placeholder="Confirmer le mot de passe"
                 disabled={isLoading}
+                autoComplete="new-password"
+                maxLength={VALIDATION.PASSWORD_MAX_LENGTH}
+                aria-label="Confirmer le mot de passe"
+                aria-required="true"
               />
               {error && (
-                <p className="text-destructive text-sm animate-in slide-in-from-top-2 duration-200">
+                <p
+                  className="text-destructive text-sm animate-in slide-in-from-top-2 duration-200"
+                  role="alert"
+                  aria-live="polite"
+                >
                   {error}
                 </p>
               )}
@@ -683,23 +904,22 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
     formData.role === "pro" && step === 6
       ? formData.activityName
       : formData.role === "pro" && step === 7
-      ? formData.city
-      : formData.role === "pro" && step === 8
-      ? formData.instagramAccount
-      : "";
+        ? formData.city
+        : formData.role === "pro" && step === 8
+          ? formData.instagramAccount
+          : "";
 
   const primaryButtonLabel = isLoading
     ? "Chargement..."
     : isLastStep
-    ? "Créer mon compte"
-    : isProOptionalStep && !currentOptionalFieldValue.trim()
-    ? "Remplir plus tard"
-    : "Continuer";
+      ? "Créer mon compte"
+      : isProOptionalStep && !currentOptionalFieldValue.trim()
+        ? "Remplir plus tard"
+        : "Continuer";
 
   return (
     <MobileLayout showNav={false}>
       <div className="relative flex flex-col flex-1 min-h-screen max-w-lg mx-auto w-full bg-background">
-        {/* Header */}
         <div className="fixed top-0 left-1/2 -translate-x-1/2 z-10 w-full max-w-lg bg-background/95 backdrop-blur-sm">
           <div className="flex items-center gap-4 px-6 pt-6 pb-4">
             <button
@@ -710,10 +930,18 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
                 transition-all active:scale-90
               "
               disabled={isLoading}
+              aria-label={step === 1 ? "Retour à l'accueil" : "Étape précédente"}
             >
-              <ArrowLeft size={24} className="text-foreground" />
+              <ArrowLeft size={24} className="text-foreground" aria-hidden="true" />
             </button>
-            <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className="flex-1 h-2 rounded-full bg-muted overflow-hidden"
+              role="progressbar"
+              aria-valuenow={step}
+              aria-valuemin={1}
+              aria-valuemax={totalSteps}
+              aria-label={`Étape ${step} sur ${totalSteps}`}
+            >
               <div
                 className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
                 style={{ width: `${(step / totalSteps) * 100}%` }}
@@ -725,17 +953,16 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
           </div>
         </div>
 
-        {/* Content */}
         <div className="flex-1 flex items-center justify-center px-6 pt-24 pb-28">
           {renderStep()}
         </div>
 
-        {/* Bottom Button */}
         {step !== 1 && (
           <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-lg px-6 pb-6 pt-4 bg-gradient-to-t from-background via-background to-transparent">
             <button
               onClick={handleNext}
               disabled={!isStepValid() || isLoading}
+              aria-busy={isLoading}
               className="
                 w-full h-14 rounded-2xl 
                 bg-primary hover:bg-primary/90

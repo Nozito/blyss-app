@@ -1,10 +1,9 @@
 import { useState, useMemo, useEffect, MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapPin, Star, ChevronRight, Search, Sparkles, Calendar, Clock, Heart, ArrowRight } from "lucide-react";
+import { MapPin, Star, ChevronRight, Search, Sparkles, Calendar, Clock, Heart, ArrowRight, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/AuthContext";
-import api from "@/services/api";
 
 interface Pro {
   id: number;
@@ -25,6 +24,21 @@ interface Review {
   rating: number;
 }
 
+interface Specialist {
+  id: number;
+  business_name: string;
+  specialty: string;
+  city: string;
+  rating: number;
+  reviews_count: number;
+  profile_image_url: string | null;
+  cover_image_url: string | null;
+  user: {
+    first_name: string;
+    last_name: string;
+  };
+}
+
 const ClientHome = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -35,94 +49,148 @@ const ClientHome = () => {
   const [reviewsByPro, setReviewsByPro] = useState<Record<number, Review[]>>({});
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
 
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
   const greeting = user?.first_name ? `Salut ${user.first_name}` : "Bienvenue sur Blyss";
 
-  // Formater les données pour affichage
-  const specialists = pros.map(pro => {
-    const proReviews = reviewsByPro[pro.id] || [];
-    const avgRating = proReviews.length > 0
-      ? proReviews.reduce((sum, r) => sum + r.rating, 0) / proReviews.length
-      : 0;
+  // ✅ Fonction utilitaire pour construire les URLs d'images
+  const getImageUrl = (imagePath: string | null): string | null => {
+    if (!imagePath) return null;
+    if (imagePath.startsWith('http')) return imagePath;
+    return `${API_BASE_URL}/${imagePath}`;
+  };
 
-    const profilePhotoUrl = pro.profile_photo
-      ? (pro.profile_photo.startsWith('http')
-        ? pro.profile_photo
-        : `${API_BASE_URL}/${pro.profile_photo}`)
-      : null;
+  // ✅ Formater les données pour affichage avec useMemo
+  const specialists = useMemo<Specialist[]>(() => {
+    return pros.map(pro => {
+      const proReviews = reviewsByPro[pro.id] || [];
+      const avgRating = proReviews.length > 0
+        ? proReviews.reduce((sum, r) => sum + r.rating, 0) / proReviews.length
+        : 0;
 
-    const bannerPhotoUrl = pro.banner_photo
-      ? (pro.banner_photo.startsWith('http')
-        ? pro.banner_photo
-        : `${API_BASE_URL}/${pro.banner_photo}`)
-      : null;
+      return {
+        id: pro.id,
+        business_name: pro.activity_name || `${pro.first_name} ${pro.last_name}`,
+        specialty: 'Prothésiste ongulaire',
+        city: pro.city || 'Paris',
+        rating: avgRating,
+        reviews_count: proReviews.length,
+        profile_image_url: getImageUrl(pro.profile_photo),
+        cover_image_url: getImageUrl(pro.banner_photo),
+        user: {
+          first_name: pro.first_name,
+          last_name: pro.last_name
+        }
+      };
+    });
+  }, [pros, reviewsByPro, API_BASE_URL]);
 
-    return {
-      id: pro.id,
-      business_name: pro.activity_name || `${pro.first_name} ${pro.last_name}`,
-      specialty: 'Prothésiste ongulaire',
-      city: pro.city || 'Paris',
-      rating: avgRating,
-      reviews_count: proReviews.length,
-      profile_image_url: profilePhotoUrl,
-      cover_image_url: bannerPhotoUrl,
-      user: {
-        first_name: pro.first_name,
-        last_name: pro.last_name
-      }
-    };
-  });
-
-
+  // ✅ Filtrage optimisé avec useMemo
   const filteredSpecialists = useMemo(() => {
     if (!searchQuery) return specialists;
-    const q = searchQuery.toLowerCase();
-    return specialists.filter(
-      (s) =>
-        s.business_name?.toLowerCase().includes(q) ||
-        s.specialty?.toLowerCase().includes(q) ||
-        s.city?.toLowerCase().includes(q) ||
-        `${s.user?.first_name || ''} ${s.user?.last_name || ''}`.toLowerCase().includes(q)
-    );
+    
+    const q = searchQuery.toLowerCase().trim();
+    
+    return specialists.filter(s => {
+      const searchableText = [
+        s.business_name,
+        s.specialty,
+        s.city,
+        s.user.first_name,
+        s.user.last_name
+      ].filter(Boolean).join(' ').toLowerCase();
+      
+      return searchableText.includes(q);
+    });
   }, [searchQuery, specialists]);
 
+  // ✅ Chargement des données avec gestion d'erreur améliorée
   useEffect(() => {
     const fetchData = async () => {
       try {
         setIsLoading(true);
 
-        const usersRes = await fetch(`${API_BASE_URL}/users/pros`);
+        // 1. Charger les pros actifs
+        const usersRes = await fetch(`${API_BASE_URL}/api/users/pros`);
+        
+        if (!usersRes.ok) {
+          throw new Error(`Erreur ${usersRes.status} lors du chargement des pros`);
+        }
+
         const usersData = await usersRes.json();
 
-        if (usersData?.success && usersData?.data) {
-          const activePros = usersData.data;
+        if (usersData?.success && Array.isArray(usersData?.data)) {
+          const activePros = usersData.data.filter((p: Pro) => p.pro_status === 'active');
           setPros(activePros);
 
-          // Charger les avis pour chaque pro
-          const reviewsData: Record<number, Review[]> = {};
-
-          for (const pro of activePros) {
+          // 2. Charger les avis en parallèle pour de meilleures performances
+          const reviewsPromises = activePros.map(async (pro: Pro) => {
             try {
-              const reviewsRes = await fetch(`${API_BASE_URL}/reviews/pro/${pro.id}`);
+              const reviewsRes = await fetch(`${API_BASE_URL}/api/reviews/pro/${pro.id}`);
+              
+              if (!reviewsRes.ok) {
+                return { proId: pro.id, reviews: [] };
+              }
+
               const reviewsJson = await reviewsRes.json();
 
-              if (reviewsJson?.success && reviewsJson?.data) {
-                reviewsData[pro.id] = Array.isArray(reviewsJson.data)
+              return {
+                proId: pro.id,
+                reviews: reviewsJson?.success && Array.isArray(reviewsJson?.data)
                   ? reviewsJson.data
-                  : [];
-              } else {
-                reviewsData[pro.id] = [];
-              }
+                  : []
+              };
             } catch (error) {
-              reviewsData[pro.id] = [];
+              console.error(`Erreur chargement avis pour pro ${pro.id}:`, error);
+              return { proId: pro.id, reviews: [] };
             }
-          }
+          });
+
+          const reviewsResults = await Promise.all(reviewsPromises);
+          
+          const reviewsData: Record<number, Review[]> = {};
+          reviewsResults.forEach(({ proId, reviews }) => {
+            reviewsData[proId] = reviews;
+          });
 
           setReviewsByPro(reviewsData);
+        } else {
+          setPros([]);
+        }
+
+        // 3. Charger les favoris si connecté
+        const token = localStorage.getItem('auth_token');
+        if (token) {
+          try {
+            const favoritesRes = await fetch(`${API_BASE_URL}/api/favorites`, {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+
+            if (favoritesRes.ok) {
+              const favoritesData = await favoritesRes.json();
+              
+              if (favoritesData?.success && Array.isArray(favoritesData?.data)) {
+                const favoriteIds = new Set<number>(
+                  favoritesData.data
+                    .map((fav: any) => {
+                      const id = fav.pro_id ?? fav.proid;
+                      const num = typeof id === 'string' ? parseInt(id, 10) : id;
+                      return (typeof num === 'number' && !Number.isNaN(num)) ? num : null;
+                    })
+                    .filter((id): id is number => id !== null)
+                );
+                setFavorites(favoriteIds);
+              }
+            }
+          } catch (error) {
+            console.log('Erreur favoris (non bloquante):', error);
+          }
         }
 
       } catch (error) {
+        console.error('Erreur lors du chargement:', error);
         setPros([]);
       } finally {
         setIsLoading(false);
@@ -130,12 +198,87 @@ const ClientHome = () => {
     };
 
     fetchData();
-  }, []);
+  }, [API_BASE_URL]);
 
+  // ✅ Navigation vers la page spécialiste
   const handleSpecialistClick = (proId: number) => {
     navigate(`/client/specialist/${proId}`);
   };
 
+  // ✅ Gestion des favoris optimisée avec debounce implicite
+  const toggleFavorite = async (proId: number, e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+
+    const token = localStorage.getItem('auth_token');
+    
+    if (!token) {
+      localStorage.setItem('returnUrl', '/client');
+      navigate('/login', {
+        state: {
+          message: 'Connectez-vous pour ajouter aux favoris',
+          returnUrl: '/client'
+        }
+      });
+      return;
+    }
+
+    const wasFavorite = favorites.has(proId);
+    const newFavorites = new Set(favorites);
+    
+    // Optimistic update
+    if (wasFavorite) {
+      newFavorites.delete(proId);
+    } else {
+      newFavorites.add(proId);
+    }
+    
+    setFavorites(newFavorites);
+
+    try {
+      if (wasFavorite) {
+        const response = await fetch(`${API_BASE_URL}/api/favorites/${proId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (!response.ok && response.status !== 404) {
+          throw new Error('Erreur lors de la suppression');
+        }
+
+        console.log(`✅ Favori retiré: Pro ${proId}`);
+      } else {
+        const response = await fetch(`${API_BASE_URL}/api/favorites`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ pro_id: proId })
+        });
+
+        if (!response.ok && response.status !== 409) {
+          const errorData = await response.json().catch(() => ({}));
+          console.error('Erreur API favoris:', errorData);
+          throw new Error('Erreur lors de l\'ajout');
+        }
+
+        console.log(`✅ Favori ajouté: Pro ${proId}`);
+      }
+    } catch (error) {
+      console.error('Erreur favoris:', error);
+      
+      // Rollback en cas d'erreur
+      setFavorites(favorites);
+      
+      // Message utilisateur plus doux
+      const action = wasFavorite ? 'retirer ce favori' : 'ajouter aux favoris';
+      alert(`Impossible de ${action}. Vérifie ta connexion et réessaie.`);
+    }
+  };
+
+  // ✅ Loading state amélioré
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6">
@@ -153,11 +296,7 @@ const ClientHome = () => {
             transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
           />
           <div className="space-y-3">
-            <motion.div
-              className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full mx-auto"
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-            />
+            <Loader2 className="w-12 h-12 text-primary mx-auto animate-spin" />
             <p className="text-sm font-medium text-muted-foreground">Chargement de ton espace...</p>
           </div>
         </motion.div>
@@ -190,7 +329,7 @@ const ClientHome = () => {
               animate={{ opacity: 1 }}
               transition={{ delay: 0.2 }}
             >
-              <h1 className="text-3xl font-display font-bold bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+              <h1 className="text-3xl font-display font-bold text-foreground">
                 {greeting}
               </h1>
               <motion.span
@@ -215,40 +354,40 @@ const ClientHome = () => {
           transition={{ delay: 0.3, duration: 0.6 }}
         >
           <div className="relative">
-            <div className="absolute inset-0 bg-gradient-to-r from-primary/20 to-primary/5 rounded-2xl blur-xl opacity-50" />
-            <div className="relative">
-              <Search
-                size={20}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none z-10"
-              />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Rechercher une experte, quartier..."
-                className="
-                  w-full h-14 pl-12 pr-12 rounded-2xl
-                  bg-card/80 backdrop-blur-xl border-2 border-muted
-                  text-foreground placeholder:text-muted-foreground/60
-                  focus:outline-none focus:border-primary focus:shadow-lg focus:shadow-primary/20
-                  transition-all duration-300
-                "
-              />
-              <AnimatePresence>
-                {searchQuery && (
-                  <motion.button
-                    type="button"
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-muted hover:bg-muted-foreground/20 flex items-center justify-center transition-colors z-10"
-                    initial={{ scale: 0, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0, opacity: 0 }}
-                  >
-                    <span className="text-foreground text-lg leading-none">×</span>
-                  </motion.button>
-                )}
-              </AnimatePresence>
-            </div>
+            <Search
+              size={20}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none z-10"
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Rechercher une experte, quartier..."
+              className="
+                w-full h-14 pl-12 pr-12 rounded-2xl
+                bg-card border-2 border-border
+                text-foreground placeholder:text-muted-foreground
+                focus:outline-none focus:border-primary
+                transition-all duration-300
+                shadow-sm
+              "
+              aria-label="Recherche"
+            />
+            <AnimatePresence>
+              {searchQuery && (
+                <motion.button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-muted hover:bg-muted/80 flex items-center justify-center transition-colors z-10"
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0, opacity: 0 }}
+                  aria-label="Effacer la recherche"
+                >
+                  <span className="text-foreground text-lg leading-none">×</span>
+                </motion.button>
+              )}
+            </AnimatePresence>
           </div>
           <p className="text-xs text-muted-foreground px-1">
             Ex. : "pose gel", "Emma", "Paris 11"
@@ -283,7 +422,7 @@ const ClientHome = () => {
               <p className="text-xs text-muted-foreground">
                 {searchQuery
                   ? `${filteredSpecialists.length} résultat(s) trouvé(s)`
-                  : `${specialists.length} expertes disponibles`
+                  : `${specialists.length} experte${specialists.length > 1 ? 's' : ''} disponible${specialists.length > 1 ? 's' : ''}`
                 }
               </p>
             </div>
@@ -294,7 +433,7 @@ const ClientHome = () => {
                 className="
                   px-4 py-2 rounded-full
                   text-xs font-semibold
-                  bg-gradient-to-r from-primary to-primary/80
+                  bg-primary
                   text-white
                   shadow-lg shadow-primary/30
                   hover:shadow-xl hover:shadow-primary/40
@@ -323,26 +462,16 @@ const ClientHome = () => {
                   {filteredSpecialists.slice(0, 6).map((s, index) => {
                     const isFavorite = favorites.has(s.id);
 
-                    function toggleFavorite(id: number, e: MouseEvent<HTMLButtonElement>): void {
-                      e.stopPropagation();
-                      setFavorites((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(id)) next.delete(id);
-                        else next.add(id);
-                        return next;
-                      });
-                    }
-
                     return (
                       <motion.div
                         key={s.id}
                         className="
                           min-w-[320px] sm:min-w-[340px] flex-shrink-0 snap-center
-                          bg-card/80 backdrop-blur-xl rounded-3xl overflow-hidden
-                          border-2 border-muted
-                          shadow-xl shadow-black/5
+                          bg-card rounded-3xl overflow-hidden
+                          border-2 border-border
+                          shadow-lg
                           text-left group
-                          hover:shadow-2xl hover:shadow-primary/10
+                          hover:shadow-xl
                           hover:border-primary/30
                           hover:-translate-y-2
                           transition-all duration-500
@@ -354,54 +483,52 @@ const ClientHome = () => {
                         onClick={() => handleSpecialistClick(s.id)}
                       >
                         {/* Cover Image */}
-                        <div className="relative h-52 overflow-hidden bg-gradient-to-br from-primary/20 to-primary/5">
+                        <div className="relative h-52 overflow-hidden bg-muted">
                           {s.cover_image_url ? (
                             <img
                               src={s.cover_image_url}
-                              alt={s.business_name}
+                              alt={`Bannière de ${s.business_name}`}
                               className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
-                              style={{ objectPosition: 'center' }}
+                              loading="lazy"
                             />
                           ) : (
-                            <div className="h-full w-full flex items-center justify-center">
+                            <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
                               <Sparkles className="w-16 h-16 text-primary/30" />
                             </div>
                           )}
                           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
 
-
                           {/* Favorite button */}
                           <motion.button
-                            className={`
-                              absolute top-4 right-4 w-10 h-10 rounded-full 
-                              bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-lg
-                              ${isFavorite ? 'bg-red-50' : ''}
-                            `}
+                            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-lg z-10"
                             whileHover={{ scale: 1.1 }}
                             whileTap={{ scale: 0.9 }}
                             onClick={(e) => toggleFavorite(s.id, e)}
+                            aria-label={isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}
                           >
                             <Heart
                               size={18}
-                              className={`transition-colors ${isFavorite
+                              className={`transition-all duration-300 ${
+                                isFavorite
                                   ? 'text-red-500 fill-red-500'
                                   : 'text-muted-foreground'
-                                }`}
+                              }`}
                             />
                           </motion.button>
 
                           {/* Avatar & Name */}
-                          <div className="absolute bottom-4 left-4 right-4 flex items-center gap-3 text-white">
+                          <div className="absolute bottom-4 left-4 right-4 flex items-center gap-3 text-white z-10">
                             <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-white/90 shadow-2xl flex-shrink-0 bg-white">
                               {s.profile_image_url ? (
                                 <img
                                   src={s.profile_image_url}
                                   alt={s.business_name}
                                   className="w-full h-full object-cover"
+                                  loading="lazy"
                                 />
                               ) : (
-                                <div className="w-full h-full flex items-center justify-center bg-primary/10">
-                                  <span className="text-2xl font-bold text-primary">
+                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary to-primary/70">
+                                  <span className="text-2xl font-bold text-white">
                                     {s.user?.first_name?.[0] || s.business_name?.[0] || '?'}
                                   </span>
                                 </div>
@@ -426,7 +553,7 @@ const ClientHome = () => {
                               <span className="text-xs font-medium">{s.city}</span>
                             </div>
                             {s.rating > 0 && (
-                              <div className="flex items-center gap-1.5 bg-gradient-to-r from-yellow-50 to-yellow-100 px-2.5 py-1 rounded-full shadow-sm">
+                              <div className="flex items-center gap-1.5 bg-yellow-50 px-2.5 py-1 rounded-full">
                                 <Star size={14} className="fill-yellow-400 text-yellow-400" />
                                 <span className="text-xs font-bold text-foreground">
                                   {s.rating.toFixed(1)}
@@ -438,11 +565,11 @@ const ClientHome = () => {
                             )}
                           </div>
 
-                          <div className="flex items-center justify-between pt-2 border-t border-muted">
+                          <div className="flex items-center justify-between pt-2 border-t border-border">
                             <span className="text-xs font-semibold text-primary group-hover:text-primary/80 transition-colors">
                               Voir les créneaux
                             </span>
-                            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary group-hover:shadow-lg transition-all">
+                            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary transition-all">
                               <ChevronRight
                                 size={16}
                                 className="text-primary group-hover:text-white transition-all group-hover:translate-x-0.5"
@@ -462,13 +589,14 @@ const ClientHome = () => {
                       <div
                         key={i}
                         className="w-1.5 h-1.5 rounded-full bg-muted"
+                        aria-hidden="true"
                       />
                     ))}
                   </div>
                 )}
 
                 {/* Bouton "Voir toutes les expertes" */}
-                {specialists.length > 0 && (
+                {specialists.length > 0 && !searchQuery && (
                   <motion.div
                     className="px-6"
                     initial={{ opacity: 0, y: 20 }}
@@ -479,7 +607,7 @@ const ClientHome = () => {
                       onClick={() => navigate("/client/specialists")}
                       className="
                         w-full py-3.5 rounded-2xl
-                        bg-gradient-to-r from-primary to-primary/90
+                        bg-primary
                         text-white font-semibold text-sm
                         shadow-lg shadow-primary/30
                         hover:shadow-xl hover:shadow-primary/40
@@ -497,7 +625,7 @@ const ClientHome = () => {
             ) : (
               <motion.div
                 key="no-results"
-                className="mx-6 text-center py-12 px-6 bg-card/80 backdrop-blur-xl rounded-3xl border-2 border-dashed border-muted"
+                className="mx-6 text-center py-12 px-6 bg-card rounded-3xl border-2 border-dashed border-border"
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
@@ -520,7 +648,7 @@ const ClientHome = () => {
                     onClick={() => setSearchQuery("")}
                     className="
                       px-6 py-2.5 rounded-full
-                      bg-gradient-to-r from-primary to-primary/90
+                      bg-primary
                       text-white text-xs font-semibold
                       shadow-lg shadow-primary/30
                       hover:shadow-xl hover:shadow-primary/40
@@ -549,37 +677,26 @@ const ClientHome = () => {
           </div>
 
           <motion.div
-            className="relative overflow-hidden p-5 rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border-2 border-dashed border-primary/30"
+            className="relative overflow-hidden p-5 rounded-2xl bg-gradient-to-br from-primary/5 to-primary/10 border-2 border-dashed border-primary/30"
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             whileHover={{ scale: 1.02 }}
             transition={{ duration: 0.5 }}
           >
-            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
-            <div className="relative flex items-start gap-4">
-              <motion.div
-                className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center flex-shrink-0 shadow-lg"
-                animate={{
-                  boxShadow: [
-                    "0 10px 25px -5px rgba(var(--primary), 0.3)",
-                    "0 10px 35px -5px rgba(var(--primary), 0.5)",
-                    "0 10px 25px -5px rgba(var(--primary), 0.3)"
-                  ]
-                }}
-                transition={{ duration: 2, repeat: Infinity }}
-              >
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center flex-shrink-0 shadow-lg">
                 <Calendar size={22} className="text-white" />
-              </motion.div>
+              </div>
               <div className="flex-1 space-y-2">
                 <p className="text-sm font-semibold text-foreground">Aucun rendez-vous prévu</p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   Réserve dès maintenant auprès d'une experte près de chez toi
                 </p>
                 <button
-                  onClick={() => navigate("/client/specialists")}
+                  onClick={() => navigate("/client/my-booking")}
                   className="
                     mt-2 px-4 py-2 rounded-xl
-                    bg-gradient-to-r from-primary to-primary/90
+                    bg-primary
                     text-white text-xs font-semibold
                     shadow-lg shadow-primary/30
                     hover:shadow-xl hover:shadow-primary/40
@@ -589,7 +706,7 @@ const ClientHome = () => {
                   "
                 >
                   <Clock size={14} />
-                  Réserver un créneau
+                  Voir mes réservations
                 </button>
               </div>
             </div>

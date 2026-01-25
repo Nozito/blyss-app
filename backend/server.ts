@@ -1,3 +1,6 @@
+// ==========================================
+// 1. IMPORTS
+// ==========================================
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import bcrypt from "bcrypt";
@@ -7,9 +10,14 @@ import multer, { FileFilterCallback } from "multer";
 import path from "path";
 import fs from "fs";
 import jwt from "jsonwebtoken";
+import { WebSocketServer, WebSocket } from "ws";
+import http from "http";
 import { isValidIBAN, electronicFormatIBAN } from "ibantools";
 import crypto from "crypto";
 
+// ==========================================
+// 2. CONFIGURATION ENV
+// ==========================================
 const envFile = process.env.NODE_ENV === "production" ? ".env.prod" : ".env.dev";
 const envPath = path.resolve(__dirname, "..", envFile);
 console.log("Loading env from:", envPath);
@@ -23,18 +31,610 @@ if (!process.env.JWT_SECRET) {
   process.exit(1);
 }
 
+// ==========================================
+// 3. INTERFACES
+// ==========================================
 interface AuthenticatedRequest extends Request {
   user?: { id: number };
   file?: Express.Multer.File;
 }
 
+type AuthRequest = AuthenticatedRequest;
+
+// ==========================================
+// 4. EXPRESS APP + HTTP SERVER
+// ==========================================
 const app = express();
+const server = http.createServer(app);
 
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:8080",
   "https://app.blyssapp.fr",
 ];
+
+// ==========================================
+// 5. CONNEXION DATABASE
+// ==========================================
+const db = mysql.createPool({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+});
+
+console.log("✅ Database pool created");
+
+// ==========================================
+// 6. WEBSOCKET - CLIENTS MAP (AVANT LES FONCTIONS)
+// ==========================================
+const connectedClients = new Map<number, WebSocket>();
+
+// ==========================================
+// 7. NOTIFICATION MAPPING & HELPERS
+// ==========================================
+const CLIENT_NOTIFICATION_MAPPING: { [key: string]: string } = {
+  booking_confirmed: "changes",
+  booking_reminder: "reminders",
+  booking_cancelled: "changes",
+  message_received: "messages",
+  late_alert: "late",
+  promotional: "offers",
+  email_summary: "email_summary",
+  info: "offers",
+};
+
+const PRO_NOTIFICATION_MAPPING: { [key: string]: string } = {
+  new_booking: "new_reservation",
+  booking_confirmed: "cancel_change",
+  booking_cancelled: "cancel_change",
+  booking_reminder: "daily_reminder",
+  message_received: "client_message",
+  payment_received: "payment_alert",
+  activity_summary: "activity_summary",
+  promotional: "activity_summary",
+  info: "activity_summary",
+};
+
+async function checkNotificationPreference(
+  userId: number,
+  notificationType: string
+): Promise<boolean> {
+  try {
+    const [userRows] = await db.query(
+      `SELECT role FROM users WHERE id = ?`,
+      [userId]
+    );
+
+    if ((userRows as any[]).length === 0) {
+      return false;
+    }
+
+    const role = (userRows as any[])[0].role;
+
+    const mapping = role === "pro" 
+      ? PRO_NOTIFICATION_MAPPING 
+      : CLIENT_NOTIFICATION_MAPPING;
+
+    const column = mapping[notificationType] || (role === "pro" ? "activity_summary" : "offers");
+
+    const table = role === "pro"
+      ? "pro_notification_settings"
+      : "client_notification_settings";
+
+    const [settings] = await db.query(
+      `SELECT ${column} FROM ${table} WHERE user_id = ?`,
+      [userId]
+    );
+
+    if ((settings as any[]).length === 0) {
+      const defaultColumns = role === "pro"
+        ? {
+            user_id: userId,
+            new_reservation: 1,
+            cancel_change: 1,
+            daily_reminder: 1,
+            client_message: 1,
+            payment_alert: 1,
+            activity_summary: 1,
+          }
+        : {
+            user_id: userId,
+            reminders: 1,
+            changes: 1,
+            messages: 1,
+            late: 1,
+            offers: 1,
+            email_summary: 0,
+          };
+
+      await db.query(
+        `INSERT INTO ${table} SET ?`,
+        [defaultColumns]
+      );
+      return true;
+    }
+
+    return (settings as any[])[0][column] === 1;
+  } catch (error) {
+    console.error("Error checking notification preference:", error);
+    return true;
+  }
+}
+
+async function sendUnreadNotifications(ws: WebSocket, userId: number) {
+  try {
+    const [rows] = await db.query(
+      `SELECT 
+        id, 
+        user_id, 
+        type, 
+        title, 
+        message, 
+        data, 
+        is_read, 
+        created_at
+      FROM notifications
+      WHERE user_id = ? AND is_read = 0
+      ORDER BY created_at DESC`,
+      [userId]
+    );
+
+    if ((rows as any[]).length > 0) {
+      ws.send(
+        JSON.stringify({
+          type: "notifications",
+          data: rows,
+        })
+      );
+    }
+  } catch (error) {
+    console.error("Error sending unread notifications:", error);
+  }
+}
+
+export async function sendNotificationToUser(
+  userId: number,
+  notification: {
+    id: number;
+    type: string;
+    title: string;
+    message: string;
+    data?: any;
+    created_at: string;
+  }
+) {
+  const hasPermission = await checkNotificationPreference(
+    userId,
+    notification.type
+  );
+
+  if (!hasPermission) {
+    console.log(`⚠️ User ${userId} has disabled ${notification.type} notifications`);
+    return false;
+  }
+
+  const ws = connectedClients.get(userId);
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(
+      JSON.stringify({
+        type: "new_notification",
+        data: notification,
+      })
+    );
+    console.log(`📨 Notification sent to user ${userId}`);
+    return true;
+  }
+
+  console.log(`⚠️ User ${userId} not connected`);
+  return false;
+}
+
+export async function broadcastNotification(
+  userIds: number[],
+  notification: {
+    type: string;
+    title: string;
+    message: string;
+    data?: any;
+  }
+) {
+  for (const userId of userIds) {
+    const hasPermission = await checkNotificationPreference(
+      userId,
+      notification.type
+    );
+
+    if (!hasPermission) {
+      continue;
+    }
+
+    const ws = connectedClients.get(userId);
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "new_notification",
+          data: notification,
+        })
+      );
+    }
+  }
+}
+
+// ==========================================
+// 8. MIDDLEWARE (UNE SEULE FOIS)
+// ==========================================
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  })
+);
+
+app.use(express.json());
+
+const authMiddleware = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    console.log("❌ Auth: No token provided");
+    return res.status(401).json({ success: false, message: "Unauthorized" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number };
+    console.log("✅ Auth: Token decoded, userId:", decoded.id);
+    req.user = { id: decoded.id };
+    next();
+  } catch (err) {
+    console.error("❌ Auth: JWT error:", err);
+    return res.status(401).json({ success: false, message: "Invalid token" });
+  }
+};
+
+const authenticateToken = authMiddleware;
+
+// ==========================================
+// 9. WEBSOCKET SERVER
+// ==========================================
+const wss = new WebSocketServer({ server });
+
+interface WebSocketMessage {
+  type: string;
+  data?: any;
+}
+
+wss.on("connection", (ws: WebSocket, req) => {
+  console.log("🔌 New WebSocket connection");
+
+  let userId: number | null = null;
+  let isAuthenticated = false;
+
+  ws.on("message", async (message: string) => {
+    try {
+      const data = JSON.parse(message.toString()) as WebSocketMessage;
+
+      if (data.type === "auth" && data.data?.token) {
+        try {
+          const decoded = jwt.verify(
+            data.data.token,
+            process.env.JWT_SECRET!
+          ) as { id: number };
+          
+          userId = decoded.id;
+          isAuthenticated = true;
+
+          connectedClients.set(userId, ws);
+
+          console.log(`✅ User ${userId} authenticated via WebSocket`);
+
+          ws.send(
+            JSON.stringify({
+              type: "auth_success",
+              data: { userId },
+            })
+          );
+
+          await sendUnreadNotifications(ws, userId);
+
+        } catch (err) {
+          console.error("❌ WebSocket auth failed:", err);
+          ws.send(
+            JSON.stringify({
+              type: "auth_error",
+              data: { message: "Invalid token" },
+            })
+          );
+          ws.close();
+        }
+      }
+
+      if (data.type === "mark_read" && isAuthenticated && userId) {
+        const notificationId = data.data?.notificationId;
+        
+        if (notificationId) {
+          await db.query(
+            `UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?`,
+            [notificationId, userId]
+          );
+
+          ws.send(
+            JSON.stringify({
+              type: "mark_read_success",
+              data: { notificationId },
+            })
+          );
+        }
+      }
+
+      if (data.type === "mark_all_read" && isAuthenticated && userId) {
+        await db.query(
+          `UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0`,
+          [userId]
+        );
+
+        ws.send(
+          JSON.stringify({
+            type: "mark_all_read_success",
+          })
+        );
+      }
+
+    } catch (error) {
+      console.error("❌ WebSocket message error:", error);
+    }
+  });
+
+  ws.on("close", () => {
+    if (userId) {
+      connectedClients.delete(userId);
+      console.log(`🔌 User ${userId} disconnected from WebSocket`);
+    }
+  });
+
+  ws.on("error", (error) => {
+    console.error("❌ WebSocket error:", error);
+  });
+
+  const interval = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.ping();
+    }
+  }, 30000);
+
+  ws.on("close", () => {
+    clearInterval(interval);
+  });
+});
+
+// ==========================================
+// API ROUTES - NOTIFICATIONS
+// ==========================================
+
+/* GET: Récupérer les préférences de notification d'un utilisateur (ADMIN) */
+app.get(
+  "/api/admin/users/:userId/notification-settings",
+  authenticateToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const adminId = req.user?.id;
+      const userId = parseInt(req.params.userId);
+
+      // Vérifier que c'est un admin
+      const [adminCheck] = await db.query(
+        `SELECT is_admin FROM users WHERE id = ?`,
+        [adminId]
+      );
+
+      if ((adminCheck as any[]).length === 0 || !(adminCheck as any[])[0].is_admin) {
+        return res.status(403).json({
+          success: false,
+          message: "Accès réservé aux admins",
+        });
+      }
+
+      // Récupérer le rôle de l'utilisateur
+      const [userRows] = await db.query(
+        `SELECT role FROM users WHERE id = ?`,
+        [userId]
+      );
+
+      if ((userRows as any[]).length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Utilisateur introuvable",
+        });
+      }
+
+      const role = (userRows as any[])[0].role;
+      const table = role === "pro"
+        ? "pro_notification_settings"
+        : "client_notification_settings";
+
+      // Récupérer les settings
+      const [settings] = await db.query(
+        `SELECT * FROM ${table} WHERE user_id = ?`,
+        [userId]
+      );
+
+      if ((settings as any[]).length === 0) {
+        // Créer des settings par défaut
+        if (role === "pro") {
+          const defaultSettings = {
+            user_id: userId,
+            new_reservation: 1,
+            cancel_change: 1,
+            daily_reminder: 1,
+            client_message: 1,
+            payment_alert: 1,
+            activity_summary: 1,
+          };
+
+          await db.query(
+            `INSERT INTO pro_notification_settings SET ?`,
+            [defaultSettings]
+          );
+
+          return res.json({
+            success: true,
+            data: defaultSettings,
+          });
+        } else {
+          const defaultSettings = {
+            user_id: userId,
+            reminders: 1,
+            changes: 1,
+            messages: 1,
+            late: 1,
+            offers: 1,
+            email_summary: 0,
+          };
+
+          await db.query(
+            `INSERT INTO client_notification_settings SET ?`,
+            [defaultSettings]
+          );
+
+          return res.json({
+            success: true,
+            data: defaultSettings,
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        data: (settings as any[])[0],
+      });
+    } catch (error) {
+      console.error("Get notification settings error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur serveur",
+      });
+    }
+  }
+);
+
+
+/* POST: Créer une notification (ADMIN) */
+app.post(
+  "/api/admin/notifications/create",
+  authenticateToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const adminId = req.user?.id;
+
+      // Vérifier que c'est un admin
+      const [adminCheck] = await db.query(
+        `SELECT is_admin FROM users WHERE id = ?`,
+        [adminId]
+      );
+
+      if ((adminCheck as any[]).length === 0 || !(adminCheck as any[])[0].is_admin) {
+        return res.status(403).json({
+          success: false,
+          message: "Accès réservé aux admins",
+        });
+      }
+
+      const { user_id, type, title, message, data } = req.body;
+
+      if (!user_id || !type || !title || !message) {
+        return res.status(400).json({
+          success: false,
+          message: "Champs requis : user_id, type, title, message",
+        });
+      }
+
+      // Insérer en BDD
+      const [result] = await db.query(
+        `INSERT INTO notifications 
+         (user_id, type, title, message, data, is_read, created_at)
+         VALUES (?, ?, ?, ?, ?, 0, NOW())`,
+        [user_id, type, title, message, data ? JSON.stringify(data) : null]
+      );
+
+      const notificationId = (result as any).insertId;
+
+      // Récupérer la notification complète
+      const [notifRows] = await db.query(
+        `SELECT id, user_id, type, title, message, data, is_read, created_at
+         FROM notifications
+         WHERE id = ?`,
+        [notificationId]
+      );
+
+      const notification = (notifRows as any[])[0];
+
+      // 🚀 Envoyer en temps réel via WebSocket
+      sendNotificationToUser(user_id, notification);
+
+      res.json({
+        success: true,
+        message: "Notification créée et envoyée",
+        data: { id: notificationId },
+      });
+    } catch (error) {
+      console.error("Create notification error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur serveur",
+      });
+    }
+  }
+);
+
+// GET tous les utilisateurs
+app.get("/api/admin/users", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.user?.id;
+    const [adminCheck] = await db.query("SELECT is_admin FROM users WHERE id = ?", [adminId]);
+    if ((adminCheck as any).length === 0 || !(adminCheck as any)[0].is_admin) {
+      return res.status(403).json({ success: false, message: "Accès réservé aux admins" });
+    }
+
+    // ✅ CORRECTION: Sélectionner TOUS les champs explicitement
+    const [users] = await db.query(`
+      SELECT 
+        id,
+        first_name,
+        last_name,
+        email,
+        phone_number,
+        birth_date,
+        role,
+        is_admin,
+        is_verified,
+        created_at,
+        activity_name,
+        city,
+        instagram_account,
+        profile_photo,
+        banner_photo,
+        pro_status,
+        bio
+      FROM users 
+      ORDER BY created_at DESC
+    `);
+
+    res.json({ success: true, data: users });
+  } catch (error) {
+    console.error("❌ Error fetching users:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
 
 // ==========================================
 // CONFIGURATION CHIFFREMENT IBAN
@@ -95,55 +695,6 @@ const encryptIban = encryptSensitiveData;
 const decryptIban = decryptSensitiveData;
 
 // ==========================================
-// MIDDLEWARE
-// ==========================================
-
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-  })
-);
-
-app.use(express.json());
-
-const authMiddleware = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
-  console.log("Auth header:", authHeader);
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ success: false, message: "Unauthorized" });
-  }
-
-  const token = authHeader.split(" ")[1];
-  try {
-    console.log("JWT incoming:", token.substring(0, 30));
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number };
-    console.log("JWT decoded id:", decoded.id);
-    req.user = { id: decoded.id };
-    next();
-  } catch (err) {
-    console.error("JWT error:", err);
-    return res.status(401).json({ success: false, message: "Invalid token" });
-  }
-};
-
-const authenticateToken = authMiddleware;
-
-const db = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-});
-
-// ==========================================
 // INTERFACES
 // ==========================================
 
@@ -182,6 +733,7 @@ interface User {
   IBAN?: string | null;
   bankaccountname?: string | null;
   bio?: string | null;
+  is_admin?: boolean;
 }
 
 interface UpdatePaymentsBody {
@@ -253,8 +805,6 @@ app.get(
   "/api/users/pros/:id",
   async (req: Request, res: Response) => {
     try {
-      console.log("📞 GET /api/users/pros/:id called with id:", req.params.id);
-
       const proId = parseInt(req.params.id);
 
       if (isNaN(proId)) {
@@ -533,6 +1083,7 @@ app.delete(
 app.post(
   "/api/auth/signup",
   async (req: Request<{}, {}, SignupRequestBody>, res: Response) => {
+    let connection;
     try {
       const {
         first_name,
@@ -547,39 +1098,309 @@ app.post(
         instagram_account,
       } = req.body;
 
+      // ✅ Validation stricte AVANT toute opération DB
       if (!email || !password) {
         return res.status(400).json({
           success: false,
           message: "Missing required fields: email and password",
+          error: "missing_fields"
         });
       }
 
-      const password_hash = await bcrypt.hash(password, 12);
+      const trimmedEmail = email.trim().toLowerCase();
 
-      await db.execute(
-        `INSERT INTO users
-         (first_name, last_name, email, phone_number, birth_date, password_hash, role, activity_name, city, instagram_account)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          first_name || null,
-          last_name || null,
-          email,
-          phone_number || null,
-          birth_date || null,
-          password_hash,
-          role || "client",
-          role === "pro" ? activity_name : null,
-          role === "pro" ? city : null,
-          role === "pro" ? instagram_account : null,
-        ]
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid email format",
+          error: "invalid_email"
+        });
+      }
+
+      if (trimmedEmail.length > 254) {
+        return res.status(400).json({
+          success: false,
+          message: "Email too long",
+          error: "invalid_email"
+        });
+      }
+
+      if (password.length < 8) {
+        return res.status(400).json({
+          success: false,
+          message: "Password must be at least 8 characters",
+          error: "weak_password"
+        });
+      }
+
+      if (password.length > 128) {
+        return res.status(400).json({
+          success: false,
+          message: "Password too long",
+          error: "invalid_password"
+        });
+      }
+
+      // ✅ Validation force du mot de passe
+      if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(password)) {
+        return res.status(400).json({
+          success: false,
+          message: "Password must contain at least one lowercase, one uppercase and one number",
+          error: "weak_password"
+        });
+      }
+
+      // ✅ Validation âge si fourni
+      if (birth_date) {
+        const birthDateObj = new Date(birth_date);
+        const today = new Date();
+        let age = today.getFullYear() - birthDateObj.getFullYear();
+        const monthDiff = today.getMonth() - birthDateObj.getMonth();
+
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDateObj.getDate())) {
+          age--;
+        }
+
+        if (age < 16) {
+          return res.status(400).json({
+            success: false,
+            message: "You must be at least 16 years old",
+            error: "age_restriction"
+          });
+        }
+      }
+
+      // ✅ Validation téléphone si fourni
+      if (phone_number) {
+        const cleanPhone = phone_number.replace(/\s/g, "");
+        if (!/^[0-9]{10}$/.test(cleanPhone)) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid phone number format",
+            error: "invalid_phone"
+          });
+        }
+      }
+
+      // ✅ Obtenir une connexion avec transaction
+      connection = await db.getConnection();
+
+      // ✅ DÉBUT DE LA TRANSACTION
+      await connection.beginTransaction();
+
+      try {
+        // Vérifier si l'email existe déjà
+        const [existing] = await connection.query(
+          "SELECT id FROM users WHERE email = ?",
+          [trimmedEmail]
+        ) as [any[], any];
+
+        if (existing.length > 0) {
+          // Rollback implicite en cas d'erreur
+          await connection.rollback();
+          return res.status(409).json({
+            success: false,
+            message: "Email already exists",
+            error: "email_exists"
+          });
+        }
+
+        // Hash du mot de passe (peut échouer)
+        const passwordHash = await bcrypt.hash(password, 12);
+
+        // ✅ Insertion de l'utilisateur
+        const [result] = await connection.execute(
+          `INSERT INTO users
+           (first_name, last_name, email, phone_number, birth_date, password_hash, role, activity_name, city, instagram_account, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [
+            first_name?.trim() || null,
+            last_name?.trim() || null,
+            trimmedEmail,
+            phone_number?.replace(/\s/g, "") || null,
+            birth_date || null,
+            passwordHash,
+            role === "pro" ? "pro" : "client",
+            role === "pro" && activity_name?.trim() ? activity_name.trim() : null,
+            role === "pro" && city?.trim() ? city.trim() : null,
+            role === "pro" && instagram_account?.trim() ? instagram_account.trim() : null,
+          ]
+        ) as [any, any];
+
+        const userId = result.insertId;
+
+        console.log(`✅ User created with ID: ${userId} (${trimmedEmail})`);
+
+        await connection.commit();
+
+        res.json({
+          success: true,
+          message: "Account created successfully"
+        });
+
+      } catch (transactionError) {
+        // ✅ ROLLBACK en cas d'erreur pendant la transaction
+        await connection.rollback();
+        throw transactionError; // Re-throw pour être attrapé par le catch externe
+      }
+
+    } catch (err: any) {
+      console.error("❌ Signup error:", err);
+
+      // ✅ Gestion des erreurs spécifiques MySQL
+      if (err.code === 'ER_DUP_ENTRY') {
+        return res.status(409).json({
+          success: false,
+          message: "Email already exists",
+          error: "email_exists"
+        });
+      }
+
+      if (err.code === 'ER_DATA_TOO_LONG') {
+        return res.status(400).json({
+          success: false,
+          message: "One or more fields are too long",
+          error: "data_too_long"
+        });
+      }
+
+      // Erreur générique
+      res.status(500).json({
+        success: false,
+        message: "Signup failed due to server error",
+        error: "server_error"
+      });
+
+    } finally {
+      if (connection) {
+        connection.release();
+      }
+    }
+  }
+);
+
+/* GET USER PROFILE */
+app.get(
+  "/api/auth/profile",
+  authenticateToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "Non authentifié",
+        });
+      }
+
+      // ✅ Requête simplifiée sans colonnes qui pourraient ne pas exister
+      const [rows] = await db.query(
+        `SELECT 
+          id, 
+          first_name, 
+          last_name, 
+          email, 
+          phone_number, 
+          birth_date, 
+          role, 
+          activity_name, 
+          city, 
+          instagram_account, 
+          profile_photo, 
+          banner_photo, 
+          bio, 
+          profile_visibility, 
+          pro_status, 
+          bankaccountname,
+          IBAN,
+          accept_online_payment,
+          created_at
+        FROM users 
+        WHERE id = ?`,
+        [userId]
       );
 
-      res.json({ success: true });
-    } catch (err) {
-      console.error(err);
-      res
-        .status(500)
-        .json({ success: false, message: "Signup failed due to server error" });
+      const users = rows as any[];
+
+      if (users.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Utilisateur non trouvé",
+        });
+      }
+
+      const user = users[0];
+
+      // ✅ Calculer clients_count et avg_rating séparément
+      let clients_count = 0;
+      let avg_rating = null;
+      let years_on_blyss = 0;
+
+      try {
+        // Compter les clients uniques
+        const [clientRows] = await db.query(
+          `SELECT COUNT(DISTINCT client_id) as count 
+           FROM reservations 
+           WHERE pro_id = ? AND status = 'completed'`,
+          [userId]
+        );
+        clients_count = (clientRows as any[])[0]?.count || 0;
+
+        // Calculer la moyenne des notes
+        const [ratingRows] = await db.query(
+          `SELECT AVG(rating) as avg 
+           FROM reviews 
+           WHERE pro_id = ?`,
+          [userId]
+        );
+        avg_rating = (ratingRows as any[])[0]?.avg || null;
+
+        // Calculer ancienneté
+        const [durationRows] = await db.query(
+          `SELECT TIMESTAMPDIFF(YEAR, created_at, NOW()) as years
+           FROM users WHERE id = ?`,
+          [userId]
+        );
+        years_on_blyss = (durationRows as any[])[0]?.years || 0;
+      } catch (statsError) {
+        console.warn("⚠️ Erreur calcul stats (non bloquant):", statsError);
+      }
+
+      res.json({
+        success: true,
+        data: {
+          id: user.id,
+          first_name: user.first_name,
+          last_name: user.last_name,
+          email: user.email,
+          phone_number: user.phone_number,
+          birth_date: user.birth_date,
+          role: user.role,
+          activity_name: user.activity_name,
+          city: user.city,
+          instagram_account: user.instagram_account,
+          profile_photo: user.profile_photo,
+          banner_photo: user.banner_photo,
+          bio: user.bio,
+          profile_visibility: user.profile_visibility || "public",
+          pro_status: user.pro_status,
+          clients_count,
+          avg_rating,
+          years_on_blyss,
+          bankaccountname: user.bankaccountname,
+          IBAN: user.IBAN,
+          accept_online_payment: user.accept_online_payment,
+          created_at: user.created_at,
+        },
+      });
+    } catch (error) {
+      console.error("❌ Get profile error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur serveur",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   }
 );
@@ -900,9 +1721,9 @@ app.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       if (!req.file || !req.user?.id) {
-        return res.status(400).json({ 
-          success: false, 
-          message: "No file or userId provided" 
+        return res.status(400).json({
+          success: false,
+          message: "No file or userId provided"
         });
       }
 
@@ -930,7 +1751,7 @@ app.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const userId = req.user?.id;
-      
+
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -1279,39 +2100,47 @@ app.get(
     try {
       const proId = parseInt(req.params.proId);
 
+      // ✅ Validation stricte de l'ID
+      if (isNaN(proId) || proId <= 0) {
+        console.warn(`⚠️ ID invalide reçu: ${req.params.proId}`);
+        return res.status(400).json({
+          success: false,
+          message: "ID du professionnel invalide"
+        });
+      }
+
       connection = await db.getConnection();
 
       const [rows] = await connection.query(
-        `
-        SELECT 
+        `SELECT 
           id,
           pro_id,
           client_id,
           rating,
           comment,
           created_at
-        FROM reviews
-        WHERE pro_id = ?
-        ORDER BY created_at DESC
-        `,
+         FROM reviews
+         WHERE pro_id = ?
+         ORDER BY created_at DESC`,
         [proId]
       );
 
       res.json({
         success: true,
-        data: rows,
+        data: rows
       });
     } catch (error) {
-      console.error("Error fetching reviews:", error);
+      console.error("❌ Error fetching reviews:", error);
       res.status(500).json({
         success: false,
-        message: "Erreur lors de la récupération des avis",
+        message: "Erreur lors de la récupération des avis"
       });
     } finally {
       if (connection) connection.release();
     }
   }
 );
+
 
 // ==========================================
 // SUBSCRIPTION ROUTES
@@ -3065,16 +3894,241 @@ app.delete(
   }
 );
 
+// ==========================================
+// NOTIFICATION SETTINGS - CLIENT
+// ==========================================
+
+/* GET CLIENT NOTIFICATION SETTINGS */
+app.get(
+  "/api/client/notification-settings",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "Utilisateur non authentifié"
+        });
+      }
+
+      connection = await db.getConnection();
+
+      const [rows] = await connection.query(
+        `SELECT 
+          reminders, 
+          changes, 
+          messages, 
+          late, 
+          offers, 
+          email_summary,
+          created_at,
+          updated_at
+         FROM client_notification_settings 
+         WHERE user_id = ?`,
+        [userId]
+      ) as [any[], any];
+
+      // Si aucun paramètre n'existe, créer avec les valeurs par défaut
+      if (!rows || rows.length === 0) {
+        await connection.query(
+          `INSERT INTO client_notification_settings 
+           (user_id, reminders, changes, messages, late, offers, email_summary)
+           VALUES (?, 1, 1, 1, 1, 1, 0)`,
+          [userId]
+        );
+
+        return res.json({
+          success: true,
+          data: {
+            reminders: true,
+            changes: true,
+            messages: true,
+            late: true,
+            offers: true,
+            emailSummary: false
+          }
+        });
+      }
+
+      const settings = rows[0];
+
+      res.json({
+        success: true,
+        data: {
+          reminders: Boolean(settings.reminders),
+          changes: Boolean(settings.changes),
+          messages: Boolean(settings.messages),
+          late: Boolean(settings.late),
+          offers: Boolean(settings.offers),
+          emailSummary: Boolean(settings.email_summary)
+        }
+      });
+
+    } catch (error) {
+      console.error("❌ Erreur notification-settings GET:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur serveur"
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+/* UPDATE CLIENT NOTIFICATION SETTINGS */
+app.put(
+  "/api/client/notification-settings",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "Utilisateur non authentifié"
+        });
+      }
+
+      const { reminders, changes, messages, late, offers, emailSummary } = req.body;
+
+      // Validation
+      const fields = { reminders, changes, messages, late, offers, emailSummary };
+      for (const [key, value] of Object.entries(fields)) {
+        if (value !== undefined && typeof value !== "boolean") {
+          return res.status(400).json({
+            success: false,
+            message: `Le champ '${key}' doit être un booléen`
+          });
+        }
+      }
+
+      connection = await db.getConnection();
+
+      // Vérifier si l'enregistrement existe
+      const [existing] = await connection.query(
+        `SELECT id FROM client_notification_settings WHERE user_id = ?`,
+        [userId]
+      ) as [any[], any];
+
+      if (existing.length === 0) {
+        // INSERT si n'existe pas
+        await connection.query(
+          `INSERT INTO client_notification_settings 
+           (user_id, reminders, changes, messages, late, offers, email_summary)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            userId,
+            reminders ?? true,
+            changes ?? true,
+            messages ?? true,
+            late ?? true,
+            offers ?? true,
+            emailSummary ?? false
+          ]
+        );
+      } else {
+        // UPDATE si existe
+        const updates: string[] = [];
+        const values: any[] = [];
+
+        if (reminders !== undefined) {
+          updates.push("reminders = ?");
+          values.push(reminders);
+        }
+        if (changes !== undefined) {
+          updates.push("changes = ?");
+          values.push(changes);
+        }
+        if (messages !== undefined) {
+          updates.push("messages = ?");
+          values.push(messages);
+        }
+        if (late !== undefined) {
+          updates.push("late = ?");
+          values.push(late);
+        }
+        if (offers !== undefined) {
+          updates.push("offers = ?");
+          values.push(offers);
+        }
+        if (emailSummary !== undefined) {
+          updates.push("email_summary = ?");
+          values.push(emailSummary);
+        }
+
+        if (updates.length > 0) {
+          values.push(userId);
+          await connection.query(
+            `UPDATE client_notification_settings 
+             SET ${updates.join(", ")}
+             WHERE user_id = ?`,
+            values
+          );
+        }
+      }
+
+      // Récupérer les données mises à jour
+      const [updated] = await connection.query(
+        `SELECT 
+          reminders, 
+          changes, 
+          messages, 
+          late, 
+          offers, 
+          email_summary
+         FROM client_notification_settings 
+         WHERE user_id = ?`,
+        [userId]
+      ) as [any[], any];
+
+      res.json({
+        success: true,
+        data: {
+          reminders: Boolean(updated[0].reminders),
+          changes: Boolean(updated[0].changes),
+          messages: Boolean(updated[0].messages),
+          late: Boolean(updated[0].late),
+          offers: Boolean(updated[0].offers),
+          emailSummary: Boolean(updated[0].email_summary)
+        }
+      });
+
+    } catch (error) {
+      console.error("❌ Erreur notification-settings PUT:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur serveur"
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+
 /* GET MY RESERVATIONS (CLIENT) */
 app.get("/api/bookings/my-bookings", authenticateToken, async (req: Request, res: Response) => {
   let connection;
   try {
-    const clientId = (req as any).user.userId;
-    
+    const clientId = (req as AuthenticatedRequest).user?.id;
+
+    if (!clientId) {
+      return res.status(401).json({
+        success: false,
+        message: "Non authentifié"
+      });
+    }
+
     connection = await db.getConnection();
-    
-    const rows = await connection.query(
-      `SELECT 
+
+    const [rows] = await connection.query(
+      `SELECT
         r.id,
         r.pro_id,
         r.prestation_id,
@@ -3096,13 +4150,12 @@ app.get("/api/bookings/my-bookings", authenticateToken, async (req: Request, res
        ORDER BY r.start_datetime DESC`,
       [clientId]
     );
-    
+
     res.json({
       success: true,
       data: rows
     });
-  } catch (error) {
-    console.error("Error fetching bookings:", error);
+  } catch {
     res.status(500).json({
       success: false,
       message: "Erreur lors de la récupération des réservations"
@@ -3116,8 +4169,15 @@ app.get("/api/bookings/my-bookings", authenticateToken, async (req: Request, res
 app.post("/api/reviews", authenticateToken, async (req: Request, res: Response) => {
   let connection;
   try {
-    const clientId = (req as any).user.userId;
+    const clientId = (req as AuthenticatedRequest).user?.id;
     const { pro_id, rating, comment } = req.body;
+
+    if (!clientId) {
+      return res.status(401).json({
+        success: false,
+        message: "Non authentifié"
+      });
+    }
 
     if (!pro_id || !rating || rating < 1 || rating > 5) {
       return res.status(400).json({
@@ -3128,85 +4188,17 @@ app.post("/api/reviews", authenticateToken, async (req: Request, res: Response) 
 
     connection = await db.getConnection();
 
-    // Vérifier si le client a une réservation complétée avec ce pro
-    const [reservation]: any = await connection.query(
-      "SELECT id FROM reservations WHERE client_id = ? AND pro_id = ? AND status = 'completed' LIMIT 1",
-      [clientId, pro_id]
-    );
-
-    if (!reservation) {
-      return res.status(400).json({
-        success: false,
-        message: "Vous devez avoir une prestation complétée pour laisser un avis"
-      });
-    }
-
-    // Vérifier si le client a déjà laissé un avis pour ce pro
-    const [existing]: any = await connection.query(
+    const [existing] = await connection.query(
       "SELECT id FROM reviews WHERE client_id = ? AND pro_id = ?",
       [clientId, pro_id]
     );
 
-    if (existing) {
-      // Mettre à jour l'avis existant
-      await connection.query(
-        "UPDATE reviews SET rating = ?, comment = ?, created_at = NOW() WHERE client_id = ? AND pro_id = ?",
-        [rating, comment, clientId, pro_id]
-      );
-    } else {
-      // Créer un nouvel avis
-      await connection.query(
-        "INSERT INTO reviews (client_id, pro_id, reservation_id, rating, comment) VALUES (?, ?, ?, ?, ?)",
-        [clientId, pro_id, reservation.id, rating, comment]
-      );
-    }
-
-    res.json({
-      success: true,
-      message: "Avis enregistré"
-    });
-  } catch (error) {
-    console.error("Error creating review:", error);
-    res.status(500).json({
-      success: false,
-      message: "Erreur lors de l'enregistrement de l'avis"
-    });
-  } finally {
-    if (connection) connection.release();
-  }
-});
-
-
-/* CREATE REVIEW */
-app.post("/api/reviews", authenticateToken, async (req: Request, res: Response) => {
-  let connection;
-  try {
-    const clientId = (req as any).user.userId;
-    const { pro_id, rating, comment } = req.body;
-
-    if (!pro_id || !rating || rating < 1 || rating > 5) {
-      return res.status(400).json({
-        success: false,
-        message: "Données invalides"
-      });
-    }
-
-    connection = await db.getConnection();
-
-    // Vérifier si le client a déjà laissé un avis pour ce pro
-    const [existing]: any = await connection.query(
-      "SELECT id FROM reviews WHERE client_id = ? AND pro_id = ?",
-      [clientId, pro_id]
-    );
-
-    if (existing) {
-      // Mettre à jour l'avis existant
+    if (Array.isArray(existing) && existing.length > 0) {
       await connection.query(
         "UPDATE reviews SET rating = ?, comment = ? WHERE client_id = ? AND pro_id = ?",
         [rating, comment, clientId, pro_id]
       );
     } else {
-      // Créer un nouvel avis
       await connection.query(
         "INSERT INTO reviews (client_id, pro_id, rating, comment) VALUES (?, ?, ?, ?)",
         [clientId, pro_id, rating, comment]
@@ -3217,8 +4209,7 @@ app.post("/api/reviews", authenticateToken, async (req: Request, res: Response) 
       success: true,
       message: "Avis enregistré"
     });
-  } catch (error) {
-    console.error("Error creating review:", error);
+  } catch {
     res.status(500).json({
       success: false,
       message: "Erreur lors de l'enregistrement de l'avis"
@@ -3228,6 +4219,181 @@ app.post("/api/reviews", authenticateToken, async (req: Request, res: Response) 
   }
 });
 
+// ============================================
+// CLIENT BOOKING ROUTES
+// ============================================
+
+// GET - Récupérer les réservations du client connecté
+app.get('/client/my-booking', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  let connection;
+  try {
+    const clientId = req.user?.id;
+    if (!clientId) {
+      return res.status(401).json({ success: false, message: 'Non authentifié' });
+    }
+
+    connection = await db.getConnection();
+
+    const rows = await connection.query(`
+      SELECT 
+        r.id,
+        r.pro_id,
+        r.prestation_id,
+        r.slot_id,
+        r.status,
+        r.created_at,
+        CONCAT(u.first_name, ' ', u.last_name) AS pro_name,
+        u.activity_name AS pro_activity_name,
+        u.profile_photo AS pro_profile_photo,
+        u.city AS pro_city,
+        p.name AS prestation_name,
+        p.price AS prestation_price,
+        DATE(r.start_datetime) AS slot_date,
+        TIME_FORMAT(r.start_datetime, '%H:%i:%s') AS slot_start_time
+      FROM reservations r
+      LEFT JOIN users u ON u.id = r.pro_id
+      LEFT JOIN prestations p ON p.id = r.prestation_id
+      WHERE r.client_id = ?
+      ORDER BY r.start_datetime DESC
+    `, [clientId]);
+
+    res.json({ success: true, data: rows });
+
+  } catch (error) {
+    console.error('Error fetching client bookings:', error);
+    res.status(500).json({ success: false, message: 'Erreur lors de la récupération des réservations' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+
+// PUT - Annuler une réservation
+app.put('/client/booking/:id/cancel', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  let connection;
+  try {
+    const clientId = req.user?.id;
+    const bookingId = parseInt(req.params.id);
+
+    if (!clientId) {
+      return res.status(401).json({ success: false, message: 'Non authentifié' });
+    }
+
+    if (isNaN(bookingId)) {
+      return res.status(400).json({ success: false, message: 'ID de réservation invalide' });
+    }
+
+    connection = await db.getConnection();
+
+    // Vérifier que la réservation appartient au client
+    const [booking]: any = await connection.query(
+      'SELECT id, slot_id, status FROM reservations WHERE id = ? AND client_id = ?',
+      [bookingId, clientId]
+    );
+
+    if (!booking || booking.length === 0) {
+      return res.status(404).json({ success: false, message: 'Réservation non trouvée' });
+    }
+
+    if (booking[0].status === 'cancelled') {
+      return res.status(400).json({ success: false, message: 'Réservation déjà annulée' });
+    }
+
+    // Commencer une transaction
+    await connection.beginTransaction();
+
+    try {
+      // Mettre à jour le statut de la réservation
+      await connection.query(
+        'UPDATE reservations SET status = ? WHERE id = ?',
+        ['cancelled', bookingId]
+      );
+
+      // Libérer le slot si nécessaire (slot_id peut être NULL selon votre schéma)
+      if (booking[0].slot_id) {
+        await connection.query(
+          'UPDATE slots SET status = ? WHERE id = ?',
+          ['available', booking[0].slot_id]
+        );
+      }
+
+      await connection.commit();
+
+      res.json({ success: true, message: 'Réservation annulée avec succès' });
+
+    } catch (err) {
+      await connection.rollback();
+      throw err;
+    }
+
+  } catch (error) {
+    console.error('Error canceling booking:', error);
+    res.status(500).json({ success: false, message: 'Erreur lors de l\'annulation' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// GET - Récupérer les détails d'une réservation spécifique
+app.get('/client/booking-detail/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  let connection;
+  try {
+    const clientId = req.user?.id;
+    const bookingId = parseInt(req.params.id);
+
+    if (!clientId) {
+      return res.status(401).json({ success: false, message: 'Non authentifié' });
+    }
+
+    if (isNaN(bookingId)) {
+      return res.status(400).json({ success: false, message: 'ID invalide' });
+    }
+
+    connection = await db.getConnection();
+
+    const rows = await connection.query(`
+      SELECT 
+        r.id,
+        r.pro_id,
+        r.prestation_id,
+        r.slot_id,
+        r.status,
+        r.price,
+        r.paid_online,
+        r.created_at,
+        r.start_datetime,
+        r.end_datetime,
+        CONCAT(u.first_name, ' ', u.last_name) AS pro_name,
+        u.activity_name AS pro_activity_name,
+        u.profile_photo AS pro_profile_photo,
+        u.city AS pro_city,
+        u.instagram_account AS pro_instagram,
+        p.name AS prestation_name,
+        p.description AS prestation_description,
+        p.duration_minutes AS prestation_duration,
+        DATE(r.start_datetime) AS slot_date,
+        TIME_FORMAT(r.start_datetime, '%H:%i:%s') AS slot_start_time,
+        TIME_FORMAT(r.end_datetime, '%H:%i:%s') AS slot_end_time
+      FROM reservations r
+      LEFT JOIN users u ON u.id = r.pro_id
+      LEFT JOIN prestations p ON p.id = r.prestation_id
+      WHERE r.id = ? AND r.client_id = ?
+    `, [bookingId, clientId]);
+
+    if (!rows || (rows as any).length === 0) {
+      return res.status(404).json({ success: false, message: 'Réservation non trouvée' });
+    }
+
+    res.json({ success: true, data: (rows as any)[0] });
+
+  } catch (error) {
+    console.error('Error fetching booking detail:', error);
+    res.status(500).json({ success: false, message: 'Erreur lors de la récupération des détails' });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
 /* ========================================
    FAVORITES ROUTES
    ======================================== */
@@ -3236,12 +4402,19 @@ app.post("/api/reviews", authenticateToken, async (req: Request, res: Response) 
 app.get("/api/favorites", authenticateToken, async (req: Request, res: Response) => {
   let connection;
   try {
-    const clientId = (req as any).user.userId;
-    
+    const clientId = (req as AuthenticatedRequest).user?.id;
+
+    if (!clientId) {
+      return res.status(401).json({
+        success: false,
+        message: "Non authentifié"
+      });
+    }
+
     connection = await db.getConnection();
-    
-    const rows = await connection.query(
-      `SELECT 
+
+    const [rows] = await connection.query(
+      `SELECT
         f.id,
         f.pro_id,
         f.created_at,
@@ -3250,23 +4423,28 @@ app.get("/api/favorites", authenticateToken, async (req: Request, res: Response)
         u.activity_name,
         u.city,
         u.profile_photo,
+        u.banner_photo,
+        u.bio,
+        u.instagram_account,
+        'Prothésiste ongulaire' as specialty,
         COALESCE(AVG(r.rating), 0) as avg_rating,
         COUNT(DISTINCT r.id) as reviews_count
        FROM favorites f
-       LEFT JOIN users u ON u.id = f.pro_id
+       JOIN users u ON u.id = f.pro_id
        LEFT JOIN reviews r ON r.pro_id = f.pro_id
-       WHERE f.client_id = ?
-       GROUP BY f.id, f.pro_id, f.created_at, u.first_name, u.last_name, u.activity_name, u.city, u.profile_photo
+       WHERE f.client_id = ? AND u.pro_status = 'active'
+       GROUP BY f.id, f.pro_id, f.created_at, u.first_name, u.last_name,
+                u.activity_name, u.city, u.profile_photo, u.banner_photo,
+                u.bio, u.instagram_account
        ORDER BY f.created_at DESC`,
       [clientId]
     );
-    
+
     res.json({
       success: true,
       data: rows
     });
-  } catch (error) {
-    console.error("Error fetching favorites:", error);
+  } catch {
     res.status(500).json({
       success: false,
       message: "Erreur lors de la récupération des favoris"
@@ -3280,8 +4458,19 @@ app.get("/api/favorites", authenticateToken, async (req: Request, res: Response)
 app.post("/api/favorites", authenticateToken, async (req: Request, res: Response) => {
   let connection;
   try {
-    const clientId = (req as any).user.userId;
+    const user = (req as AuthenticatedRequest).user;
+    const clientId = user?.id;
     const { pro_id } = req.body;
+
+    console.log("🔐 Add favorite - user:", user, "clientId:", clientId, "pro_id:", pro_id);
+
+    if (!clientId || clientId === undefined || clientId === null) {
+      console.log("❌ Client ID missing or invalid");
+      return res.status(401).json({
+        success: false,
+        message: "Non authentifié"
+      });
+    }
 
     if (!pro_id) {
       return res.status(400).json({
@@ -3292,21 +4481,23 @@ app.post("/api/favorites", authenticateToken, async (req: Request, res: Response
 
     connection = await db.getConnection();
 
-    // Vérifier si déjà en favori
-    const [existing]: any = await connection.query(
+    const [existing] = await connection.query(
       "SELECT id FROM favorites WHERE client_id = ? AND pro_id = ?",
       [clientId, pro_id]
     );
 
-    if (existing) {
+    if (Array.isArray(existing) && existing.length > 0) {
       return res.status(409).json({
         success: false,
-        message: "Déjà dans les favoris"
+        message: "Déjà dans les favoris",
+        data: {
+          id: (existing[0] as { id: number }).id,
+          isFavorite: true
+        }
       });
     }
 
-    // Ajouter aux favoris
-    const result = await connection.query(
+    const [result] = await connection.query(
       "INSERT INTO favorites (client_id, pro_id) VALUES (?, ?)",
       [clientId, pro_id]
     );
@@ -3315,11 +4506,12 @@ app.post("/api/favorites", authenticateToken, async (req: Request, res: Response
       success: true,
       message: "Ajouté aux favoris",
       data: {
-        id: (result as any).insertId
+        id: (result as { insertId: number }).insertId,
+        pro_id: pro_id,
+        isFavorite: true
       }
     });
-  } catch (error) {
-    console.error("Error adding favorite:", error);
+  } catch {
     res.status(500).json({
       success: false,
       message: "Erreur lors de l'ajout aux favoris"
@@ -3333,8 +4525,15 @@ app.post("/api/favorites", authenticateToken, async (req: Request, res: Response
 app.delete("/api/favorites/:proId", authenticateToken, async (req: Request, res: Response) => {
   let connection;
   try {
-    const clientId = (req as any).user.userId;
+    const clientId = (req as AuthenticatedRequest).user?.id;
     const proId = parseInt(req.params.proId);
+
+    if (!clientId) {
+      return res.status(401).json({
+        success: false,
+        message: "Non authentifié"
+      });
+    }
 
     if (isNaN(proId)) {
       return res.status(400).json({
@@ -3345,25 +4544,29 @@ app.delete("/api/favorites/:proId", authenticateToken, async (req: Request, res:
 
     connection = await db.getConnection();
 
-    // Supprimer des favoris
-    const result = await connection.query(
+    const [result] = await connection.query(
       "DELETE FROM favorites WHERE client_id = ? AND pro_id = ?",
       [clientId, proId]
     );
 
-    if ((result as any).affectedRows === 0) {
+    if ((result as { affectedRows: number }).affectedRows === 0) {
       return res.status(404).json({
         success: false,
-        message: "Favori non trouvé"
+        message: "Favori non trouvé",
+        data: {
+          isFavorite: false
+        }
       });
     }
 
     res.json({
       success: true,
-      message: "Retiré des favoris"
+      message: "Retiré des favoris",
+      data: {
+        isFavorite: false
+      }
     });
-  } catch (error) {
-    console.error("Error removing favorite:", error);
+  } catch {
     res.status(500).json({
       success: false,
       message: "Erreur lors de la suppression"
@@ -3373,28 +4576,44 @@ app.delete("/api/favorites/:proId", authenticateToken, async (req: Request, res:
   }
 });
 
-/* CHECK IF FAVORITE (optionnel, pour vérifier un seul pro) */
+/* CHECK IF FAVORITE */
 app.get("/api/favorites/check/:proId", authenticateToken, async (req: Request, res: Response) => {
   let connection;
   try {
-    const clientId = (req as any).user.userId;
+    const clientId = (req as AuthenticatedRequest).user?.id;
     const proId = parseInt(req.params.proId);
+
+    if (!clientId) {
+      return res.status(401).json({
+        success: false,
+        message: "Non authentifié"
+      });
+    }
+
+    if (isNaN(proId)) {
+      return res.status(400).json({
+        success: false,
+        message: "ID invalide"
+      });
+    }
 
     connection = await db.getConnection();
 
-    const [favorite]: any = await connection.query(
+    const [rows] = await connection.query(
       "SELECT id FROM favorites WHERE client_id = ? AND pro_id = ?",
       [clientId, proId]
     );
 
+    const isFavorite = Array.isArray(rows) && rows.length > 0;
+
     res.json({
       success: true,
       data: {
-        isFavorite: !!favorite
+        isFavorite,
+        favoriteId: isFavorite ? (rows[0] as { id: number }).id : null
       }
     });
-  } catch (error) {
-    console.error("Error checking favorite:", error);
+  } catch {
     res.status(500).json({
       success: false,
       message: "Erreur lors de la vérification"
@@ -3404,143 +4623,922 @@ app.get("/api/favorites/check/:proId", authenticateToken, async (req: Request, r
   }
 });
 
-/* ========================================
-   FAVORITES ROUTES
-   ======================================== */
 
-/* GET USER FAVORITES */
-app.get("/api/favorites", authenticateToken, async (req: Request, res: Response) => {
-  let connection;
-  try {
-    const clientId = (req as any).user.userId;
-    
-    connection = await db.getConnection();
-    
-    const rows = await connection.query(
-      `SELECT 
-        f.id,
-        f.pro_id,
-        f.created_at
-       FROM favorites f
-       WHERE f.client_id = ?
-       ORDER BY f.created_at DESC`,
-      [clientId]
-    );
-    
-    res.json({
-      success: true,
-      data: rows
-    });
-  } catch (error) {
-    console.error("Error fetching favorites:", error);
-    res.status(500).json({
-      success: false,
-      message: "Erreur lors de la récupération des favoris"
-    });
-  } finally {
-    if (connection) connection.release();
-  }
-});
+// ==========================================
+// CLIENT BOOKINGS ROUTES
+// ==========================================
 
-/* ADD TO FAVORITES */
-app.post("/api/favorites", authenticateToken, async (req: Request, res: Response) => {
-  let connection;
-  try {
-    const clientId = (req as any).user.userId;
-    const { pro_id } = req.body;
+/* GET CLIENT BOOKINGS (Mes réservations) */
+app.get(
+  "/api/client/my-booking",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const clientId = req.user?.id;
 
-    if (!pro_id) {
-      return res.status(400).json({
-        success: false,
-        message: "ID du professionnel requis"
-      });
-    }
-
-    connection = await db.getConnection();
-
-    // Vérifier si déjà en favori
-    const [existing]: any = await connection.query(
-      "SELECT id FROM favorites WHERE client_id = ? AND pro_id = ?",
-      [clientId, pro_id]
-    );
-
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        message: "Déjà dans les favoris"
-      });
-    }
-
-    // Ajouter aux favoris
-    const result = await connection.query(
-      "INSERT INTO favorites (client_id, pro_id) VALUES (?, ?)",
-      [clientId, pro_id]
-    );
-
-    res.json({
-      success: true,
-      message: "Ajouté aux favoris",
-      data: {
-        id: (result as any).insertId
+      if (!clientId) {
+        return res.status(401).json({
+          success: false,
+          message: "Utilisateur non authentifié"
+        });
       }
+
+      console.log(`📡 Récupération des réservations pour client ${clientId}...`);
+
+      connection = await db.getConnection();
+
+      const [rows] = await connection.query(
+        `SELECT 
+          r.id,
+          r.pro_id,
+          r.client_id,
+          r.prestation_id,
+          r.slot_id,
+          r.start_datetime,
+          r.end_datetime,
+          r.status,
+          r.price,
+          r.paid_online,
+          r.created_at,
+          u.first_name AS pro_first_name,
+          u.last_name AS pro_last_name,
+          u.activity_name AS pro_activity_name,
+          u.profile_photo AS pro_profile_photo,
+          u.city AS pro_city,
+          p.name AS prestation_name,
+          p.description AS prestation_description,
+          p.duration_minutes AS prestation_duration
+         FROM reservations r
+         JOIN users u ON u.id = r.pro_id
+         LEFT JOIN prestations p ON p.id = r.prestation_id
+         WHERE r.client_id = ?
+         ORDER BY r.start_datetime DESC`,
+        [clientId]
+      );
+
+      console.log(`✅ ${(rows as any[]).length} réservation(s) trouvée(s)`);
+
+      const bookings = (rows as any[]).map((row: any) => ({
+        id: row.id,
+        pro: {
+          id: row.pro_id,
+          name: row.pro_activity_name || `${row.pro_first_name} ${row.pro_last_name}`,
+          first_name: row.pro_first_name,
+          last_name: row.pro_last_name,
+          profile_photo: row.pro_profile_photo,
+          city: row.pro_city
+        },
+        prestation: row.prestation_id ? {
+          id: row.prestation_id,
+          name: row.prestation_name,
+          description: row.prestation_description,
+          duration_minutes: row.prestation_duration
+        } : null,
+        start_datetime: row.start_datetime,
+        end_datetime: row.end_datetime,
+        price: Number(row.price),
+        status: row.status,
+        paid_online: Boolean(row.paid_online),
+        created_at: row.created_at
+      }));
+
+      res.json({
+        success: true,
+        data: bookings
+      });
+
+    } catch (error) {
+      console.error("❌ Error fetching client bookings:", error);
+
+      if (error instanceof Error) {
+        console.error("Message:", error.message);
+      }
+
+      res.status(500).json({
+        success: false,
+        message: "Erreur lors de la récupération des réservations"
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+/* GET SINGLE BOOKING DETAILS */
+app.get(
+  "/api/client/my-booking/:id",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const clientId = req.user?.id;
+      const bookingId = parseInt(req.params.id);
+
+      if (!clientId) {
+        return res.status(401).json({
+          success: false,
+          message: "Utilisateur non authentifié"
+        });
+      }
+
+      if (isNaN(bookingId)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID de réservation invalide"
+        });
+      }
+
+      connection = await db.getConnection();
+
+      const [rows] = await connection.query(
+        `SELECT 
+          r.id,
+          r.pro_id,
+          r.prestation_id,
+          r.slot_id,
+          r.start_datetime,
+          r.end_datetime,
+          r.status,
+          r.price,
+          r.paid_online,
+          r.created_at,
+          u.first_name AS pro_first_name,
+          u.last_name AS pro_last_name,
+          u.activity_name AS pro_activity_name,
+          u.profile_photo AS pro_profile_photo,
+          u.banner_photo AS pro_banner_photo,
+          u.city AS pro_city,
+          u.instagram_account AS pro_instagram,
+          u.phone_number AS pro_phone,
+          p.name AS prestation_name,
+          p.description AS prestation_description,
+          p.duration_minutes AS prestation_duration
+         FROM reservations r
+         JOIN users u ON u.id = r.pro_id
+         LEFT JOIN prestations p ON p.id = r.prestation_id
+         WHERE r.id = ? AND r.client_id = ?`,
+        [bookingId, clientId]
+      );
+
+      if ((rows as any[]).length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Réservation non trouvée"
+        });
+      }
+
+      const row = (rows as any[])[0];
+
+      const booking = {
+        id: row.id,
+        pro: {
+          id: row.pro_id,
+          name: row.pro_activity_name || `${row.pro_first_name} ${row.pro_last_name}`,
+          first_name: row.pro_first_name,
+          last_name: row.pro_last_name,
+          profile_photo: row.pro_profile_photo,
+          banner_photo: row.pro_banner_photo,
+          city: row.pro_city,
+          instagram: row.pro_instagram,
+          phone: row.pro_phone
+        },
+        prestation: row.prestation_id ? {
+          id: row.prestation_id,
+          name: row.prestation_name,
+          description: row.prestation_description,
+          duration_minutes: row.prestation_duration
+        } : null,
+        start_datetime: row.start_datetime,
+        end_datetime: row.end_datetime,
+        price: Number(row.price),
+        status: row.status,
+        paid_online: Boolean(row.paid_online),
+        created_at: row.created_at
+      };
+
+      res.json({
+        success: true,
+        data: booking
+      });
+
+    } catch (error) {
+      console.error("❌ Error fetching booking details:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur lors de la récupération de la réservation"
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+/* CANCEL BOOKING */
+app.patch(
+  "/api/client/my-booking/:id/cancel",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const clientId = req.user?.id;
+      const bookingId = parseInt(req.params.id);
+
+      if (!clientId) {
+        return res.status(401).json({
+          success: false,
+          message: "Utilisateur non authentifié"
+        });
+      }
+
+      if (isNaN(bookingId)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID de réservation invalide"
+        });
+      }
+
+      connection = await db.getConnection();
+
+      const [existing] = await connection.query(
+        `SELECT id, status, start_datetime FROM reservations 
+         WHERE id = ? AND client_id = ?`,
+        [bookingId, clientId]
+      ) as [any[], any];
+
+      if (existing.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Réservation non trouvée"
+        });
+      }
+
+      const booking = existing[0];
+
+      if (booking.status === 'cancelled') {
+        return res.status(400).json({
+          success: false,
+          message: "Cette réservation est déjà annulée"
+        });
+      }
+
+      if (booking.status === 'completed') {
+        return res.status(400).json({
+          success: false,
+          message: "Impossible d'annuler une réservation terminée"
+        });
+      }
+
+      const now = new Date();
+      const startDate = new Date(booking.start_datetime);
+      const hoursUntilBooking = (startDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+      if (hoursUntilBooking < 24) {
+        return res.status(400).json({
+          success: false,
+          message: "Impossible d'annuler moins de 24h avant le rendez-vous"
+        });
+      }
+
+      await connection.query(
+        `UPDATE reservations SET status = 'cancelled' WHERE id = ?`,
+        [bookingId]
+      );
+
+      console.log(`✅ Réservation ${bookingId} annulée par le client ${clientId}`);
+
+      res.json({
+        success: true,
+        message: "Réservation annulée avec succès"
+      });
+
+    } catch (error) {
+      console.error("❌ Error cancelling booking:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur lors de l'annulation"
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+// =====================
+// ADMIN - DASHBOARD
+// =====================
+
+// Route pour les compteurs du dashboard admin
+app.get("/api/admin/dashboard/counts", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.user?.id;
+
+    // Vérifier que c'est un admin
+    const [adminCheck] = await db.query("SELECT is_admin FROM users WHERE id = ?", [adminId]);
+    if ((adminCheck as any).length === 0 || !(adminCheck as any)[0].is_admin) {
+      return res.status(403).json({ success: false, message: "Accès réservé aux admins" });
+    }
+
+    // Total utilisateurs
+    const [totalUsersRows] = await db.query("SELECT COUNT(*) as count FROM users");
+    const totalUsers = (totalUsersRows as any[])[0]?.count || 0;
+
+    // Total réservations
+    const [totalBookingsRows] = await db.query("SELECT COUNT(*) as count FROM reservations");
+    const totalBookings = (totalBookingsRows as any[])[0]?.count || 0;
+
+    // Notifications non lues (par défaut 0 si table inexistante)
+    let unreadNotifications = 0;
+    try {
+      const [unreadNotifRows] = await db.query(
+        "SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0",
+        [adminId]
+      );
+      unreadNotifications = (unreadNotifRows as any[])[0]?.count || 0;
+    } catch (error) {
+      console.log("Notifications table not found, defaulting to 0");
+    }
+
+    res.json({
+      success: true,
+      counts: {
+        totalUsers,
+        totalBookings,
+        unreadNotifications,
+      },
     });
   } catch (error) {
-    console.error("Error adding favorite:", error);
-    res.status(500).json({
-      success: false,
-      message: "Erreur lors de l'ajout aux favoris"
-    });
-  } finally {
-    if (connection) connection.release();
+    console.error("Error fetching counts:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
 
-/* REMOVE FROM FAVORITES */
-app.delete("/api/favorites/:proId", authenticateToken, async (req: Request, res: Response) => {
-  let connection;
+// Stats complètes du dashboard
+app.get("/api/admin/dashboard/stats", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
-    const proId = parseInt(req.params.proId);
+    const adminId = req.user?.id;
 
-    if (isNaN(proId)) {
-      return res.status(400).json({
-        success: false,
-        message: "ID invalide"
+    // Vérifier que c'est un admin
+    const [adminCheck] = await db.query("SELECT is_admin FROM users WHERE id = ?", [adminId]);
+    if ((adminCheck as any).length === 0 || !(adminCheck as any)[0].is_admin) {
+      return res.status(403).json({ success: false, message: "Accès réservé aux admins" });
+    }
+
+    // Total utilisateurs
+    const [totalUsersRows] = await db.query("SELECT COUNT(*) as count FROM users");
+    const totalUsers = (totalUsersRows as any[])[0]?.count || 0;
+
+    // Total pros
+    const [totalProsRows] = await db.query("SELECT COUNT(*) as count FROM users WHERE role = 'pro'");
+    const totalPros = (totalProsRows as any[])[0]?.count || 0;
+
+    // Total clients
+    const [totalClientsRows] = await db.query("SELECT COUNT(*) as count FROM users WHERE role = 'client'");
+    const totalClients = (totalClientsRows as any[])[0]?.count || 0;
+
+    // Total réservations
+    const [totalBookingsRows] = await db.query("SELECT COUNT(*) as count FROM reservations");
+    const totalBookings = (totalBookingsRows as any[])[0]?.count || 0;
+
+    // Réservations du jour
+    const [todayBookingsRows] = await db.query(
+      "SELECT COUNT(*) as count FROM reservations WHERE DATE(start_datetime) = CURDATE()"
+    );
+    const todayBookings = (todayBookingsRows as any[])[0]?.count || 0;
+
+    // Chiffre d'affaires total
+    const [totalRevenueRows] = await db.query(
+      "SELECT IFNULL(SUM(price), 0) as total FROM reservations WHERE status IN ('confirmed', 'completed')"
+    );
+    const totalRevenue = Number((totalRevenueRows as any[])[0]?.total || 0);
+
+    // Chiffre d'affaires du mois
+    const [monthRevenueRows] = await db.query(
+      "SELECT IFNULL(SUM(price), 0) as total FROM reservations WHERE status IN ('confirmed', 'completed') AND YEAR(start_datetime) = YEAR(CURDATE()) AND MONTH(start_datetime) = MONTH(CURDATE())"
+    );
+    const monthRevenue = Number((monthRevenueRows as any[])[0]?.total || 0);
+
+    // Utilisateurs actifs (derniers 7 jours)
+    const [activeUsersRows] = await db.query(
+      "SELECT COUNT(DISTINCT user_id) as count FROM refresh_tokens WHERE expires_at > NOW() AND revoked = 0 AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)"
+    );
+    const activeUsers = (activeUsersRows as any[])[0]?.count || 0;
+
+    // Activité récente (dernières 24h)
+    const [recentActivity] = await db.query(`
+      (SELECT 
+        'booking' as type,
+        CONCAT('Nouvelle réservation de ', c.first_name, ' ', c.last_name) as title,
+        CONCAT('Chez ', p.first_name, ' ', p.last_name) as description,
+        DATE_FORMAT(r.created_at, '%H:%i') as time,
+        r.created_at as timestamp
+      FROM reservations r
+      JOIN users c ON c.id = r.client_id
+      JOIN users p ON p.id = r.pro_id
+      WHERE r.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+      ORDER BY r.created_at DESC
+      LIMIT 5)
+      
+      UNION ALL
+      
+      (SELECT 
+        'user' as type,
+        CONCAT('Nouvel utilisateur : ', u.first_name, ' ', u.last_name) as title,
+        CONCAT('Rôle : ', IF(u.role = 'pro', 'Professionnel', 'Client')) as description,
+        DATE_FORMAT(u.created_at, '%H:%i') as time,
+        u.created_at as timestamp
+      FROM users u
+      WHERE u.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+      ORDER BY u.created_at DESC
+      LIMIT 5)
+      
+      ORDER BY timestamp DESC
+      LIMIT 10
+    `);
+
+    res.json({
+      success: true,
+      stats: {
+        totalUsers,
+        totalPros,
+        totalClients,
+        totalBookings,
+        todayBookings,
+        totalRevenue,
+        monthRevenue,
+        activeUsers,
+      },
+      recentActivity: (recentActivity as any[]).map((activity: any) => ({
+        type: activity.type,
+        title: activity.title,
+        description: activity.description,
+        time: activity.time,
+      })),
+    });
+  } catch (error) {
+    console.error("Error fetching admin dashboard stats:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// =====================
+// ADMIN - USERS CRUD
+// =====================
+
+// GET tous les utilisateurs
+app.get("/api/admin/users", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.user?.id;
+    const [adminCheck] = await db.query("SELECT is_admin FROM users WHERE id = ?", [adminId]);
+    if ((adminCheck as any).length === 0 || !(adminCheck as any)[0].is_admin) {
+      return res.status(403).json({ success: false, message: "Accès réservé aux admins" });
+    }
+
+    const [users] = await db.query("SELECT * FROM users ORDER BY created_at DESC");
+    res.json({ success: true, data: users });
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// CREATE utilisateur
+app.post("/api/admin/users/create", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.user?.id;
+    const [adminCheck] = await db.query("SELECT is_admin FROM users WHERE id = ?", [adminId]);
+    if ((adminCheck as any).length === 0 || !(adminCheck as any)[0].is_admin) {
+      return res.status(403).json({ success: false, message: "Accès réservé aux admins" });
+    }
+
+    const { 
+      first_name, 
+      last_name, 
+      phone_number, 
+      email, 
+      birth_date,
+      role,
+      is_admin,
+      activity_name,
+      city,
+      instagram_account,
+      profile_photo,
+      banner_photo,
+      bankaccountname,
+      IBAN,
+      iban_last4,
+      accept_online_payment,
+      pro_status,
+      bio,
+      profile_visibility
+    } = req.body;
+
+    // Validation des champs obligatoires
+    if (!first_name || !last_name || !phone_number || !email || !role) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Les champs first_name, last_name, phone_number, email et role sont obligatoires" 
       });
     }
 
-    connection = await db.getConnection();
+    // Vérifier si l'email existe déjà
+    const [emailCheck] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+    if ((emailCheck as any).length > 0) {
+      return res.status(400).json({ success: false, message: "Cet email est déjà utilisé" });
+    }
 
-    const result = await connection.query(
-      "DELETE FROM favorites WHERE client_id = ? AND pro_id = ?",
-      [clientId, proId]
+    // ✅ CORRECTION: Convertir birth_date
+    let formattedBirthDate = null;
+    if (birth_date) {
+      try {
+        const dateObj = new Date(birth_date);
+        if (!isNaN(dateObj.getTime())) {
+          formattedBirthDate = dateObj.toISOString().split('T')[0];
+        }
+      } catch (error) {
+        console.error("Error parsing birth_date:", error);
+      }
+    }
+
+    // Hash du mot de passe temporaire
+    const tempPassword = 'TempPassword123!';
+    const password_hash = await bcrypt.hash(tempPassword, 12);
+    
+    // Générer iban_hash si IBAN fourni
+    let iban_hash = null;
+    let computed_iban_last4 = iban_last4 || null;
+    if (IBAN) {
+      iban_hash = crypto.createHash('sha256').update(IBAN).digest('hex');
+      if (!computed_iban_last4) {
+        computed_iban_last4 = IBAN.slice(-4);
+      }
+    }
+
+    await db.query(
+      `INSERT INTO users (
+        first_name, 
+        last_name, 
+        phone_number,
+        email, 
+        birth_date,
+        password_hash,
+        is_verified,
+        role, 
+        is_admin,
+        created_at,
+        activity_name,
+        city,
+        instagram_account,
+        profile_photo,
+        banner_photo,
+        bankaccountname,
+        IBAN,
+        iban_last4,
+        iban_hash,
+        accept_online_payment,
+        pro_status,
+        bio,
+        profile_visibility
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        first_name, 
+        last_name, 
+        phone_number,
+        email, 
+        formattedBirthDate, // ✅ Date formatée
+        password_hash,
+        0, // is_verified par défaut
+        role,
+        is_admin ? 1 : 0,
+        activity_name || null,
+        city || null,
+        instagram_account || null,
+        profile_photo || null,
+        banner_photo || null,
+        bankaccountname || null,
+        IBAN || null,
+        computed_iban_last4,
+        iban_hash,
+        accept_online_payment ? 1 : 0,
+        pro_status || 'inactive',
+        bio || null,
+        profile_visibility || 'public'
+      ]
     );
+
+    res.json({ success: true, message: "Utilisateur créé avec succès" });
+  } catch (error) {
+    console.error("Error creating user:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+
+// UPDATE utilisateur
+app.put("/api/admin/users/:id", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.user?.id;
+    const [adminCheck] = await db.query("SELECT is_admin FROM users WHERE id = ?", [adminId]);
+    if ((adminCheck as any).length === 0 || !(adminCheck as any)[0].is_admin) {
+      return res.status(403).json({ success: false, message: "Accès réservé aux admins" });
+    }
+
+    const userId = req.params.id;
+    const { 
+      first_name, 
+      last_name, 
+      phone_number,
+      email, 
+      birth_date,
+      role,
+      is_admin,
+      activity_name,
+      city,
+      instagram_account,
+      profile_photo,
+      banner_photo,
+      bankaccountname,
+      IBAN,
+      iban_last4,
+      accept_online_payment,
+      pro_status,
+      bio,
+      profile_visibility,
+      is_verified
+    } = req.body;
+
+    // Validation des champs obligatoires
+    if (!first_name || !last_name || !phone_number || !email || !role) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Les champs first_name, last_name, phone_number, email et role sont obligatoires" 
+      });
+    }
+
+    // Vérifier email unique
+    const [emailCheck] = await db.query(
+      "SELECT id FROM users WHERE email = ? AND id != ?",
+      [email, userId]
+    );
+    if ((emailCheck as any).length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Cet email est déjà utilisé" 
+      });
+    }
+
+    let formattedBirthDate = null;
+    if (birth_date) {
+      try {
+        const dateObj = new Date(birth_date);
+        if (!isNaN(dateObj.getTime())) {
+          formattedBirthDate = dateObj.toISOString().split('T')[0];
+        }
+      } catch (error) {
+        console.error("Error parsing birth_date:", error);
+        formattedBirthDate = null;
+      }
+    }
+
+    // Générer iban_hash si IBAN fourni
+    let iban_hash = null;
+    let computed_iban_last4 = iban_last4 || null;
+    if (IBAN) {
+      iban_hash = crypto.createHash('sha256').update(IBAN).digest('hex');
+      if (!computed_iban_last4) {
+        computed_iban_last4 = IBAN.slice(-4);
+      }
+    }
+
+    // UPDATE
+    await db.query(
+      `UPDATE users SET 
+        first_name = ?, 
+        last_name = ?, 
+        phone_number = ?,
+        email = ?, 
+        birth_date = ?,
+        role = ?, 
+        is_admin = ?,
+        activity_name = ?,
+        city = ?,
+        instagram_account = ?,
+        profile_photo = ?,
+        banner_photo = ?,
+        bankaccountname = ?,
+        IBAN = ?,
+        iban_last4 = ?,
+        iban_hash = ?,
+        accept_online_payment = ?,
+        pro_status = ?,
+        bio = ?,
+        profile_visibility = ?,
+        is_verified = ?
+      WHERE id = ?`,
+      [
+        first_name, 
+        last_name, 
+        phone_number,
+        email, 
+        formattedBirthDate,
+        role, 
+        is_admin ? 1 : 0,
+        activity_name || null,
+        city || null,
+        instagram_account || null,
+        profile_photo || null,
+        banner_photo || null,
+        bankaccountname || null,
+        IBAN || null,
+        computed_iban_last4,
+        iban_hash,
+        accept_online_payment ? 1 : 0,
+        pro_status || 'inactive',
+        bio || null,
+        profile_visibility || 'public',
+        is_verified ? 1 : 0,
+        userId
+      ]
+    );
+
+    res.json({ success: true, message: "Utilisateur modifié avec succès" });
+  } catch (error) {
+    console.error("Error updating user:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// DELETE utilisateur
+app.delete("/api/admin/users/:id", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.user?.id;
+    const [adminCheck] = await db.query("SELECT is_admin FROM users WHERE id = ?", [adminId]);
+    if ((adminCheck as any).length === 0 || !(adminCheck as any)[0].is_admin) {
+      return res.status(403).json({ success: false, message: "Accès réservé aux admins" });
+    }
+
+    const userId = req.params.id;
+
+    const [userRows] = await db.query("SELECT is_admin FROM users WHERE id = ?", [userId]);
+    
+    if ((userRows as any[])[0]?.is_admin) {
+      const [adminsRows] = await db.query("SELECT COUNT(*) as count FROM users WHERE is_admin = 1");
+      if ((adminsRows as any[])[0].count <= 1) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Impossible de supprimer le dernier administrateur" 
+        });
+      }
+    }
+
+    // Supprimer l'utilisateur
+    const [result] = await db.query("DELETE FROM users WHERE id = ?", [userId]);
 
     if ((result as any).affectedRows === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Favori non trouvé"
-      });
+      return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
     }
 
-    res.json({
-      success: true,
-      message: "Retiré des favoris"
-    });
+    res.json({ success: true, message: "Utilisateur supprimé avec succès" });
   } catch (error) {
-    console.error("Error removing favorite:", error);
-    res.status(500).json({
-      success: false,
-      message: "Erreur lors de la suppression"
-    });
-  } finally {
-    if (connection) connection.release();
+    console.error("Error deleting user:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
 
 
+// =====================
+// ADMIN - BOOKINGS CRUD
+// =====================
 
+// GET toutes les réservations
+app.get("/api/admin/bookings", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.user?.id;
+    const [adminCheck] = await db.query("SELECT is_admin FROM users WHERE id = ?", [adminId]);
+    if ((adminCheck as any).length === 0 || !(adminCheck as any)[0].is_admin) {
+      return res.status(403).json({ success: false, message: "Accès réservé aux admins" });
+    }
 
+    const [bookings] = await db.query(`
+      SELECT 
+        r.*,
+        CONCAT(c.first_name, ' ', c.last_name) as client_name,
+        CONCAT(p.first_name, ' ', p.last_name) as pro_name
+      FROM reservations r
+      LEFT JOIN users c ON r.client_id = c.id
+      LEFT JOIN users p ON r.pro_id = p.id
+      ORDER BY r.start_datetime DESC
+    `);
+
+    res.json({ success: true, data: bookings });
+  } catch (error) {
+    console.error("Error fetching bookings:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// CREATE réservation
+app.post("/api/admin/bookings/create", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.user?.id;
+    const [adminCheck] = await db.query("SELECT is_admin FROM users WHERE id = ?", [adminId]);
+    if ((adminCheck as any).length === 0 || !(adminCheck as any)[0].is_admin) {
+      return res.status(403).json({ success: false, message: "Accès réservé aux admins" });
+    }
+
+    const { client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price } = req.body;
+
+    // Validation
+    if (!client_id || !pro_id || !prestation_id || !start_datetime || !end_datetime || !price) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Tous les champs requis doivent être remplis" 
+      });
+    }
+    
+    await db.query(
+      `INSERT INTO reservations (
+        client_id, 
+        pro_id, 
+        prestation_id, 
+        start_datetime, 
+        end_datetime, 
+        status, 
+        price, 
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [client_id, pro_id, prestation_id, start_datetime, end_datetime, status || 'pending', price]
+    );
+
+    res.json({ success: true, message: "Réservation créée avec succès" });
+  } catch (error) {
+    console.error("Error creating booking:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// UPDATE réservation
+app.put("/api/admin/bookings/:id", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.user?.id;
+    const [adminCheck] = await db.query("SELECT is_admin FROM users WHERE id = ?", [adminId]);
+    if ((adminCheck as any).length === 0 || !(adminCheck as any)[0].is_admin) {
+      return res.status(403).json({ success: false, message: "Accès réservé aux admins" });
+    }
+
+    const bookingId = req.params.id;
+    const { client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price } = req.body;
+
+    // Validation
+    if (!client_id || !pro_id || !prestation_id || !start_datetime || !end_datetime || !price) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Tous les champs requis doivent être remplis" 
+      });
+    }
+    
+    await db.query(
+      `UPDATE reservations SET 
+        client_id = ?, 
+        pro_id = ?, 
+        prestation_id = ?, 
+        start_datetime = ?, 
+        end_datetime = ?, 
+        status = ?, 
+        price = ? 
+      WHERE id = ?`,
+      [client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, bookingId]
+    );
+
+    res.json({ success: true, message: "Réservation modifiée avec succès" });
+  } catch (error) {
+    console.error("Error updating booking:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// DELETE réservation
+app.delete("/api/admin/bookings/:id", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.user?.id;
+    const [adminCheck] = await db.query("SELECT is_admin FROM users WHERE id = ?", [adminId]);
+    if ((adminCheck as any).length === 0 || !(adminCheck as any)[0].is_admin) {
+      return res.status(403).json({ success: false, message: "Accès réservé aux admins" });
+    }
+
+    const bookingId = req.params.id;
+    const [result] = await db.query("DELETE FROM reservations WHERE id = ?", [bookingId]);
+
+    if ((result as any).affectedRows === 0) {
+      return res.status(404).json({ success: false, message: "Réservation non trouvée" });
+    }
+
+    res.json({ success: true, message: "Réservation supprimée avec succès" });
+  } catch (error) {
+    console.error("Error deleting booking:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
 
 // ==========================================
 // START SERVER
@@ -3548,6 +5546,7 @@ app.delete("/api/favorites/:proId", authenticateToken, async (req: Request, res:
 
 const PORT = process.env.PORT || 3001;
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Backend running on http://localhost:${PORT}`);
+  console.log(`🔌 WebSocket server ready on ws://localhost:${PORT}`);
 });

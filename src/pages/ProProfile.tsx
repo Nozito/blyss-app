@@ -642,5 +642,3 @@ const profileCompleteness = calculateProfileCompleteness();
 };
 
 export default ProProfile;
-// Removed unused stub functions
-

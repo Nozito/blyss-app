@@ -4,7 +4,8 @@ import {
   Search, X, Star, MapPin, Sparkles, ChevronLeft, Heart
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import api from "@/services/api";
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 interface Specialist {
   id: number;
@@ -21,81 +22,19 @@ interface Specialist {
   };
 }
 
-const MOCK_SPECIALISTS: Specialist[] = [
-  {
-    id: 1,
-    business_name: "Marie Beauté",
-    specialty: "Pose gel & nail art",
-    city: "Paris 11ème",
-    rating: 4.9,
-    reviews_count: 156,
-    profile_image_url: "https://randomuser.me/api/portraits/women/1.jpg",
-    cover_image_url: "https://images.unsplash.com/photo-1604654894610-df63bc536371?w=800&q=80",
-    user: { first_name: "Marie", last_name: "Dupont" }
-  },
-  {
-    id: 2,
-    business_name: "Sophie Nails",
-    specialty: "Prothésiste ongulaire",
-    city: "Paris 9ème",
-    rating: 4.8,
-    reviews_count: 89,
-    profile_image_url: "https://randomuser.me/api/portraits/women/2.jpg",
-    cover_image_url: "https://images.unsplash.com/photo-1610992015732-2449b76344bc?w=800&q=80",
-    user: { first_name: "Sophie", last_name: "Martin" }
-  },
-  {
-    id: 3,
-    business_name: "Emma Style",
-    specialty: "Nail art détaillé",
-    city: "Paris 15ème",
-    rating: 4.7,
-    reviews_count: 124,
-    profile_image_url: "https://randomuser.me/api/portraits/women/3.jpg",
-    cover_image_url: "https://images.unsplash.com/photo-1519014816548-bf5fe059798b?w=800&q=80",
-    user: { first_name: "Emma", last_name: "Bernard" }
-  },
-  {
-    id: 4,
-    business_name: "Léa Chic",
-    specialty: "Manucure classique",
-    city: "Paris 5ème",
-    rating: 4.6,
-    reviews_count: 102,
-    profile_image_url: "https://randomuser.me/api/portraits/women/4.jpg",
-    cover_image_url: "https://images.unsplash.com/photo-1522338242992-e1a54906a8da?w=800&q=80",
-    user: { first_name: "Léa", last_name: "Petit" }
-  },
-  {
-    id: 5,
-    business_name: "Chloé Glam",
-    specialty: "Extensions & poses",
-    city: "Paris 3ème",
-    rating: 4.9,
-    reviews_count: 201,
-    profile_image_url: "https://randomuser.me/api/portraits/women/5.jpg",
-    cover_image_url: "https://images.unsplash.com/photo-1604654894610-df63bc536371?w=800&q=80",
-    user: { first_name: "Chloé", last_name: "Durand" }
-  },
-  {
-    id: 6,
-    business_name: "Camille Élégance",
-    specialty: "Nail art créatif",
-    city: "Paris 10ème",
-    rating: 4.5,
-    reviews_count: 78,
-    profile_image_url: "https://randomuser.me/api/portraits/women/6.jpg",
-    cover_image_url: "https://images.unsplash.com/photo-1610992015732-2449b76344bc?w=800&q=80",
-    user: { first_name: "Camille", last_name: "Rousseau" }
-  }
-];
+// Helper pour construire les URLs d'images
+const getImageUrl = (imagePath: string | null): string | null => {
+  if (!imagePath) return null;
+  if (imagePath.startsWith('http')) return imagePath;
+  return `${API_BASE_URL}/${imagePath}`;
+};
 
 const ClientSpecialists = () => {
   const navigate = useNavigate();
 
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
 
   const filteredSpecialists = useMemo(
@@ -113,20 +52,36 @@ const ClientSpecialists = () => {
     const fetchSpecialists = async () => {
       try {
         setLoading(true);
-        const clientApi = (api as any).client ?? (api as any);
-        if (clientApi?.getSpecialists) {
-          const response = await clientApi.getSpecialists({ limit: 50 });
-          if (response?.success && response?.data) {
-            setSpecialists(response.data);
-          } else {
-            setSpecialists(MOCK_SPECIALISTS);
-          }
+
+        // Appeler la route GET /api/users/pros
+        const response = await fetch(`${API_BASE_URL}/api/users/pros`);
+        const data = await response.json();
+
+        if (data.success && data.data) {
+          // Mapper les données du backend vers le format du composant
+          const formattedSpecialists: Specialist[] = data.data.map((pro: any) => ({
+            id: pro.id,
+            business_name: pro.activity_name || `${pro.first_name} ${pro.last_name}`,
+            specialty: 'Prothésiste ongulaire', // Par défaut
+            city: pro.city || 'Non spécifié',
+            rating: Number(pro.avg_rating) || 0,
+            reviews_count: Number(pro.reviews_count) || 0,
+            profile_image_url: getImageUrl(pro.profile_photo),
+            cover_image_url: getImageUrl(pro.banner_photo),
+            user: {
+              first_name: pro.first_name,
+              last_name: pro.last_name
+            }
+          }));
+
+          setSpecialists(formattedSpecialists);
         } else {
-          setSpecialists(MOCK_SPECIALISTS);
+          console.error('API response error:', data);
+          setSpecialists([]);
         }
       } catch (error) {
-        console.error("Error:", error);
-        setSpecialists(MOCK_SPECIALISTS);
+        console.error("Error fetching specialists:", error);
+        setSpecialists([]);
       } finally {
         setLoading(false);
       }
@@ -169,12 +124,18 @@ const ClientSpecialists = () => {
       <div className="bg-background pb-6">
         {/* Navigation + Titre */}
         <div className="px-4 pt-4 pb-4 flex items-center gap-3">
-          <button
-            onClick={() => navigate("/client")}
+            <button
+            onClick={() => {
+              if (window.history.length > 1) {
+              navigate(-1);
+              } else {
+              navigate("/client");
+              }
+            }}
             className="w-10 h-10 rounded-xl bg-background border-2 border-white flex items-center justify-center hover:bg-muted transition-all shadow-sm"
-          >
+            >
             <ChevronLeft size={20} className="text-foreground" />
-          </button>
+            </button>
           <h1 className="text-xl font-bold text-foreground">
             Découvre nos expertes
           </h1>
@@ -231,8 +192,8 @@ const ClientSpecialists = () => {
                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <Sparkles size={40} className="text-muted-foreground" />
+                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5">
+                        <Sparkles size={40} className="text-primary/40" />
                       </div>
                     )}
                     
@@ -257,12 +218,14 @@ const ClientSpecialists = () => {
                     </button>
 
                     {/* Rating badge */}
-                    <div className="absolute top-2 left-2 px-2 py-1 rounded-full bg-black/50 backdrop-blur-md flex items-center gap-1">
-                      <Star size={11} className="fill-yellow-400 text-yellow-400" />
-                      <span className="text-xs font-bold text-white">
-                        {specialist.rating}
-                      </span>
-                    </div>
+                    {specialist.rating > 0 && (
+                      <div className="absolute top-2 left-2 px-2 py-1 rounded-full bg-black/50 backdrop-blur-md flex items-center gap-1">
+                        <Star size={11} className="fill-yellow-400 text-yellow-400" />
+                        <span className="text-xs font-bold text-white">
+                          {specialist.rating.toFixed(1)}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* White Card - Avatar passe devant */}
@@ -276,7 +239,7 @@ const ClientSpecialists = () => {
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <div className="w-full h-full gradient-primary flex items-center justify-center">
+                        <div className="w-full h-full gradient-primary flex items-center justify-center bg-gradient-to-br from-primary to-primary/80">
                           <span className="text-white font-bold text-sm">
                             {specialist.user.first_name[0]}
                           </span>
@@ -301,9 +264,11 @@ const ClientSpecialists = () => {
                       </div>
 
                       {/* Reviews count - bien espacé */}
-                      <p className="text-[10px] text-muted-foreground mb-3">
-                        {specialist.reviews_count} avis
-                      </p>
+                      {specialist.reviews_count > 0 && (
+                        <p className="text-[10px] text-muted-foreground mb-3">
+                          {specialist.reviews_count} avis
+                        </p>
+                      )}
 
                       {/* CTA Button */}
                       <button
@@ -333,14 +298,16 @@ const ClientSpecialists = () => {
                 Aucun résultat
               </h3>
               <p className="text-sm text-muted-foreground mb-6">
-                Essaie avec d'autres mots-clés
+                {searchQuery ? "Essaie avec d'autres mots-clés" : "Aucune experte disponible pour le moment"}
               </p>
-              <button
-                onClick={() => setSearchQuery("")}
-                className="px-6 py-3 rounded-xl bg-primary text-white font-semibold hover:shadow-lg transition-all"
-              >
-                Voir toutes les expertes
-              </button>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="px-6 py-3 rounded-xl bg-primary text-white font-semibold hover:shadow-lg transition-all"
+                >
+                  Voir toutes les expertes
+                </button>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

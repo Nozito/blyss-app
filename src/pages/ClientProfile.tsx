@@ -120,7 +120,6 @@ const ClientProfile = () => {
 
   const handleLogout = async () => {
     await logout();
-    toast.success("Déconnexion réussie");
     navigate("/");
   };
 
@@ -133,7 +132,7 @@ const ClientProfile = () => {
       <div className="pb-6">
         {/* Header */}
         <motion.div
-          className="relative -mx-4 px-4 pt-6 pb-4 mb-3 bg-gradient-to-b from-primary/5 to-transparent"
+          className="relative -mx-4 px-4 pt-6 pb-4 mb-3"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}

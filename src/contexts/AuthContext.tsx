@@ -13,11 +13,26 @@ import {
   ApiResponse,
 } from "@/services/api";
 
+// ✅ Interface pour la réponse de signup simplifiée
+interface SignupResponse {
+  success: boolean;
+  message?: string;
+  error?: 
+    | "email_exists"
+    | "weak_password"
+    | "age_restriction"
+    | "invalid_phone"
+    | "invalid_email"
+    | "missing_fields"
+    | "data_too_long"
+    | "server_error";
+}
+
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  token?: string;
+  token: string | null;
   login: (
     credentials: LoginCredentials
   ) => Promise<
@@ -27,15 +42,7 @@ interface AuthContextType {
       user: User;
     }>
   >;
-  signup: (
-    data: SignupData
-  ) => Promise<
-    ApiResponse<{
-      accessToken: string;
-      refreshToken: string;
-      user: User;
-    }>
-  >;
+  signup: (data: SignupData) => Promise<SignupResponse>; // ✅ Changé ici
   logout: () => Promise<void>;
   updateUser: (data: Partial<User>) => Promise<ApiResponse<User>>;
 }
@@ -49,16 +56,16 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  // ✅ AJOUTER CE STATE
   const [token, setToken] = useState<string | null>(() => {
     return localStorage.getItem("auth_token");
   });
 
   useEffect(() => {
     const initAuth = async () => {
+    setIsLoading(true);
+    try {
       const storedToken = localStorage.getItem("auth_token");
-      setToken(storedToken); // ✅ Mettre à jour le state
+      setToken(storedToken);
       
       let savedUser: User | null = null;
 
@@ -79,21 +86,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       try {
         const response = await authApi.getProfile();
+        
         if (response.success && response.data) {
           setUser(response.data);
           localStorage.setItem("user", JSON.stringify(response.data));
         } else {
+          console.warn("Profile fetch failed, using cached user");
           setUser(savedUser);
         }
-      } catch {
+      } catch (error) {
+        console.error("Profile fetch error:", error);
         setUser(savedUser);
       }
 
+    } catch (error) {
+      console.error("Init auth error:", error);
+    } finally {
       setIsLoading(false);
-    };
+    }
+  };
 
-    initAuth();
-  }, []);
+  initAuth();
+}, []);
 
   const login = async (
     credentials: LoginCredentials
@@ -116,7 +130,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           console.log("storing token =", accessToken, "user =", respUser);
           localStorage.setItem("auth_token", accessToken);
           localStorage.setItem("refresh_token", refreshToken);
-          setToken(accessToken); // ✅ AJOUTER CETTE LIGNE
+          localStorage.setItem("user", JSON.stringify(respUser));
+          setToken(accessToken);
           setUser(respUser);
         } catch (err) {
           console.error("Error storing token or setting user:", err);
@@ -134,28 +149,35 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const signup = async (
-    data: SignupData
-  ): Promise<
-    ApiResponse<{
-      accessToken: string;
-      refreshToken: string;
-      user: User;
-    }>
-  > => {
+  // ✅ Fonction signup corrigée pour gérer le cas simple
+  const signup = async (data: SignupData): Promise<SignupResponse> => {
     setIsLoading(true);
     try {
       const response = await authApi.signup(data);
 
-      if (response.success && response.data) {
-        const { accessToken, refreshToken, user: respUser } = response.data;
-        localStorage.setItem("auth_token", accessToken);
-        localStorage.setItem("refresh_token", refreshToken);
-        setToken(accessToken); // ✅ AJOUTER CETTE LIGNE
-        setUser(respUser);
+      // ✅ Si le backend retourne juste { success, message, error }
+      if (response.success) {
+        // Le compte est créé mais pas de connexion auto
+        console.log("✅ Account created successfully");
+        return {
+          success: true,
+          message: response.message || "Account created successfully",
+        };
+      } else {
+        // Erreur lors de la création
+        return {
+          success: false,
+          message: response.message,
+          error: response.error as any,
+        };
       }
-
-      return response;
+    } catch (err) {
+      console.error("Signup error (catch):", err);
+      return {
+        success: false,
+        message: "Network error",
+        error: "server_error",
+      };
     } finally {
       setIsLoading(false);
     }
@@ -169,7 +191,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } finally {
       localStorage.removeItem("auth_token");
       localStorage.removeItem("refresh_token");
-      setToken(null); // ✅ AJOUTER CETTE LIGNE
+      localStorage.removeItem("user");
+      setToken(null);
       setUser(null);
     }
   };
@@ -181,12 +204,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       return { success: false, message: "No authenticated user" };
     }
 
-    const response = (await authApi.updateProfile(
-      data
-    )) as ApiResponse<User>;
+    const response = (await authApi.updateProfile(data)) as ApiResponse<User>;
 
     if (response.success && response.data) {
       setUser(response.data);
+      localStorage.setItem("user", JSON.stringify(response.data));
     }
 
     return response;
@@ -196,16 +218,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     user,
     isLoading,
     isAuthenticated: Boolean(user),
-    token, // ✅ AJOUTER CETTE LIGNE
+    token,
     login,
     signup,
     logout,
     updateUser,
   };
 
-  return (
-    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = (): AuthContextType => {
