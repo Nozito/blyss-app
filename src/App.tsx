@@ -55,6 +55,8 @@ import AdminBookings from "./pages/AdminBooking";
 import AdminLogs from "./pages/AdminLogs";
 import AdminAnalytics from "./pages/AdminAnalytics";
 import AdminPayments from "./pages/AdminPayments";
+import ProServices from "./pages/ProServices";
+import ProServicesCreate from "./pages/ProServiceForm";
 
 const queryClient = new QueryClient();
 
@@ -104,6 +106,8 @@ const App = () => {
                 <Route path="/pro/payments" element={<ProPayments />} />
                 <Route path="/pro/settings" element={<ProSettings />} />
                 <Route path="/pro/public-profile" element={<ProPublicProfile />} />
+                <Route path="/pro/services" element={<ProServices />} />
+                <Route path="/pro/services/create" element={<ProServicesCreate />} />
 
                 {/* CLIENT */}
                 <Route path="/client/help" element={<ClientHelp />} />

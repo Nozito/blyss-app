@@ -17,6 +17,7 @@ import {
   TrendingUp,
   Calendar,
   User,
+  Briefcase, // Nouvel import pour l'icône des prestations
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/AuthContext";
@@ -92,7 +93,6 @@ const ProProfile = () => {
     ? `${user.first_name} ${user.last_name}`
     : "Marie Beauté";
   const displayCity = user?.city || "Non renseigné";
-  // const displayBio = user?.bio || "Aucune bio ajoutée";
   const displayInstagram = user?.instagram_account || null;
 
   const onCropComplete = useCallback((_: any, cropped: any) => {
@@ -100,94 +100,88 @@ const ProProfile = () => {
   }, []);
 
   const handleProfileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  // Validation du fichier
-  const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-  if (!validTypes.includes(file.type)) {
-    toast.error('Format non supporté. Utilise JPG, PNG ou WebP');
-    return;
-  }
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      toast.error('Format non supporté. Utilise JPG, PNG ou WebP');
+      return;
+    }
 
-  const maxSize = 5 * 1024 * 1024; // 5MB
-  if (file.size > maxSize) {
-    toast.error("L'image ne doit pas dépasser 5MB");
-    return;
-  }
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      toast.error("L'image ne doit pas dépasser 5MB");
+      return;
+    }
 
-  // Créer un aperçu local et ouvrir le modal de crop
-  const reader = new FileReader();
-  reader.onloadend = () => {
-    setTempProfileImage(reader.result as string);
-    setShowCropModal(true);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setTempProfileImage(reader.result as string);
+      setShowCropModal(true);
+    };
+    reader.readAsDataURL(file);
   };
-  reader.readAsDataURL(file);
-};
-
 
   const uploadCroppedPhoto = async () => {
-  if (!tempProfileImage || !croppedAreaPixels) {
-    toast.error("Aucune image sélectionnée ou zone de crop manquante");
-    return;
-  }
-
-  try {
-    setIsUploadingPhoto(true);
-
-    // Générer l'image croppée en base64
-    const croppedBase64 = await getCroppedImg(tempProfileImage, croppedAreaPixels);
-    if (!croppedBase64) {
-      toast.error("Impossible de générer l'image recadrée");
+    if (!tempProfileImage || !croppedAreaPixels) {
+      toast.error("Aucune image sélectionnée ou zone de crop manquante");
       return;
     }
 
-    // Convertir l'image base64 en Blob
-    const blob = await fetch(croppedBase64).then((res) => res.blob());
-    
-    const formData = new FormData();
-    formData.append('photo', blob, 'profile-photo.jpg');
+    try {
+      setIsUploadingPhoto(true);
 
-    const token = localStorage.getItem('auth_token');
-    if (!token) {
-      toast.error('Session expirée. Reconnectez-vous.');
-      navigate('/login');
-      return;
+      const croppedBase64 = await getCroppedImg(tempProfileImage, croppedAreaPixels);
+      if (!croppedBase64) {
+        toast.error("Impossible de générer l'image recadrée");
+        return;
+      }
+
+      const blob = await fetch(croppedBase64).then((res) => res.blob());
+      
+      const formData = new FormData();
+      formData.append('photo', blob, 'profile-photo.jpg');
+
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        toast.error('Session expirée. Reconnectez-vous.');
+        navigate('/login');
+        return;
+      }
+
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+
+      const response = await fetch(`${API_URL}/users/upload-photo`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        toast.success('Photo de profil mise à jour !');
+        setProfileImage(result.photo);
+        setShowCropModal(false);
+        setTempProfileImage(null);
+      } else {
+        toast.error(result.message || 'Erreur lors de l\'upload');
+      }
+
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      toast.error('Erreur lors de l\'upload de la photo');
+    } finally {
+      setIsUploadingPhoto(false);
     }
-
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-
-    const response = await fetch(`${API_URL}/users/upload-photo`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      },
-      body: formData
-    });
-
-    if (!response.ok) {
-      throw new Error('Upload failed');
-    }
-
-    const result = await response.json();
-    
-    if (result.success) {
-      toast.success('Photo de profil mise à jour !');
-      setProfileImage(result.photo);
-      setShowCropModal(false);
-      setTempProfileImage(null);
-    } else {
-      toast.error(result.message || 'Erreur lors de l\'upload');
-    }
-
-  } catch (error) {
-    console.error('Error uploading photo:', error);
-    toast.error('Erreur lors de l\'upload de la photo');
-  } finally {
-    setIsUploadingPhoto(false);
-  }
-};
-
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -219,79 +213,70 @@ const ProProfile = () => {
     })
     : "";
 
+  // Menu items mis à jour avec l'ajout de "Mes prestations"
   const menuItems = [
+    { icon: Briefcase, label: "Mes prestations", path: "/pro/services" }, // Nouveau
     { icon: Settings, label: "Paramètres", path: "/pro/settings" },
     { icon: CreditCard, label: "Encaissements", path: "/pro/payment" },
     { icon: Bell, label: "Notifications", path: "/pro/notifications" },
     { icon: HelpCircle, label: "Aide", path: "/pro/help" },
   ];
 
-const calculateProfileCompleteness = () => {
-  let score = 0;
-  let maxScore = 0;
+  const calculateProfileCompleteness = () => {
+    let score = 0;
+    let maxScore = 0;
 
-  // 1. Photo de profil (10 points)
-  maxScore += 10;
-  if (user?.profile_photo && user.profile_photo !== logo) {
-    score += 10;
-  }
-
-  // 2. Nom de l'activité (15 points)
-  maxScore += 15;
-  if (user?.activity_name && user.activity_name.trim().length >= 2) {
-    score += 15;
-  }
-
-  // 3. Ville (15 points)
-  maxScore += 15;
-  if (user?.city && user.city.trim().length >= 2) {
-    score += 15;
-  }
-
-  // 4. Biographie (15 points)
-  maxScore += 15;
-  if (user?.bio && user.bio.trim().length >= 20) {
-    score += 15;
-  }
-
-  // 5. Compte Instagram (10 points)
-  maxScore += 10;
-  if (user?.instagram_account && user.instagram_account.startsWith('@')) {
-    score += 10;
-  }
-
-  // 6. Photo de bannière (10 points)
-  maxScore += 10;
-  if (user?.banner_photo) {
-    score += 10;
-  }
-
-  // 7. Visibilité du profil (5 points)
-  maxScore += 5;
-  if (user?.profile_visibility === 'public') {
-    score += 5;
-  }
-
-  // 8. Informations bancaires (20 points) - seulement si paiements en ligne activés
-  if (user?.accept_online_payment === 1) {
-    maxScore += 20;
-    
-    // 8a. Titulaire du compte (10 points)
-    if (user?.bankaccountname && user.bankaccountname.trim().length >= 2) {
+    maxScore += 10;
+    if (user?.profile_photo && user.profile_photo !== logo) {
       score += 10;
     }
-    
-    // 8b. IBAN (10 points)
-    if (user?.IBAN && user.IBAN.length > 10) {
+
+    maxScore += 15;
+    if (user?.activity_name && user.activity_name.trim().length >= 2) {
+      score += 15;
+    }
+
+    maxScore += 15;
+    if (user?.city && user.city.trim().length >= 2) {
+      score += 15;
+    }
+
+    maxScore += 15;
+    if (user?.bio && user.bio.trim().length >= 20) {
+      score += 15;
+    }
+
+    maxScore += 10;
+    if (user?.instagram_account && user.instagram_account.startsWith('@')) {
       score += 10;
     }
-  }
 
-  // Calcul du pourcentage
-  return maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
-};
+    maxScore += 10;
+    if (user?.banner_photo) {
+      score += 10;
+    }
 
-const profileCompleteness = calculateProfileCompleteness();
+    maxScore += 5;
+    if (user?.profile_visibility === 'public') {
+      score += 5;
+    }
+
+    if (user?.accept_online_payment === 1) {
+      maxScore += 20;
+      
+      if (user?.bankaccountname && user.bankaccountname.trim().length >= 2) {
+        score += 10;
+      }
+      
+      if (user?.IBAN && user.IBAN.length > 10) {
+        score += 10;
+      }
+    }
+
+    return maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+  };
+
+  const profileCompleteness = calculateProfileCompleteness();
 
   return (
     <MobileLayout>
@@ -531,7 +516,6 @@ const profileCompleteness = calculateProfileCompleteness();
             </div>
           </div>
 
-          {/* Info condensée en ligne */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/50">
               <MapPin size={12} className="text-muted-foreground" />
