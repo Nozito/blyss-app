@@ -40,15 +40,7 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
     return (
       <div
         ref={ref}
-        className="
-          relative
-          w-full
-          min-h-[100dvh]
-          bg-background
-          display-flex
-          flex-col
-          overflow-x-hidden
-        "
+        className="relative w-full min-h-[100dvh] bg-background flex flex-col overflow-x-hidden"
       >
         <main
           className="px-4 pb-4"
@@ -62,21 +54,7 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
         {showNav && !hideNav && (
           <nav className="fixed inset-x-0 bottom-0 z-50 flex justify-center pointer-events-none">
             <div
-              className="
-                pointer-events-auto
-                mb-3
-                h-[56px]
-                w-full max-w-[280px]
-                px-3
-                flex items-center justify-around gap-1.5
-
-                rounded-[999px]
-                bg-white/90
-                dark:bg-zinc-900/90
-                border border-white/40 dark:border-white/10
-                shadow-[0_14px_40px_rgba(0,0,0,0.45)]
-                backdrop-blur-xl backdrop-saturate-150
-              "
+              className="apple-glass-nav pointer-events-auto mb-3 h-[56px] w-full max-w-[280px] px-3 flex items-center justify-around gap-1.5 rounded-[28px]"
               style={{
                 paddingBottom: "calc(4px + env(safe-area-inset-bottom, 0px))"
               }}
@@ -87,31 +65,10 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
                   <NavLink
                     key={item.path}
                     to={item.path}
-                    className="
-                      flex flex-1 items-center justify-center
-                      transition-all duration-200
-                    "
+                    className="flex flex-1 items-center justify-center"
                   >
-                    <div
-                      className={`
-                        flex items-center justify-center
-                        h-10 w-10
-                        rounded-full
-                        transition-all duration-200
-                        ${
-                          isActive
-                            ? "bg-primary/10 shadow-sm"
-                            : "bg-transparent hover:bg-white/40 dark:hover:bg-zinc-800/80 active:bg-white/60"
-                        }
-                      `}
-                    >
-                      <item.icon
-                        size={20}
-                        className={
-                          isActive ? "text-primary" : "text-muted-foreground"
-                        }
-                        strokeWidth={isActive ? 2.2 : 2}
-                      />
+                    <div className={`apple-nav-icon ${isActive ? 'active' : ''}`}>
+                      <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} />
                     </div>
                   </NavLink>
                 );

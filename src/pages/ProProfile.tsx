@@ -1,4 +1,5 @@
 import MobileLayout from "@/components/MobileLayout";
+import { useTheme } from '@/hooks/useTheme';
 import { useNavigate } from "react-router-dom";
 import {
   Settings,
@@ -17,7 +18,11 @@ import {
   TrendingUp,
   Calendar,
   User,
-  Briefcase, // Nouvel import pour l'icône des prestations
+  Briefcase,
+  SunIcon,
+  MoonIcon,
+  Sun,
+  Moon, // Nouvel import pour l'icône des prestations
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/AuthContext";
@@ -29,6 +34,7 @@ import { proApi } from "@/services/api";
 import { set } from "date-fns";
 
 const ProProfile = () => {
+  const { theme, toggleTheme } = useTheme();
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -139,7 +145,7 @@ const ProProfile = () => {
       }
 
       const blob = await fetch(croppedBase64).then((res) => res.blob());
-      
+
       const formData = new FormData();
       formData.append('photo', blob, 'profile-photo.jpg');
 
@@ -165,7 +171,7 @@ const ProProfile = () => {
       }
 
       const result = await response.json();
-      
+
       if (result.success) {
         toast.success('Photo de profil mise à jour !');
         setProfileImage(result.photo);
@@ -263,11 +269,11 @@ const ProProfile = () => {
 
     if (user?.accept_online_payment === 1) {
       maxScore += 20;
-      
+
       if (user?.bankaccountname && user.bankaccountname.trim().length >= 2) {
         score += 10;
       }
-      
+
       if (user?.IBAN && user.IBAN.length > 10) {
         score += 10;
       }
@@ -561,6 +567,32 @@ const ProProfile = () => {
             </button>
           ))}
         </div>
+
+        {/* Toggle Thème - FONCTIONNEL */}
+      <div className="relative mb-6 animate-slide-up" style={{ animationDelay: "0.55s" }}>
+        <button
+          onClick={toggleTheme}  // ← React handler (pas data-theme-toggler)
+          className="group w-full blyss-card flex items-center gap-4 px-4 py-4 hover:shadow-lg active:scale-[0.98] transition-all duration-300 border border-border/50 hover:border-primary/30"
+          title="Mode sombre/clair"
+        >
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/10 to-secondary/10 group-hover:from-primary/20 group-hover:to-secondary/20 flex items-center justify-center transition-all duration-300 group-hover:scale-110">
+            {theme === 'dark' ? 
+              <Sun size={20} className="text-primary group-hover:rotate-12 transition-transform duration-300" /> : 
+              <Moon size={20} className="text-primary group-hover:rotate-[-12px] transition-transform duration-300" />
+            }
+          </div>
+          <div className="flex-1 text-left">
+            <span className="block font-bold text-foreground text-base mb-0.5">
+              Mode {theme === 'dark' ? 'clair' : 'sombre'}
+            </span>
+            <span className="text-sm text-muted-foreground font-medium">
+              {theme === 'dark' ? 'Activez le mode jour' : 'Activez le mode nuit'}
+            </span>
+          </div>
+          <ChevronRight size={20} className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
+        </button>
+      </div>
+
 
         {/* Déconnexion */}
         <button

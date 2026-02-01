@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "NODE_ENV=development nodemon --ext ts,js --exec ts-node server.ts",
+    "dev": "cross-env NODE_ENV=development ts-node backend/server.ts",
     "build": "tsc",
     "start": "NODE_ENV=production node dist/server.js"
   },

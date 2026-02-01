@@ -10,15 +10,52 @@
     <title>Blyss</title>
     <meta name="description" content="Beauté. Business. Sérénité." />
     <meta name="author" content="Noah DEKEYZER" />
-
     <meta property="og:title" content="Blyss" />
     <meta property="og:description" content="Beauté. Business. Sérénité." />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="/src/assets/logo.png" />
+
+    <link rel="stylesheet" href="/src/index.css">
   </head>
 
   <body>
     <div id="root"></div>
+    <script>
+      (function() {
+        const root = document.documentElement;
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        
+        function initTheme() {
+          const stored = localStorage.getItem('blyss-theme');
+          if (stored) {
+            root.setAttribute('data-theme', stored);
+            return;
+          }
+          root.setAttribute('data-theme', mediaQuery.matches ? 'dark' : 'light');
+        }
+        
+        function toggleTheme() {
+          const current = root.getAttribute('data-theme');
+          const newTheme = current === 'dark' ? 'light' : 'dark';
+          root.setAttribute('data-theme', newTheme);
+          localStorage.setItem('blyss-theme', newTheme);
+        }
+        
+        initTheme();
+        
+        mediaQuery.addEventListener('change', (e) => {
+          if (!localStorage.getItem('blyss-theme')) {
+            root.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+          }
+        });
+        
+        document.addEventListener('click', (e) => {
+          if (e.target.matches('[data-theme-toggler]')) {
+            toggleTheme();
+          }
+        });
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

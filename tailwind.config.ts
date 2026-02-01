@@ -112,4 +112,11 @@ export default {
     },
   },
   plugins: [require("tailwindcss-animate")],
+  future: {
+    hoverOnlyWhenSupported: true,
+  },
+  corePlugins: {
+    backdropFilter: true,
+  }
+
 } satisfies Config;
