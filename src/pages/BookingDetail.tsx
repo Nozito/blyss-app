@@ -2,14 +2,13 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
-import { 
-  ArrowLeft, Calendar, Clock, MapPin, Star, MessageSquare, 
-  Euro, Loader2, AlertCircle, CheckCircle2, Phone, Mail
+import {
+  ArrowLeft, Calendar, Clock, MapPin, Star, MessageSquare,
+  Euro, Loader2, AlertCircle, CheckCircle2, Phone
 } from "lucide-react";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-// ✅ Utilitaire pour construire les URLs d'images
 const getImageUrl = (imagePath: string | null): string | null => {
   if (!imagePath) return null;
   if (imagePath.startsWith('http')) return imagePath;
@@ -37,21 +36,20 @@ interface BookingDetail {
 const BookingDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  
   const [booking, setBooking] = useState<BookingDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState("");
   const [hoveredStar, setHoveredStar] = useState(0);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
-  // ✅ Vérification de l'authentification
+  // Parse id and validate
+  const bookingId = id && !isNaN(Number(id)) ? Number(id) : null;
+
   const checkAuth = useCallback(() => {
     const token = localStorage.getItem('auth_token');
-    
     if (!token) {
       navigate('/login', {
         replace: true,
@@ -62,90 +60,101 @@ const BookingDetail = () => {
       });
       return null;
     }
-    
     return token;
   }, [navigate, id]);
 
-  // ✅ Chargement des détails de la réservation
   useEffect(() => {
-    const fetchBookingDetail = async () => {
-      const token = checkAuth();
-      if (!token || !id) return;
+  let ignore = false;
+  const fetchBookingDetail = async () => {
+    setIsLoading(true);
+    setError(null);
 
-      try {
-        setIsLoading(true);
-        setError(null);
+    // Validate id
+    if (!bookingId) {
+      setIsLoading(false);
+      setError('ID invalide');
+      return;
+    }
 
-        console.log(`📡 Chargement de la réservation #${id}...`);
+    // Get token
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      navigate('/login', {
+        replace: true,
+        state: {
+          message: 'Connectez-vous pour voir vos réservations',
+          returnUrl: `/client/booking-detail/${bookingId}`
+        }
+      });
+      setIsLoading(false);
+      return;
+    }
 
-        const response = await fetch(`${API_BASE_URL}/api/client/booking-detail/${id}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/client/booking-detail/${bookingId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.status === 401) {
+        localStorage.removeItem('auth_token');
+        navigate('/login', {
+          replace: true,
+          state: {
+            message: 'Session expirée. Reconnectez-vous.',
+            returnUrl: `/client/booking-detail/${bookingId}`
           }
         });
-
-        if (response.status === 401) {
-          localStorage.removeItem('auth_token');
-          navigate('/login', {
-            replace: true,
-            state: {
-              message: 'Session expirée. Reconnectez-vous.',
-              returnUrl: `/client/booking-detail/${id}`
-            }
-          });
-          return;
-        }
-
-        if (!response.ok) {
-          if (response.status === 404) {
-            throw new Error('Réservation introuvable');
-          }
-          throw new Error(`Erreur ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        if (data.success && data.data) {
-          setBooking(data.data);
-          console.log('✅ Réservation chargée:', data.data);
-        } else {
-          throw new Error('Données invalides');
-        }
-
-      } catch (err) {
-        console.error('❌ Erreur chargement réservation:', err);
-        setError(err instanceof Error ? err.message : 'Erreur de chargement');
-      } finally {
         setIsLoading(false);
+        return;
       }
-    };
 
-    fetchBookingDetail();
-  }, [id, checkAuth, navigate]);
+      if (!response.ok) {
+        if (response.status === 404) throw new Error('Réservation introuvable');
+        throw new Error(`Erreur ${response.status}`);
+      }
 
-  // ✅ Formater la date
+      const data = await response.json();
+      if (data.success && data.data) {
+        const b = data.data;
+
+        // Convertir les champs numériques pour éviter les erreurs
+        b.price = Number(b.price) || 0;
+        b.paid_online = Number(b.paid_online) || 0;
+        b.duration_minutes = Number(b.duration_minutes) || 0;
+
+        if (!ignore) setBooking(b);
+      } else {
+        throw new Error('Données invalides');
+      }
+    } catch (err) {
+      if (!ignore) setError(err instanceof Error ? err.message : 'Erreur de chargement');
+    } finally {
+      if (!ignore) setIsLoading(false);
+    }
+  };
+  fetchBookingDetail();
+  return () => { ignore = true; };
+}, [bookingId, navigate]);
+
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
-    const options: Intl.DateTimeFormatOptions = { 
-      day: 'numeric', 
-      month: 'long', 
+    const options: Intl.DateTimeFormatOptions = {
+      day: 'numeric',
+      month: 'long',
       year: 'numeric',
       weekday: 'long'
     };
     return date.toLocaleDateString('fr-FR', options);
   };
 
-  // ✅ Formater l'heure
   const formatTime = (dateString: string): string => {
     const date = new Date(dateString);
-    return date.toLocaleTimeString('fr-FR', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return date.toLocaleTimeString('fr-FR', {
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
 
-  // ✅ Formater la durée
   const formatDuration = (minutes: number): string => {
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
@@ -154,18 +163,12 @@ const BookingDetail = () => {
     return `${mins}min`;
   };
 
-  // ✅ Soumettre un avis
   const handleSubmitReview = async () => {
     if (rating === 0 || !booking) return;
-
     const token = checkAuth();
     if (!token) return;
-
     setIsSubmittingReview(true);
-
     try {
-      console.log('📤 Envoi de l\'avis...', { rating, comment });
-
       const response = await fetch(`${API_BASE_URL}/api/reviews`, {
         method: 'POST',
         headers: {
@@ -174,37 +177,28 @@ const BookingDetail = () => {
         },
         body: JSON.stringify({
           reservation_id: booking.id,
-          pro_id: booking.id, // Vous devrez stocker le pro_id dans le booking
+          pro_id: booking.id,
           rating,
           comment: comment.trim() || null
         })
       });
-
       if (!response.ok) {
         throw new Error('Erreur lors de l\'envoi de l\'avis');
       }
-
       const data = await response.json();
-
       if (data.success) {
-        console.log('✅ Avis envoyé avec succès');
         setShowReviewModal(false);
         setRating(0);
         setComment("");
-        
-        // Afficher un message de succès
         alert('Merci pour ton avis ! 🌟');
       }
-
     } catch (error) {
-      console.error('❌ Erreur envoi avis:', error);
       alert('Impossible d\'envoyer ton avis. Réessaie plus tard.');
     } finally {
       setIsSubmittingReview(false);
     }
   };
 
-  // ✅ Loading state
   if (isLoading) {
     return (
       <MobileLayout showNav={false}>
@@ -216,7 +210,6 @@ const BookingDetail = () => {
     );
   }
 
-  // ✅ Error state
   if (error || !booking) {
     return (
       <MobileLayout showNav={false}>
@@ -249,7 +242,6 @@ const BookingDetail = () => {
   return (
     <MobileLayout showNav={false}>
       <div className="min-h-screen bg-background pb-6">
-        {/* Header */}
         <motion.div
           className="flex items-center gap-4 px-6 pt-6 pb-4"
           initial={{ opacity: 0, y: -20 }}
@@ -275,7 +267,6 @@ const BookingDetail = () => {
         </motion.div>
 
         <div className="px-6 space-y-5">
-          {/* Status Badge */}
           <motion.div
             className="flex justify-center"
             initial={{ opacity: 0, scale: 0.9 }}
@@ -313,7 +304,6 @@ const BookingDetail = () => {
             </span>
           </motion.div>
 
-          {/* Specialist Card */}
           <motion.div
             className="
               w-full bg-card rounded-3xl p-5
@@ -348,8 +338,6 @@ const BookingDetail = () => {
                 </p>
               </div>
             </div>
-
-            {/* Contact buttons */}
             {booking.pro_phone && (
               <div className="flex gap-2">
                 <a
@@ -386,7 +374,6 @@ const BookingDetail = () => {
             )}
           </motion.div>
 
-          {/* Booking Details Card */}
           <motion.div
             className="bg-card rounded-3xl p-6 shadow-lg shadow-black/5 border-2 border-border space-y-5"
             initial={{ opacity: 0, y: 20 }}
@@ -402,9 +389,6 @@ const BookingDetail = () => {
                   {booking.prestation_description}
                 </p>
               )}
-              <p className="text-xs text-muted-foreground">
-                Réservation #{booking.id}
-              </p>
             </div>
 
             <div className="space-y-4">
@@ -414,12 +398,14 @@ const BookingDetail = () => {
                 </div>
                 <div className="flex-1">
                   <p className="text-xs text-muted-foreground mb-0.5 font-medium">Date</p>
-                  <p className="text-sm font-semibold text-foreground">
-                    {formatDate(booking.start_datetime)}
-                  </p>
+                    <p className="text-sm font-semibold text-foreground">
+                    {(() => {
+                      const s = formatDate(booking.start_datetime);
+                      return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+                    })()}
+                    </p>
                 </div>
               </div>
-
               <div className="flex items-center gap-4">
                 <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
                   <Clock size={20} className="text-primary" />
@@ -431,7 +417,6 @@ const BookingDetail = () => {
                   </p>
                 </div>
               </div>
-
               {booking.city && (
                 <div className="flex items-center gap-4">
                   <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -446,7 +431,6 @@ const BookingDetail = () => {
                 </div>
               )}
             </div>
-
             <div className="pt-5 border-t-2 border-border flex items-center justify-between">
               <span className="text-muted-foreground font-semibold">Total</span>
               <div className="flex items-baseline gap-1">
@@ -456,14 +440,12 @@ const BookingDetail = () => {
                 <span className="text-lg font-bold text-foreground">€</span>
               </div>
             </div>
-
-            {/* Payment status */}
             <div className="flex items-center justify-between pt-3">
               <span className="text-xs text-muted-foreground">Paiement</span>
               <span className={`
                 text-xs font-bold px-3 py-1 rounded-full
-                ${booking.paid_online 
-                  ? 'bg-green-100 text-green-700' 
+                ${booking.paid_online
+                  ? 'bg-green-100 text-green-700'
                   : 'bg-yellow-100 text-yellow-700'
                 }
               `}>
@@ -472,7 +454,6 @@ const BookingDetail = () => {
             </div>
           </motion.div>
 
-          {/* Review Button (only for completed bookings) */}
           {booking.status === 'completed' && (
             <motion.button
               onClick={() => setShowReviewModal(true)}
@@ -495,8 +476,6 @@ const BookingDetail = () => {
           )}
         </div>
       </div>
-
-      {/* Review Modal */}
       <AnimatePresence>
         {showReviewModal && (
           <>
@@ -519,15 +498,12 @@ const BookingDetail = () => {
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="w-12 h-1.5 bg-muted rounded-full mx-auto mb-6" />
-
                 <h3 className="text-2xl font-display font-bold text-foreground text-center mb-2">
                   Laisser un avis
                 </h3>
                 <p className="text-sm text-muted-foreground text-center mb-6">
                   Partage ton expérience avec {proName}
                 </p>
-
-                {/* Star Rating */}
                 <div className="flex items-center justify-center gap-2 mb-8">
                   {[1, 2, 3, 4, 5].map((star) => (
                     <motion.button
@@ -551,18 +527,15 @@ const BookingDetail = () => {
                     </motion.button>
                   ))}
                 </div>
-
                 {rating > 0 && (
                   <p className="text-center text-sm font-semibold text-primary mb-4">
-                    {rating === 5 ? "Exceptionnel ! 🌟" : 
-                     rating === 4 ? "Très bien ! 👍" : 
-                     rating === 3 ? "Correct 👌" : 
-                     rating === 2 ? "Peut mieux faire 😐" : 
-                     "Décevant 😞"}
+                    {rating === 5 ? "Exceptionnel ! 🌟" :
+                      rating === 4 ? "Très bien ! 👍" :
+                        rating === 3 ? "Correct 👌" :
+                          rating === 2 ? "Peut mieux faire 😐" :
+                            "Décevant 😞"}
                   </p>
                 )}
-
-                {/* Comment */}
                 <textarea
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
@@ -579,14 +552,11 @@ const BookingDetail = () => {
                   maxLength={500}
                   disabled={isSubmittingReview}
                 />
-
                 {comment && (
                   <p className="text-xs text-muted-foreground text-right mb-4">
                     {comment.length}/500 caractères
                   </p>
                 )}
-
-                {/* Actions */}
                 <div className="flex gap-3 mt-6">
                   <button
                     onClick={() => setShowReviewModal(false)}

@@ -314,16 +314,50 @@ interface WebSocketMessage {
   data?: any;
 }
 
-wss.on("connection", (ws: WebSocket, req) => {
+// ✅ Configuration des timeouts
+const AUTH_TIMEOUT = 10000; // 10 secondes pour s'authentifier
+const HEARTBEAT_INTERVAL = 30000; // 30 secondes
+const HEARTBEAT_TIMEOUT = 35000; // 35 secondes
+
+// ✅ Interface pour le WebSocket avec métadonnées
+interface AuthenticatedWebSocket extends WebSocket {
+  userId?: number;
+  isAuthenticated?: boolean;
+  isAlive?: boolean;
+  authTimeout?: NodeJS.Timeout;
+}
+
+wss.on("connection", (ws: AuthenticatedWebSocket, req) => {
   console.log("🔌 New WebSocket connection");
 
-  let userId: number | null = null;
-  let isAuthenticated = false;
+  ws.userId = undefined;
+  ws.isAuthenticated = false;
+  ws.isAlive = true;
+
+  // ✅ Timeout d'authentification : ferme la connexion si pas d'auth dans 10s
+  ws.authTimeout = setTimeout(() => {
+    if (!ws.isAuthenticated) {
+      console.log("⏱️ Auth timeout, closing connection");
+      ws.send(
+        JSON.stringify({
+          type: "auth_error",
+          data: { message: "Authentication timeout" },
+        })
+      );
+      ws.close(4001, "Authentication timeout");
+    }
+  }, AUTH_TIMEOUT);
+
+  // ✅ Gestion du pong pour heartbeat
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
 
   ws.on("message", async (message: string) => {
     try {
       const data = JSON.parse(message.toString()) as WebSocketMessage;
 
+      // ✅ Authentification
       if (data.type === "auth" && data.data?.token) {
         try {
           const decoded = jwt.verify(
@@ -331,56 +365,97 @@ wss.on("connection", (ws: WebSocket, req) => {
             process.env.JWT_SECRET!
           ) as { id: number };
 
-          userId = decoded.id;
-          isAuthenticated = true;
+          ws.userId = decoded.id;
+          ws.isAuthenticated = true;
 
-          connectedClients.set(userId, ws);
+          // ✅ Annuler le timeout d'auth
+          if (ws.authTimeout) {
+            clearTimeout(ws.authTimeout);
+            ws.authTimeout = undefined;
+          }
 
-          console.log(`✅ User ${userId} authenticated via WebSocket`);
+          connectedClients.set(ws.userId, ws);
+
+          console.log(`✅ User ${ws.userId} authenticated via WebSocket`);
 
           ws.send(
             JSON.stringify({
               type: "auth_success",
-              data: { userId },
+              data: { userId: ws.userId },
             })
           );
 
-          await sendUnreadNotifications(ws, userId);
+          await sendUnreadNotifications(ws, ws.userId);
 
         } catch (err) {
           console.error("❌ WebSocket auth failed:", err);
+
+          // ✅ Différencier token expiré vs invalide
+          const errorMessage = err instanceof jwt.TokenExpiredError
+            ? "Token expired - please refresh"
+            : "Invalid token";
+
+          const errorCode = err instanceof jwt.TokenExpiredError
+            ? "TOKEN_EXPIRED"
+            : "INVALID_TOKEN";
+
           ws.send(
             JSON.stringify({
               type: "auth_error",
-              data: { message: "Invalid token" },
+              data: {
+                message: errorMessage,
+                code: errorCode
+              },
             })
           );
-          ws.close();
+          ws.close(4001, errorMessage);
         }
+        return;
       }
 
-      if (data.type === "mark_read" && isAuthenticated && userId) {
+      // ✅ Vérifier l'authentification pour toutes les autres actions
+      if (!ws.isAuthenticated || !ws.userId) {
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            data: { message: "Not authenticated" },
+          })
+        );
+        return;
+      }
+
+      // ✅ Marquer une notification comme lue
+      if (data.type === "mark_read") {
         const notificationId = data.data?.notificationId;
 
-        if (notificationId) {
-          await db.query(
-            `UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?`,
-            [notificationId, userId]
-          );
-
+        if (!notificationId) {
           ws.send(
             JSON.stringify({
-              type: "mark_read_success",
-              data: { notificationId },
+              type: "error",
+              data: { message: "Missing notificationId" },
             })
           );
+          return;
         }
+
+        await db.query(
+          `UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?`,
+          [notificationId, ws.userId]
+        );
+
+        ws.send(
+          JSON.stringify({
+            type: "mark_read_success",
+            data: { notificationId },
+          })
+        );
       }
 
-      if (data.type === "mark_all_read" && isAuthenticated && userId) {
+      // ✅ Marquer toutes les notifications comme lues
+      if (data.type === "mark_all_read") {
         await db.query(
           `UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0`,
-          [userId]
+          [ws.userId]
         );
 
         ws.send(
@@ -392,30 +467,61 @@ wss.on("connection", (ws: WebSocket, req) => {
 
     } catch (error) {
       console.error("❌ WebSocket message error:", error);
+      ws.send(
+        JSON.stringify({
+          type: "error",
+          data: { message: "Invalid message format" },
+        })
+      );
     }
   });
 
+  // ✅ Gestion de la déconnexion (une seule fois)
   ws.on("close", () => {
-    if (userId) {
-      connectedClients.delete(userId);
-      console.log(`🔌 User ${userId} disconnected from WebSocket`);
+    if (ws.authTimeout) {
+      clearTimeout(ws.authTimeout);
+    }
+
+    if (ws.userId) {
+      connectedClients.delete(ws.userId);
+      console.log(`🔌 User ${ws.userId} disconnected from WebSocket`);
+    } else {
+      console.log("🔌 Unauthenticated client disconnected");
     }
   });
 
   ws.on("error", (error) => {
     console.error("❌ WebSocket error:", error);
   });
-
-  const interval = setInterval(() => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.ping();
-    }
-  }, 30000);
-
-  ws.on("close", () => {
-    clearInterval(interval);
-  });
 });
+
+// ✅ Heartbeat interval global pour tous les clients
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws: AuthenticatedWebSocket) => {
+    // ✅ Terminer les connexions mortes
+    if (ws.isAlive === false) {
+      console.log(`💀 Terminating dead connection for user ${ws.userId || 'unknown'}`);
+
+      if (ws.userId) {
+        connectedClients.delete(ws.userId);
+      }
+
+      return ws.terminate();
+    }
+
+    // ✅ Marquer comme potentiellement morte jusqu'au prochain pong
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, HEARTBEAT_INTERVAL);
+
+// ✅ Nettoyer l'interval quand le serveur se ferme
+wss.on("close", () => {
+  clearInterval(heartbeatInterval);
+  console.log("🔌 WebSocket server closed");
+});
+
+console.log("✅ WebSocket server ready with heartbeat");
 
 // ==========================================
 // API ROUTES - NOTIFICATIONS
@@ -823,10 +929,13 @@ function getProId(req: AuthenticatedRequest): number {
 
 /* GET SINGLE PRO (PUBLIC) */
 app.get(
-  "/api/users/pros/:id",
+  "/api/users/pros/:proId",
   async (req: Request, res: Response) => {
     try {
-      const proId = parseParamToInt(req.params.id);
+      const proId = parseParamToInt(req.params.proId);
+
+      // Ajout d'un log pour vérifier le proId reçu
+      console.log("🔎 proId reçu via params:", req.params.proId, "=>", proId);
 
       if (isNaN(proId)) {
         return res.status(400).json({
@@ -1411,6 +1520,58 @@ app.get(
     }
   }
 );
+
+// ✅ Endpoint de refresh du token JWT
+app.post('/api/auth/refresh', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token manquant'
+      });
+    }
+
+    try {
+      // ✅ Vérifier le token (accepte les tokens expirés pour refresh)
+      const decoded = jwt.verify(token, process.env.JWT_SECRET!, {
+        ignoreExpiration: true // Important : on accepte les tokens expirés
+      }) as { id: number; role: string };
+
+      // ✅ Générer un nouveau token valide
+      const newToken = jwt.sign(
+        { id: decoded.id, role: decoded.role },
+        process.env.JWT_SECRET!,
+        { expiresIn: '24h' } // Durée de validité du nouveau token
+      );
+
+      console.log(`✅ Token rafraîchi pour user ${decoded.id}`);
+
+      return res.json({
+        success: true,
+        token: newToken,
+        expiresIn: 86400 // 24h en secondes
+      });
+
+    } catch (err) {
+      console.error('❌ Erreur vérification token:', err);
+      return res.status(401).json({
+        success: false,
+        message: 'Token invalide'
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Erreur endpoint refresh:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur serveur'
+    });
+  }
+});
+
 
 /* AUTH LOGIN */
 app.post(
@@ -2105,7 +2266,7 @@ app.get(
   async (req: Request, res: Response) => {
     let connection;
     try {
-      const proId = parseParamToInt(req.params.id);
+      const proId = parseParamToInt(req.params.proId);
 
       if (isNaN(proId) || proId <= 0) {
         console.warn(`⚠️ ID invalide reçu: ${req.params.proId}`);
@@ -2577,25 +2738,26 @@ app.get(
 
       const [slotsRows] = (await connection.query(
         `
-        SELECT COUNT(*) AS total_slots
-        FROM slots
-        WHERE pro_id = ?
-          AND status = 'open'
-          AND YEARWEEK(start_datetime, 1) = YEARWEEK(CURDATE(), 1)
-        `,
+  SELECT COUNT(*) AS total_slots
+  FROM slots
+  WHERE pro_id = ?
+    AND status IN ('available', 'booked')  -- ✅ Tous les créneaux ouverts
+    AND start_datetime >= CURDATE()
+    AND start_datetime < DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+  `,
         [proId]
       )) as [{ total_slots: number }[], any];
       const totalSlots = slotsRows[0]?.total_slots ?? 0;
 
       const [bookedRows] = (await connection.query(
         `
-        SELECT COUNT(DISTINCT r.slot_id) AS booked_slots
-        FROM reservations r
-        JOIN slots s ON s.id = r.slot_id
-        WHERE r.pro_id = ?
-          AND r.status IN ('confirmed', 'completed')
-          AND YEARWEEK(s.start_datetime, 1) = YEARWEEK(CURDATE(), 1)
-        `,
+  SELECT COUNT(*) AS booked_slots
+  FROM slots
+  WHERE pro_id = ?
+    AND status = 'booked'  -- ✅ Créneaux réservés uniquement
+    AND start_datetime >= CURDATE()
+    AND start_datetime < DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+  `,
         [proId]
       )) as [{ booked_slots: number }[], any];
       const bookedSlots = bookedRows[0]?.booked_slots ?? 0;
@@ -4111,60 +4273,6 @@ app.put(
   }
 );
 
-
-/* GET MY RESERVATIONS (CLIENT) */
-app.get("/api/bookings/my-bookings", authenticateToken, async (req: Request, res: Response) => {
-  let connection;
-  try {
-    const clientId = (req as AuthenticatedRequest).user?.id;
-
-    if (!clientId) {
-      return res.status(401).json({
-        success: false,
-        message: "Non authentifié"
-      });
-    }
-
-    connection = await db.getConnection();
-
-    const [rows] = await connection.query(
-      `SELECT
-        r.id,
-        r.pro_id,
-        r.prestation_id,
-        r.slot_id,
-        r.status,
-        r.created_at,
-        CONCAT(u.first_name, ' ', u.last_name) AS pro_name,
-        u.activity_name AS pro_activity_name,
-        u.profile_photo AS pro_profile_photo,
-        u.city AS pro_city,
-        p.name AS prestation_name,
-        p.price AS prestation_price,
-        DATE(r.start_datetime) AS slot_date,
-        TIME_FORMAT(r.start_datetime, '%H:%i') AS slot_start_time
-       FROM reservations r
-       LEFT JOIN users u ON u.id = r.pro_id
-       LEFT JOIN prestations p ON p.id = r.prestation_id
-       WHERE r.client_id = ?
-       ORDER BY r.start_datetime DESC`,
-      [clientId]
-    );
-
-    res.json({
-      success: true,
-      data: rows
-    });
-  } catch {
-    res.status(500).json({
-      success: false,
-      message: "Erreur lors de la récupération des réservations"
-    });
-  } finally {
-    if (connection) connection.release();
-  }
-});
-
 /* CREATE REVIEW */
 app.post("/api/reviews", authenticateToken, async (req: Request, res: Response) => {
   let connection;
@@ -4224,175 +4332,320 @@ app.post("/api/reviews", authenticateToken, async (req: Request, res: Response) 
 // ============================================
 
 // GET - Récupérer les réservations du client connecté
-app.get('/client/my-booking', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  let connection;
+app.get('/api/client/my-booking', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user?.id;
-    if (!clientId) {
-      return res.status(401).json({ success: false, message: 'Non authentifié' });
-    }
 
-    connection = await db.getConnection();
+    console.log(`🔍 Récupération réservations pour client ${clientId}`);
 
-    const rows = await connection.query(`
-      SELECT 
+    const [rows] = await db.query(
+      `SELECT 
         r.id,
-        r.pro_id,
-        r.prestation_id,
-        r.slot_id,
-        r.status,
-        r.created_at,
-        CONCAT(u.first_name, ' ', u.last_name) AS pro_name,
-        u.activity_name AS pro_activity_name,
-        u.profile_photo AS pro_profile_photo,
-        u.city AS pro_city,
-        p.name AS prestation_name,
-        p.price AS prestation_price,
-        DATE(r.start_datetime) AS slot_date,
-        TIME_FORMAT(r.start_datetime, '%H:%i:%s') AS slot_start_time
-      FROM reservations r
-      LEFT JOIN users u ON u.id = r.pro_id
-      LEFT JOIN prestations p ON p.id = r.prestation_id
-      WHERE r.client_id = ?
-      ORDER BY r.start_datetime DESC
-    `, [clientId]);
-
-    res.json({ success: true, data: rows });
-
-  } catch (error) {
-    console.error('Error fetching client bookings:', error);
-    res.status(500).json({ success: false, message: 'Erreur lors de la récupération des réservations' });
-  } finally {
-    if (connection) connection.release();
-  }
-});
-
-
-// PUT - Annuler une réservation
-app.put('/client/booking/:id/cancel', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  let connection;
-  try {
-    const clientId = req.user?.id;
-    const bookingId = parseParamToInt(req.params.id);
-
-    if (!clientId) {
-      return res.status(401).json({ success: false, message: 'Non authentifié' });
-    }
-
-    if (isNaN(bookingId)) {
-      return res.status(400).json({ success: false, message: 'ID de réservation invalide' });
-    }
-
-    connection = await db.getConnection();
-
-    // Vérifier que la réservation appartient au client
-    const [booking]: any = await connection.query(
-      'SELECT id, slot_id, status FROM reservations WHERE id = ? AND client_id = ?',
-      [bookingId, clientId]
-    );
-
-    if (!booking || booking.length === 0) {
-      return res.status(404).json({ success: false, message: 'Réservation non trouvée' });
-    }
-
-    if (booking[0].status === 'cancelled') {
-      return res.status(400).json({ success: false, message: 'Réservation déjà annulée' });
-    }
-
-    // Commencer une transaction
-    await connection.beginTransaction();
-
-    try {
-      // Mettre à jour le statut de la réservation
-      await connection.query(
-        'UPDATE reservations SET status = ? WHERE id = ?',
-        ['cancelled', bookingId]
-      );
-
-      // Libérer le slot si nécessaire (slot_id peut être NULL selon votre schéma)
-      if (booking[0].slot_id) {
-        await connection.query(
-          'UPDATE slots SET status = ? WHERE id = ?',
-          ['available', booking[0].slot_id]
-        );
-      }
-
-      await connection.commit();
-
-      res.json({ success: true, message: 'Réservation annulée avec succès' });
-
-    } catch (err) {
-      await connection.rollback();
-      throw err;
-    }
-
-  } catch (error) {
-    console.error('Error canceling booking:', error);
-    res.status(500).json({ success: false, message: 'Erreur lors de l\'annulation' });
-  } finally {
-    if (connection) connection.release();
-  }
-});
-
-// GET - Récupérer les détails d'une réservation spécifique
-app.get('/client/booking-detail/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
-  let connection;
-  try {
-    const clientId = req.user?.id;
-    const bookingId = parseParamToInt(req.params.id);
-
-    if (!clientId) {
-      return res.status(401).json({ success: false, message: 'Non authentifié' });
-    }
-
-    if (isNaN(bookingId)) {
-      return res.status(400).json({ success: false, message: 'ID invalide' });
-    }
-
-    connection = await db.getConnection();
-
-    const rows = await connection.query(`
-      SELECT 
-        r.id,
-        r.pro_id,
-        r.prestation_id,
-        r.slot_id,
+        r.start_datetime,
+        r.end_datetime,
         r.status,
         r.price,
         r.paid_online,
-        r.created_at,
-        r.start_datetime,
-        r.end_datetime,
-        CONCAT(u.first_name, ' ', u.last_name) AS pro_name,
-        u.activity_name AS pro_activity_name,
-        u.profile_photo AS pro_profile_photo,
-        u.city AS pro_city,
-        u.instagram_account AS pro_instagram,
         p.name AS prestation_name,
-        p.description AS prestation_description,
-        p.duration_minutes AS prestation_duration,
-        DATE(r.start_datetime) AS slot_date,
-        TIME_FORMAT(r.start_datetime, '%H:%i:%s') AS slot_start_time,
-        TIME_FORMAT(r.end_datetime, '%H:%i:%s') AS slot_end_time
+        p.duration_minutes,
+        u.first_name AS pro_first_name,
+        u.last_name AS pro_last_name,
+        u.activity_name,
+        u.profile_photo,
+        u.city
       FROM reservations r
-      LEFT JOIN users u ON u.id = r.pro_id
-      LEFT JOIN prestations p ON p.id = r.prestation_id
-      WHERE r.id = ? AND r.client_id = ?
-    `, [bookingId, clientId]);
+      JOIN prestations p ON r.prestation_id = p.id
+      JOIN users u ON r.pro_id = u.id
+      WHERE r.client_id = ?
+      ORDER BY r.start_datetime DESC`,
+      [clientId]
+    );
 
-    if (!rows || (rows as any).length === 0) {
-      return res.status(404).json({ success: false, message: 'Réservation non trouvée' });
-    }
+    console.log(`✅ ${(rows as any[]).length} réservations trouvées`);
 
-    res.json({ success: true, data: (rows as any)[0] });
+    res.json({ 
+      success: true, 
+      data: (rows as any[]).map((row: any) => ({
+        id: row.id,
+        start_datetime: row.start_datetime,
+        end_datetime: row.end_datetime,
+        status: row.status,
+        price: row.price,
+        paid_online: row.paid_online,
+        prestation: {
+          name: row.prestation_name,
+          duration_minutes: row.duration_minutes
+        },
+        pro: {
+          first_name: row.pro_first_name,
+          last_name: row.pro_last_name,
+          name: row.activity_name,
+          profile_photo: row.profile_photo,
+          city: row.city
+        }
+      }))
+    });
 
   } catch (error) {
-    console.error('Error fetching booking detail:', error);
-    res.status(500).json({ success: false, message: 'Erreur lors de la récupération des détails' });
-  } finally {
-    if (connection) connection.release();
+    console.error('❌ Erreur my-booking:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Erreur serveur' 
+    });
   }
 });
+
+app.get(
+  "/api/client/booking-detail/:id",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const clientId = req.user!.id;
+      const bookingId = Number(req.params.id);
+
+      const [rows] = await db.query(
+        `SELECT 
+            r.id,
+            r.pro_id,
+            r.client_id,
+            r.prestation_id,
+            r.start_datetime,
+            r.end_datetime,
+            r.status,
+            r.price,
+            r.paid_online,
+            p.name AS prestation_name,
+            p.description AS prestation_description,
+            p.duration_minutes,
+            u.first_name AS pro_first_name,
+            u.last_name AS pro_last_name,
+            u.profile_photo,
+            u.activity_name,
+            u.phone_number AS pro_phone,
+            u.city
+        FROM reservations r
+        JOIN prestations p ON r.prestation_id = p.id
+        JOIN users u ON r.pro_id = u.id
+        WHERE r.id = ? AND r.client_id = ?`,
+        [bookingId, clientId]
+      );
+
+      const booking = (rows as any[])[0];
+
+      if (!booking) {
+        return res.status(404).json({ success: false, message: "Réservation introuvable" });
+      }
+
+      booking.price = Number(booking.price) || 0;
+      booking.paid_online = Number(booking.paid_online) || 0;
+      booking.duration_minutes = Number(booking.duration_minutes) || 0;
+
+      res.json({ success: true, data: booking });
+    } catch (err) {
+      console.error("Erreur GET booking-detail:", err);
+      res.status(500).json({ success: false, message: "Erreur serveur" });
+    }
+  }
+);
+
+/* GET SINGLE BOOKING DETAILS */
+app.get(
+  "/api/client/my-booking/:id",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const clientId = req.user?.id;
+      const bookingId = parseParamToInt(req.params.id);
+
+      if (!clientId) {
+        return res.status(401).json({
+          success: false,
+          message: "Utilisateur non authentifié"
+        });
+      }
+
+      if (isNaN(bookingId)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID de réservation invalide"
+        });
+      }
+
+      connection = await db.getConnection();
+
+      const [rows] = await connection.query(
+        `SELECT 
+          r.id,
+          r.pro_id,
+          r.prestation_id,
+          r.slot_id,
+          r.start_datetime,
+          r.end_datetime,
+          r.status,
+          r.price,
+          r.paid_online,
+          r.created_at,
+          u.first_name AS pro_first_name,
+          u.last_name AS pro_last_name,
+          u.activity_name AS pro_activity_name,
+          u.profile_photo AS pro_profile_photo,
+          u.banner_photo AS pro_banner_photo,
+          u.city AS pro_city,
+          u.instagram_account AS pro_instagram,
+          u.phone_number AS pro_phone,
+          p.name AS prestation_name,
+          p.description AS prestation_description,
+          p.duration_minutes AS prestation_duration
+         FROM reservations r
+         JOIN users u ON u.id = r.pro_id
+         LEFT JOIN prestations p ON p.id = r.prestation_id
+         WHERE r.id = ? AND r.client_id = ?`,
+        [bookingId, clientId]
+      );
+
+      if ((rows as any[]).length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Réservation non trouvée"
+        });
+      }
+
+      const row = (rows as any[])[0];
+
+      const booking = {
+        id: row.id,
+        pro: {
+          id: row.pro_id,
+          name: row.pro_activity_name || `${row.pro_first_name} ${row.pro_last_name}`,
+          first_name: row.pro_first_name,
+          last_name: row.pro_last_name,
+          profile_photo: row.pro_profile_photo,
+          banner_photo: row.pro_banner_photo,
+          city: row.pro_city,
+          instagram: row.pro_instagram,
+          phone: row.pro_phone
+        },
+        prestation: row.prestation_id ? {
+          id: row.prestation_id,
+          name: row.prestation_name,
+          description: row.prestation_description,
+          duration_minutes: row.prestation_duration
+        } : null,
+        start_datetime: row.start_datetime,
+        end_datetime: row.end_datetime,
+        price: Number(row.price),
+        status: row.status,
+        paid_online: Boolean(row.paid_online),
+        created_at: row.created_at
+      };
+
+      res.json({
+        success: true,
+        data: booking
+      });
+
+    } catch (error) {
+      console.error("❌ Error fetching booking details:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur lors de la récupération de la réservation"
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+/* CANCEL BOOKING */
+app.patch(
+  "/api/client/my-booking/:id/cancel",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const clientId = req.user?.id;
+      const bookingId = parseParamToInt(req.params.id);
+
+      if (!clientId) {
+        return res.status(401).json({
+          success: false,
+          message: "Utilisateur non authentifié"
+        });
+      }
+
+      if (isNaN(bookingId)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID de réservation invalide"
+        });
+      }
+
+      connection = await db.getConnection();
+
+      const [existing] = await connection.query(
+        `SELECT id, status, start_datetime FROM reservations 
+         WHERE id = ? AND client_id = ?`,
+        [bookingId, clientId]
+      ) as [any[], any];
+
+      if (existing.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Réservation non trouvée"
+        });
+      }
+
+      const booking = existing[0];
+
+      if (booking.status === 'cancelled') {
+        return res.status(400).json({
+          success: false,
+          message: "Cette réservation est déjà annulée"
+        });
+      }
+
+      if (booking.status === 'completed') {
+        return res.status(400).json({
+          success: false,
+          message: "Impossible d'annuler une réservation terminée"
+        });
+      }
+
+      const now = new Date();
+      const startDate = new Date(booking.start_datetime);
+      const hoursUntilBooking = (startDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+      if (hoursUntilBooking < 24) {
+        return res.status(400).json({
+          success: false,
+          message: "Impossible d'annuler moins de 24h avant le rendez-vous"
+        });
+      }
+
+      await connection.query(
+        `UPDATE reservations SET status = 'cancelled' WHERE id = ?`,
+        [bookingId]
+      );
+
+      console.log(`✅ Réservation ${bookingId} annulée par le client ${clientId}`);
+
+      res.json({
+        success: true,
+        message: "Réservation annulée avec succès"
+      });
+
+    } catch (error) {
+      console.error("❌ Error cancelling booking:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erreur lors de l'annulation"
+      });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
 
 /* ========================================
    FAVORITES ROUTES
@@ -4622,307 +4875,6 @@ app.get("/api/favorites/check/:proId", authenticateToken, async (req: Request, r
     if (connection) connection.release();
   }
 });
-
-
-// ==========================================
-// CLIENT BOOKINGS ROUTES
-// ==========================================
-
-/* GET CLIENT BOOKINGS (Mes réservations) */
-app.get(
-  "/api/client/my-booking",
-  authMiddleware,
-  async (req: AuthenticatedRequest, res: Response) => {
-    let connection;
-    try {
-      const clientId = req.user?.id;
-
-      if (!clientId) {
-        return res.status(401).json({
-          success: false,
-          message: "Utilisateur non authentifié"
-        });
-      }
-
-      console.log(`📡 Récupération des réservations pour client ${clientId}...`);
-
-      connection = await db.getConnection();
-
-      const [rows] = await connection.query(
-        `SELECT 
-          r.id,
-          r.pro_id,
-          r.client_id,
-          r.prestation_id,
-          r.slot_id,
-          r.start_datetime,
-          r.end_datetime,
-          r.status,
-          r.price,
-          r.paid_online,
-          r.created_at,
-          u.first_name AS pro_first_name,
-          u.last_name AS pro_last_name,
-          u.activity_name AS pro_activity_name,
-          u.profile_photo AS pro_profile_photo,
-          u.city AS pro_city,
-          p.name AS prestation_name,
-          p.description AS prestation_description,
-          p.duration_minutes AS prestation_duration
-         FROM reservations r
-         JOIN users u ON u.id = r.pro_id
-         LEFT JOIN prestations p ON p.id = r.prestation_id
-         WHERE r.client_id = ?
-         ORDER BY r.start_datetime DESC`,
-        [clientId]
-      );
-
-      console.log(`✅ ${(rows as any[]).length} réservation(s) trouvée(s)`);
-
-      const bookings = (rows as any[]).map((row: any) => ({
-        id: row.id,
-        pro: {
-          id: row.pro_id,
-          name: row.pro_activity_name || `${row.pro_first_name} ${row.pro_last_name}`,
-          first_name: row.pro_first_name,
-          last_name: row.pro_last_name,
-          profile_photo: row.pro_profile_photo,
-          city: row.pro_city
-        },
-        prestation: row.prestation_id ? {
-          id: row.prestation_id,
-          name: row.prestation_name,
-          description: row.prestation_description,
-          duration_minutes: row.prestation_duration
-        } : null,
-        start_datetime: row.start_datetime,
-        end_datetime: row.end_datetime,
-        price: Number(row.price),
-        status: row.status,
-        paid_online: Boolean(row.paid_online),
-        created_at: row.created_at
-      }));
-
-      res.json({
-        success: true,
-        data: bookings
-      });
-
-    } catch (error) {
-      console.error("❌ Error fetching client bookings:", error);
-
-      if (error instanceof Error) {
-        console.error("Message:", error.message);
-      }
-
-      res.status(500).json({
-        success: false,
-        message: "Erreur lors de la récupération des réservations"
-      });
-    } finally {
-      if (connection) connection.release();
-    }
-  }
-);
-
-/* GET SINGLE BOOKING DETAILS */
-app.get(
-  "/api/client/my-booking/:id",
-  authMiddleware,
-  async (req: AuthenticatedRequest, res: Response) => {
-    let connection;
-    try {
-      const clientId = req.user?.id;
-      const bookingId = parseParamToInt(req.params.id);
-
-      if (!clientId) {
-        return res.status(401).json({
-          success: false,
-          message: "Utilisateur non authentifié"
-        });
-      }
-
-      if (isNaN(bookingId)) {
-        return res.status(400).json({
-          success: false,
-          message: "ID de réservation invalide"
-        });
-      }
-
-      connection = await db.getConnection();
-
-      const [rows] = await connection.query(
-        `SELECT 
-          r.id,
-          r.pro_id,
-          r.prestation_id,
-          r.slot_id,
-          r.start_datetime,
-          r.end_datetime,
-          r.status,
-          r.price,
-          r.paid_online,
-          r.created_at,
-          u.first_name AS pro_first_name,
-          u.last_name AS pro_last_name,
-          u.activity_name AS pro_activity_name,
-          u.profile_photo AS pro_profile_photo,
-          u.banner_photo AS pro_banner_photo,
-          u.city AS pro_city,
-          u.instagram_account AS pro_instagram,
-          u.phone_number AS pro_phone,
-          p.name AS prestation_name,
-          p.description AS prestation_description,
-          p.duration_minutes AS prestation_duration
-         FROM reservations r
-         JOIN users u ON u.id = r.pro_id
-         LEFT JOIN prestations p ON p.id = r.prestation_id
-         WHERE r.id = ? AND r.client_id = ?`,
-        [bookingId, clientId]
-      );
-
-      if ((rows as any[]).length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "Réservation non trouvée"
-        });
-      }
-
-      const row = (rows as any[])[0];
-
-      const booking = {
-        id: row.id,
-        pro: {
-          id: row.pro_id,
-          name: row.pro_activity_name || `${row.pro_first_name} ${row.pro_last_name}`,
-          first_name: row.pro_first_name,
-          last_name: row.pro_last_name,
-          profile_photo: row.pro_profile_photo,
-          banner_photo: row.pro_banner_photo,
-          city: row.pro_city,
-          instagram: row.pro_instagram,
-          phone: row.pro_phone
-        },
-        prestation: row.prestation_id ? {
-          id: row.prestation_id,
-          name: row.prestation_name,
-          description: row.prestation_description,
-          duration_minutes: row.prestation_duration
-        } : null,
-        start_datetime: row.start_datetime,
-        end_datetime: row.end_datetime,
-        price: Number(row.price),
-        status: row.status,
-        paid_online: Boolean(row.paid_online),
-        created_at: row.created_at
-      };
-
-      res.json({
-        success: true,
-        data: booking
-      });
-
-    } catch (error) {
-      console.error("❌ Error fetching booking details:", error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur lors de la récupération de la réservation"
-      });
-    } finally {
-      if (connection) connection.release();
-    }
-  }
-);
-
-/* CANCEL BOOKING */
-app.patch(
-  "/api/client/my-booking/:id/cancel",
-  authMiddleware,
-  async (req: AuthenticatedRequest, res: Response) => {
-    let connection;
-    try {
-      const clientId = req.user?.id;
-      const bookingId = parseParamToInt(req.params.id);
-
-      if (!clientId) {
-        return res.status(401).json({
-          success: false,
-          message: "Utilisateur non authentifié"
-        });
-      }
-
-      if (isNaN(bookingId)) {
-        return res.status(400).json({
-          success: false,
-          message: "ID de réservation invalide"
-        });
-      }
-
-      connection = await db.getConnection();
-
-      const [existing] = await connection.query(
-        `SELECT id, status, start_datetime FROM reservations 
-         WHERE id = ? AND client_id = ?`,
-        [bookingId, clientId]
-      ) as [any[], any];
-
-      if (existing.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "Réservation non trouvée"
-        });
-      }
-
-      const booking = existing[0];
-
-      if (booking.status === 'cancelled') {
-        return res.status(400).json({
-          success: false,
-          message: "Cette réservation est déjà annulée"
-        });
-      }
-
-      if (booking.status === 'completed') {
-        return res.status(400).json({
-          success: false,
-          message: "Impossible d'annuler une réservation terminée"
-        });
-      }
-
-      const now = new Date();
-      const startDate = new Date(booking.start_datetime);
-      const hoursUntilBooking = (startDate.getTime() - now.getTime()) / (1000 * 60 * 60);
-
-      if (hoursUntilBooking < 24) {
-        return res.status(400).json({
-          success: false,
-          message: "Impossible d'annuler moins de 24h avant le rendez-vous"
-        });
-      }
-
-      await connection.query(
-        `UPDATE reservations SET status = 'cancelled' WHERE id = ?`,
-        [bookingId]
-      );
-
-      console.log(`✅ Réservation ${bookingId} annulée par le client ${clientId}`);
-
-      res.json({
-        success: true,
-        message: "Réservation annulée avec succès"
-      });
-
-    } catch (error) {
-      console.error("❌ Error cancelling booking:", error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur lors de l'annulation"
-      });
-    } finally {
-      if (connection) connection.release();
-    }
-  }
-);
 
 // =====================
 // ADMIN - DASHBOARD

@@ -49,58 +49,8 @@
     --shadow-soft: 0 4px 20px -2px hsl(336 99% 68% / 0.1);
     --shadow-card: 0 2px 12px -2px hsl(0 0% 0% / 0.08);
     --shadow-elevated: 0 8px 30px -4px hsl(0 0% 0% / 0.12);
-  }
 
-  /* DARK MODE - Contraste AAA + Votre DA */
-  [data-theme="dark"] {
-    /* Fond velvet rose sombre (votre esthétique) */
-    --background: 336 20% 15%; /* #3B1A24 velvet rose */
-    
-    /* Textes BLANCS éclatants (15.8:1 vs fond ! AAA+) */
-    --foreground: 0 0% 100%; /* Blanc pur */
-    
-    --card: 336 18% 25%; /* #4A2733 rose sombre */
-    --card-foreground: 0 0% 100%;
-    
-    --popover: 336 18% 25%;
-    --popover-foreground: 0 0% 100%;
-    
-    /* Primary/Secondary VOS COULEURS (contraste boosté) */
-    --primary: 336 99% 68%; /* Rose Blyss brille */
-    --primary-foreground: 336 20% 15%; /* Fond rose sombre */
-    
-    --secondary: 32 60% 65%; /* Or magique */
-    --secondary-foreground: 336 20% 15%;
-    
-    --muted: 336 15% 30%; /* Rose muted */
-    --muted-foreground: 0 0% 85%; /* Blanc doux (12:1) */
-    
-    --accent: 32 40% 40%; /* Or muted */
-    --accent-foreground: 0 0% 100%;
-    
-    --destructive: 0 62% 30%;
-    --destructive-foreground: 0 0% 100%;
-    
-    --border: 336 18% 35%;
-    --input: 336 18% 35%;
-    --ring: 336 99% 68%;
-    
-    /* Glass DARK optimisé */
-    --glass-bg: 336 18% 25% / 0.85;
-    --glass-border: 336 18% 35% / 0.5;
-    
-    /* Shadows boostés dark */
-    --shadow-soft: 336 20% 10% / 0.4;
-    --shadow-card: 0 0% 0% / 0.3;
-    --shadow-elevated: 0 0% 0% / 0.5;
-  }
-
-  /* Transitions fluides */
-  *, *::before, *::after {
-    transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-                color 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-                border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-                box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    background-color: #ffeaf1;
   }
 }
 

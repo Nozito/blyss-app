@@ -171,9 +171,6 @@ const ProDashboard = () => {
   }
 
   const maxAmount = Math.max(...weeklyRevenue.map((d) => d.amount ?? 0), 1);
-  const maxIndexes = weeklyRevenue
-    .map((d, idx) => (d.amount === maxAmount && d.amount > 0 ? idx : -1))
-    .filter((idx) => idx !== -1);
 
   return (
     <MobileLayout showNav={!(showSlotsModal || showBlockModal)}>
@@ -456,7 +453,7 @@ const ProDashboard = () => {
             </div>
           ) : (
             <div className="space-y-3">
-              {topServices.map((service, index) => (
+              {topServices.slice(0, 3).map((service, index) => (
                 <div key={index}>
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs text-foreground font-semibold">
@@ -481,66 +478,63 @@ const ProDashboard = () => {
           )}
         </section>
 
-        {/* ✅ Weekly Revenue - Tooltip corrigé */}
-<section
-  className="rounded-xl p-4 bg-card border border-border shadow-sm animate-slide-up"
-  style={{ animationDelay: "0.35s" }}
->
-  <h3 className="font-bold text-sm text-foreground mb-3 tracking-tight">
-    Revenus de la semaine
-  </h3>
+        {/* ✅ Weekly Revenue - Tooltip fixe en bas */}
+        <section
+          className="rounded-xl p-4 bg-card border border-border shadow-sm animate-slide-up"
+          style={{ animationDelay: "0.35s" }}
+        >
+          <h3 className="font-bold text-sm text-foreground mb-3 tracking-tight">
+            Revenus de la semaine
+          </h3>
 
-  {weeklyRevenue.length === 0 ? (
-    <div className="rounded-lg p-6 bg-muted/20 border border-dashed border-border">
-      <p className="text-[11px] text-muted-foreground text-center font-medium">
-        Aucun revenu enregistré
-      </p>
-    </div>
-  ) : (
-    <div className="flex items-end justify-between gap-1.5 h-32">
-      {weeklyRevenue.map((day, index) => {
-        const amount = day.amount ?? 0;
-        const parentHeightPx = 128;
-        const minBarPx = 10;
-        const barPx =
-          maxAmount > 0
-            ? Math.max(
-                Math.round((amount / maxAmount) * parentHeightPx),
-                minBarPx
-              )
-            : minBarPx;
-        const isMax = maxIndexes.includes(index);
-        return (
-          <div
-            key={index}
-            className="flex-1 flex flex-col items-center gap-1.5 group"
-          >
-            {/* ✅ CORRECTION: Tooltip avec fond blanc et texte foncé */}
-            <span className="mb-0.5 px-2 py-1 rounded-lg bg-white border border-border text-[10px] text-foreground font-bold transition-opacity duration-150 opacity-0 group-hover:opacity-100 select-none shadow-lg">
-              {amount.toFixed(0)}€
-            </span>
-            <div
-              className={`w-full rounded-t-lg transition-all duration-500 cursor-pointer ${
-                isMax
-                  ? "bg-gradient-to-t from-primary to-primary/70 shadow-md shadow-primary/20 scale-105"
-                  : "bg-gradient-to-t from-muted to-muted/60 group-hover:from-primary/40 group-hover:to-primary/20"
-              }`}
-              style={{
-                height: `${barPx}px`,
-                minHeight: `${minBarPx}px`,
-                maxHeight: `${parentHeightPx}px`,
-              }}
-              tabIndex={0}
-            />
-            <span className="text-[10px] text-muted-foreground font-semibold">
-              {day.day}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  )}
-</section>
+          {weeklyRevenue.length === 0 ? (
+            <div className="rounded-lg p-6 bg-muted/20 border border-dashed border-border">
+              <p className="text-[11px] text-muted-foreground text-center font-medium">
+                Aucun revenu enregistré
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-end justify-between gap-1.5 h-[110px] relative">
+              {weeklyRevenue.map((day, index) => {
+                const amount = day.amount ?? 0;
+                const parentHeightPx = 110;
+                const minBarPx = 10;
+                const barPx =
+                  maxAmount > 0
+                    ? Math.max((amount / maxAmount) * parentHeightPx, minBarPx)
+                    : minBarPx;
+                const isMax = amount === maxAmount && amount > 0;
+                return (
+                  <div
+                    key={index}
+                    className="flex-1 flex flex-col items-center gap-1.5 group relative"
+                  >
+                    {/* ✅ Tooltip fixe au-dessus de la barre (avec position absolute) */}
+                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 rounded-lg bg-white border border-border text-[10px] text-foreground font-bold transition-opacity duration-150 opacity-0 group-hover:opacity-100 select-none shadow-lg pointer-events-none whitespace-nowrap z-10">
+                      {amount.toFixed(0)}€
+                    </div>
+
+                    <div
+                      className={`w-full rounded-t-lg transition-all duration-500 cursor-pointer ${isMax
+                          ? "bg-gradient-to-t from-primary to-primary/70 shadow-md shadow-primary/20 scale-105"
+                          : "bg-gradient-to-t from-muted to-muted/60 group-hover:from-primary/40 group-hover:to-primary/20"
+                        }`}
+                      style={{
+                        height: `${barPx}px`,
+                        minHeight: `${minBarPx}px`,
+                        maxHeight: `${parentHeightPx}px`,
+                      }}
+                      tabIndex={0}
+                    />
+                    <span className="text-[10px] text-muted-foreground font-semibold">
+                      {day.day}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
       </div>
 

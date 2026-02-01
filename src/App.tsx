@@ -118,19 +118,18 @@ const App = () => {
                 <Route path="/client/specialists" element={<ClientSpecialists />} />
                 <Route path="/client/payment-methods" element={<ClientPayements />} />
                 <Route path="/client/specialist/:id" element={<SpecialistProfile />} />
-                <Route path="/client/booking-detail/:bookingId" element={<BookingDetail />} />
-
+                <Route path="/client/booking-detail/:id" element={<BookingDetail />} />
                 {/*ADMIN*/}
                 {/* Routes Admin */}
                 <Route path="/admin" element={<AdminLayout />}>
-                <Route index element={<Navigate to="/admin/dashboard" replace />} />
-                <Route path="dashboard" element={<AdminDashboard />} />
-                <Route path="users" element={<AdminUsers />} />
-                <Route path="notifications" element={<AdminNotifications />} />
-                <Route path="bookings" element={<AdminBookings/>} />
-                <Route path="payments" element={<AdminPayments />} />
-                <Route path="analytics" element={<AdminAnalytics />} />
-                <Route path="logs" element={<AdminLogs />} />
+                  <Route index element={<Navigate to="/admin/dashboard" replace />} />
+                  <Route path="dashboard" element={<AdminDashboard />} />
+                  <Route path="users" element={<AdminUsers />} />
+                  <Route path="notifications" element={<AdminNotifications />} />
+                  <Route path="bookings" element={<AdminBookings />} />
+                  <Route path="payments" element={<AdminPayments />} />
+                  <Route path="analytics" element={<AdminAnalytics />} />
+                  <Route path="logs" element={<AdminLogs />} />
                 </Route>
 
                 {/* CLIENT */}

@@ -3,7 +3,45 @@ import { useAuth } from "./AuthContext";
 import { Bell, X, CheckCircle, AlertCircle, AlertTriangle, Clock, MessageSquare, CreditCard, Gift, Mail, CheckCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:3001";
+const WS_URL =
+    import.meta.env.VITE_WS_URL ??
+    (location.protocol === "https:"
+        ? "wss://app.blyssapp.fr/ws"
+        : "ws://localhost:3001");
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+// ✅ Fonction pour rafraîchir le token
+const refreshAuthToken = async (): Promise<string | null> => {
+    try {
+        const currentToken = localStorage.getItem('auth_token');
+        if (!currentToken) return null;
+
+        const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${currentToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const newToken = data.token;
+
+            localStorage.setItem('auth_token', newToken);
+            console.log('✅ Token rafraîchi pour WebSocket');
+
+            return newToken;
+        }
+
+        console.log('❌ Refresh token échoué');
+        return null;
+    } catch (error) {
+        console.error('❌ Erreur refresh token:', error);
+        return null;
+    }
+};
 
 interface Notification {
     id: number;
@@ -44,7 +82,7 @@ const notificationConfig: { [key: string]: { icon: any; color: string; bg: strin
 const MAX_TOASTS = 3;
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const { user, token } = useAuth();
+    const { user } = useAuth();
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [activeToasts, setActiveToasts] = useState<Notification[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
@@ -54,7 +92,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Bloquer le scroll du body quand le panel est ouvert
     useEffect(() => {
         if (showNotifications) {
             document.body.style.overflow = 'hidden';
@@ -66,27 +103,81 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         };
     }, [showNotifications]);
 
-    // Connexion WebSocket
+    // ✅ Connexion WebSocket avec gestion du token expiré
     useEffect(() => {
-        if (!user || !token) return;
+        if (!user) return;
 
-        const connectWebSocket = () => {
+        let isUnmounted = false;
+
+        const connectWebSocket = async () => {
+            // ✅ Récupérer et rafraîchir le token AVANT de connecter
+            let token = localStorage.getItem('auth_token');
+
+            if (!token) {
+                console.log('❌ Pas de token, pas de WebSocket');
+                return;
+            }
+
+            // ✅ Tenter de rafraîchir le token d'abord (préventif)
+            try {
+                const refreshedToken = await refreshAuthToken();
+                if (refreshedToken) {
+                    token = refreshedToken;
+                    console.log('✅ Token rafraîchi avant connexion WebSocket');
+                }
+            } catch (err) {
+                console.log('⚠️ Impossible de rafraîchir le token, utilisation du token existant');
+            }
+
+            // Créer la connexion WebSocket
             const ws = new WebSocket(WS_URL);
             wsRef.current = ws;
 
             ws.onopen = () => {
-                console.log("✅ WebSocket connected");
+                console.log("✅ WebSocket connecté");
                 setIsConnected(true);
-                ws.send(JSON.stringify({ type: "auth", data: { token } }));
+
+                // Envoyer le token (frais) pour authentification
+                ws.send(JSON.stringify({
+                    type: "auth",
+                    data: { token }
+                }));
             };
 
-            ws.onmessage = (event) => {
+            ws.onmessage = async (event) => {
                 try {
                     const message = JSON.parse(event.data);
 
+                    // ✅ Gérer l'erreur de token expiré
+                    if (message.type === "auth_error" &&
+                        (message.data?.code === "TOKEN_EXPIRED" ||
+                            message.data?.message?.includes("expired") ||
+                            message.data?.message?.includes("Token expired"))) {
+
+                        console.log("🔄 Token expiré, tentative de refresh et reconnexion...");
+                        ws.close();
+
+                        // Attendre un peu avant de reconnecter
+                        await new Promise(resolve => setTimeout(resolve, 500));
+
+                        const newToken = await refreshAuthToken();
+
+                        if (newToken) {
+                            console.log('✅ Token rafraîchi, reconnexion WebSocket...');
+                            if (!isUnmounted) {
+                                connectWebSocket();
+                            }
+                        } else {
+                            console.log('❌ Refresh échoué, redirection login');
+                            localStorage.removeItem('auth_token');
+                            window.location.href = '/login';
+                        }
+                        return;
+                    }
+
                     switch (message.type) {
                         case "auth_success":
-                            console.log("✅ WebSocket authenticated");
+                            console.log("✅ WebSocket authentifié");
                             break;
 
                         case "notifications":
@@ -114,33 +205,55 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                             break;
 
                         case "mark_read_success":
-                            console.log("✅ Notification marked as read");
+                            console.log("✅ Notification marquée comme lue");
                             break;
 
                         case "mark_all_read_success":
-                            console.log("✅ All notifications marked as read");
+                            console.log("✅ Toutes les notifications marquées comme lues");
                             break;
                     }
                 } catch (error) {
-                    console.error("Error parsing WebSocket message:", error);
+                    console.error("❌ Erreur parsing WebSocket:", error);
                 }
             };
 
-            ws.onerror = () => setIsConnected(false);
-            ws.onclose = () => {
-                console.log("🔌 WebSocket disconnected");
+            ws.onerror = (error) => {
+                console.error('❌ WebSocket erreur:', error);
                 setIsConnected(false);
-                reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onclose = () => {
+                console.log("🔌 WebSocket déconnecté");
+                setIsConnected(false);
+
+                // ✅ Reconnexion automatique après 3 secondes
+                if (!isUnmounted) {
+                    if (reconnectTimeoutRef.current) {
+                        clearTimeout(reconnectTimeoutRef.current);
+                    }
+
+                    reconnectTimeoutRef.current = setTimeout(() => {
+                        console.log('🔄 Tentative de reconnexion WebSocket...');
+                        connectWebSocket();
+                    }, 3000);
+                }
             };
         };
 
+        // Lancer la connexion
         connectWebSocket();
 
+        // Cleanup
         return () => {
-            if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-            if (wsRef.current) wsRef.current.close();
+            isUnmounted = true;
+            if (reconnectTimeoutRef.current) {
+                clearTimeout(reconnectTimeoutRef.current);
+            }
+            if (wsRef.current) {
+                wsRef.current.close();
+            }
         };
-    }, [user, token]);
+    }, [user]);
 
     const getDuration = (type: string) => {
         const durations: { [key: string]: number } = {
@@ -162,7 +275,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
             if (navigator.vibrate) {
                 navigator.vibrate(5);
             }
-            
+
             wsRef.current.send(JSON.stringify({ type: "mark_read", data: { notificationId: id } }));
             setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
             setUnreadCount((prev) => Math.max(0, prev - 1));
@@ -174,7 +287,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
             if (navigator.vibrate) {
                 navigator.vibrate(10);
             }
-            
+
             wsRef.current.send(JSON.stringify({ type: "mark_all_read" }));
             setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
             setUnreadCount(0);
@@ -231,7 +344,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         "/client/help",
     ];
 
-    const shouldShowBell = !hiddenRoutes.some(route => 
+    const shouldShowBell = !hiddenRoutes.some(route =>
         location.pathname.startsWith(route)
     );
 
@@ -249,10 +362,10 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         >
             {children}
 
-            {/* 🔔 Toasts style iOS */}
-            <div 
+            {/* Vos composants UI inchangés (Toasts, Bell, Panel) */}
+            <div
                 className="fixed left-0 right-0 z-[100] flex flex-col pointer-events-none px-4"
-                style={{ 
+                style={{
                     top: 'env(safe-area-inset-top, 0px)',
                     paddingTop: '12px'
                 }}
@@ -269,9 +382,9 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                                 initial={{ y: -120, opacity: 0 }}
                                 animate={{ y: 0, opacity: 1 }}
                                 exit={{ y: -120, opacity: 0 }}
-                                transition={{ 
-                                    type: "spring", 
-                                    damping: 30, 
+                                transition={{
+                                    type: "spring",
+                                    damping: 30,
                                     stiffness: 400,
                                     mass: 0.8
                                 }}
@@ -286,7 +399,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                                 className="mb-2 pointer-events-auto"
                                 style={{ touchAction: "pan-y" }}
                             >
-                                <div 
+                                <div
                                     className="bg-white/95 backdrop-blur-xl rounded-[20px] shadow-lg border border-black/5 overflow-hidden"
                                     style={{
                                         boxShadow: "0 10px 40px rgba(0, 0, 0, 0.15), 0 0 1px rgba(0, 0, 0, 0.1)"
@@ -299,7 +412,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                                         transition={{ duration: getDuration(notif.type) / 1000, ease: "linear" }}
                                         style={{ transformOrigin: "left" }}
                                     />
-                                    
+
                                     <div className="p-4 flex items-start gap-3">
                                         <div
                                             className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
@@ -334,7 +447,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                 </AnimatePresence>
             </div>
 
-            {/* 🔔 Bouton cloche */}
             {user && shouldShowBell && (
                 <>
                     <button
@@ -367,11 +479,9 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                         )}
                     </button>
 
-                    {/* 📋 Panel adaptatif */}
                     <AnimatePresence>
                         {showNotifications && (
                             <>
-                                {/* Overlay */}
                                 <motion.div
                                     initial={{ opacity: 0 }}
                                     animate={{ opacity: 1 }}
@@ -381,30 +491,28 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                                     onClick={() => setShowNotifications(false)}
                                 />
 
-                                {/* Panel - Taille adaptative selon le contenu */}
                                 <motion.div
                                     initial={{ opacity: 0, scale: 0.95 }}
                                     animate={{ opacity: 1, scale: 1 }}
                                     exit={{ opacity: 0, scale: 0.95 }}
-                                    transition={{ 
-                                        type: "spring", 
-                                        damping: 30, 
+                                    transition={{
+                                        type: "spring",
+                                        damping: 30,
                                         stiffness: 400,
                                         mass: 0.8
                                     }}
                                     className="fixed inset-x-4 bg-white/98 backdrop-blur-xl rounded-[28px] overflow-hidden z-[60] flex flex-col"
-                                    style={{ 
+                                    style={{
                                         top: 'max(env(safe-area-inset-top, 16px) + 72px, 72px)',
-                                        // Hauteur adaptative : petite si pas de notifs, sinon jusqu'en bas
-                                        maxHeight: notifications.length === 0 
-                                            ? '280px' 
+                                        maxHeight: notifications.length === 0
+                                            ? '280px'
                                             : 'calc(100vh - max(env(safe-area-inset-top, 16px) + 88px, 88px) - max(env(safe-area-inset-bottom, 16px) + 16px, 16px))',
                                         maxWidth: '420px',
                                         margin: '0 auto',
                                         boxShadow: "0 20px 60px rgba(0, 0, 0, 0.25), 0 0 1px rgba(0, 0, 0, 0.1)"
                                     }}
                                 >
-                                    {/* Header */}
+                                    {/* Le reste de votre UI Panel reste identique... */}
                                     <div className="bg-white/60 backdrop-blur-xl border-b border-gray-200/50 px-5 py-4 flex-shrink-0">
                                         <div className="flex items-center justify-between mb-3">
                                             <div className="flex items-center gap-3">
@@ -416,8 +524,8 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                                                         Notifications
                                                     </h2>
                                                     <p className="text-[12px] text-gray-500 font-medium">
-                                                        {unreadCount > 0 
-                                                            ? `${unreadCount} non lue${unreadCount > 1 ? "s" : ""}` 
+                                                        {unreadCount > 0
+                                                            ? `${unreadCount} non lue${unreadCount > 1 ? "s" : ""}`
                                                             : "Tout est lu"
                                                         }
                                                     </p>
@@ -446,10 +554,9 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                                         )}
                                     </div>
 
-                                    {/* Liste scrollable ou état vide */}
-                                    <div 
+                                    <div
                                         className="flex-1 overflow-y-auto px-4 py-3"
-                                        style={{ 
+                                        style={{
                                             WebkitOverflowScrolling: 'touch',
                                             scrollbarWidth: 'none',
                                             msOverflowStyle: 'none'
@@ -465,6 +572,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                                             </div>
                                         ) : (
                                             <div className="space-y-3">
+                                                {/* Reste de votre code UI inchangé... */}
                                                 {unreadNotifications.length > 0 && (
                                                     <div>
                                                         <div className="flex items-center gap-2 mb-2 px-1">

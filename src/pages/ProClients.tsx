@@ -32,6 +32,7 @@ const ProClients = () => {
         if (!res.success) {
           throw new Error(res.error || "Erreur serveur");
         }
+
         setClients(res.data || []);
       } catch (e: any) {
         setError(e.message ?? "Erreur inattendue");
@@ -72,12 +73,39 @@ const ProClients = () => {
     }
   };
 
+  const parseLastVisit = (lastVisit: string): number => {
+    const visit = lastVisit.toLowerCase();
+
+    if (visit.includes("aujourd'hui")) return 0;
+    if (visit.includes("hier")) return 1;
+
+    const jourMatch = visit.match(/il y a (\d+) jours?/);
+    if (jourMatch) return parseInt(jourMatch[1]);
+
+    const semaineMatch = visit.match(/il y a (\d+) semaines?/);
+    if (semaineMatch) return parseInt(semaineMatch[1]) * 7;
+
+    const moisMatch = visit.match(/il y a (\d+) mois/);
+    if (moisMatch) return parseInt(moisMatch[1]) * 30;
+
+    return 999; // Très ancien
+  };
+
   const clientsThisWeek = useMemo(() => {
-    return clients.filter(
-      (c) =>
-        c.lastVisit.includes("Aujourd'hui") || c.lastVisit.includes("Il y a")
-    ).length;
+    return clients.filter((c) => {
+      const daysAgo = parseLastVisit(c.lastVisit);
+      return daysAgo <= 7;
+    }).length;
   }, [clients]);
+
+  const clientsThisMonth = useMemo(() => {
+    return clients.filter((c) => {
+      const daysAgo = parseLastVisit(c.lastVisit);
+      return daysAgo <= 30;
+    }).length;
+  }, [clients]);
+
+
 
   const topClients = useMemo(() => {
     return [...clients].sort((a, b) => b.totalVisits - a.totalVisits).slice(0, 3);
@@ -147,7 +175,7 @@ const ProClients = () => {
             </div>
             <div className="text-center px-3 py-3">
               <p className="text-3xl font-bold text-foreground mb-1">
-                {clients.length}
+                {clientsThisMonth}
               </p>
               <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
                 Mois

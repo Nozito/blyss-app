@@ -46,7 +46,7 @@ const ProServiceForm = () => {
   const [direction, setDirection] = useState(0);
 
   const categories = ["Pose", "Remplissage", "Nail art", "Dépose", "Soin", "Autre"];
-  const durations = [15, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300];
+  const durations = [15, 30, 45, 60, 75, 90, 120, 150, 180];
 
   const [formData, setFormData] = useState<ServiceFormData>({
     name: "",
@@ -308,9 +308,8 @@ const ProServiceForm = () => {
                         onChange={(e) => handleInputChange("name", e.target.value)}
                         placeholder="Ex: Pose complète gel"
                         maxLength={60}
-                        className={`w-full px-4 py-3 rounded-xl border-2 ${
-                          errors.name ? "border-destructive" : "border-border"
-                        } bg-background/50 backdrop-blur-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors`}
+                        className={`w-full px-4 py-3 rounded-xl border-2 ${errors.name ? "border-destructive" : "border-border"
+                          } bg-background/50 backdrop-blur-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors`}
                       />
                       {errors.name && (
                         <p className="text-xs text-destructive mt-2 flex items-center gap-1">
@@ -331,11 +330,10 @@ const ProServiceForm = () => {
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
                             onClick={() => handleInputChange("category", cat)}
-                            className={`px-4 py-3 rounded-xl border-2 font-semibold text-sm transition-all backdrop-blur-sm ${
-                              formData.category === cat
+                            className={`px-4 py-3 rounded-xl border-2 font-semibold text-sm transition-all backdrop-blur-sm ${formData.category === cat
                                 ? "border-primary bg-primary/10 text-primary shadow-lg shadow-primary/20"
                                 : "border-border bg-background/50 text-muted-foreground hover:border-primary/50"
-                            }`}
+                              }`}
                           >
                             {cat}
                           </motion.button>
@@ -376,9 +374,8 @@ const ProServiceForm = () => {
                       placeholder="Décris ta prestation en quelques mots..."
                       maxLength={500}
                       rows={7}
-                      className={`w-full px-4 py-3 rounded-xl border-2 ${
-                        errors.description ? "border-destructive" : "border-border"
-                      } bg-background/50 backdrop-blur-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors resize-none`}
+                      className={`w-full px-4 py-3 rounded-xl border-2 ${errors.description ? "border-destructive" : "border-border"
+                        } bg-background/50 backdrop-blur-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors resize-none`}
                     />
                     {errors.description && (
                       <p className="text-xs text-destructive mt-2 flex items-center gap-1">
@@ -422,9 +419,8 @@ const ProServiceForm = () => {
                           placeholder="0"
                           min="0"
                           step="0.5"
-                          className={`w-full px-4 py-3 pr-12 rounded-xl border-2 ${
-                            errors.basePrice ? "border-destructive" : "border-border"
-                          } bg-background/50 backdrop-blur-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors font-semibold`}
+                          className={`w-full px-4 py-3 pr-12 rounded-xl border-2 ${errors.basePrice ? "border-destructive" : "border-border"
+                            } bg-background/50 backdrop-blur-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors font-semibold`}
                         />
                         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-bold">€</span>
                       </div>
@@ -536,11 +532,10 @@ const ProServiceForm = () => {
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                           onClick={() => handleInputChange("duration", duration)}
-                          className={`px-4 py-3 rounded-xl border-2 font-bold text-sm transition-all backdrop-blur-sm ${
-                            formData.duration === duration
+                          className={`px-4 py-3 rounded-xl border-2 font-bold text-sm transition-all backdrop-blur-sm ${formData.duration === duration
                               ? "border-primary bg-primary/10 text-primary shadow-lg shadow-primary/20"
                               : "border-border bg-background/50 text-muted-foreground hover:border-primary/50"
-                          }`}
+                            }`}
                         >
                           {formatDuration(duration)}
                         </motion.button>
@@ -679,41 +674,38 @@ const ProServiceForm = () => {
         initial={{ y: 100 }}
         animate={{ y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50"
+        className="fixed bottom-6 inset-x-0 z-50 flex justify-center"
       >
-        <div className="relative rounded-full bg-white/95 dark:bg-gray-900/95 backdrop-blur-2xl border border-white/20 shadow-2xl p-2">
-          <div className="flex items-center gap-3 px-2">
-            {steps.map((step, index) => (
-              <motion.button
-                key={index}
-                type="button"
-                onClick={() => {
-                  if (index < currentStep || validateStep(currentStep)) {
-                    setDirection(index > currentStep ? 1 : -1);
-                    setCurrentStep(index);
-                  }
-                }}
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-                  index === currentStep
-                    ? "bg-primary shadow-lg shadow-primary/30"
-                    : index < currentStep
+        <div className="relative rounded-full bg-white/95 dark:bg-gray-900/95 backdrop-blur-2xl border border-white/20 shadow-2xl p-2 flex items-center gap-3">
+          {steps.map((step, index) => (
+            <motion.button
+              key={index}
+              type="button"
+              onClick={() => {
+                if (index < currentStep || validateStep(currentStep)) {
+                  setDirection(index > currentStep ? 1 : -1);
+                  setCurrentStep(index);
+                }
+              }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all ${index === currentStep
+                  ? "bg-primary shadow-lg shadow-primary/30"
+                  : index < currentStep
                     ? "bg-primary/20"
                     : "bg-muted/50"
                 }`}
-              >
-                {index < currentStep ? (
-                  <CheckCircle2 size={20} className="text-primary" />
-                ) : (
-                  React.createElement(step.icon, {
-                    size: 20,
-                    className: index === currentStep ? "text-white" : "text-muted-foreground",
-                  })
-                )}
-              </motion.button>
-            ))}
-          </div>
+            >
+              {index < currentStep ? (
+                <CheckCircle2 size={20} className="text-primary" />
+              ) : (
+                React.createElement(step.icon, {
+                  size: 20,
+                  className: index === currentStep ? "text-white" : "text-muted-foreground",
+                })
+              )}
+            </motion.button>
+          ))}
         </div>
       </motion.div>
     </MobileLayout>

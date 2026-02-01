@@ -157,6 +157,16 @@ const SpecialistProfile = () => {
         const reviewsRes = await fetch(`${API_URL}/api/reviews/pro/${id}`);
         const reviewsData = await reviewsRes.json();
 
+        // Tolérance aux différentes structures de l'API
+        const reviewsArray = Array.isArray(reviewsData)
+          ? reviewsData
+          : Array.isArray(reviewsData?.data)
+            ? reviewsData.data
+            : [];
+
+        console.log("reviewsArray:", reviewsArray); // Vérification en prod
+        setReviews(reviewsArray);
+
         if (reviewsData.success && reviewsData.data) {
           setReviews(reviewsData.data);
         }

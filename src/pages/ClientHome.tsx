@@ -39,6 +39,20 @@ interface Specialist {
   };
 }
 
+interface Booking {
+  id: number;
+  start_datetime: string;
+  end_datetime: string;
+  status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
+  price: number;
+  prestation_name: string;
+  pro_first_name: string;
+  pro_last_name: string;
+  activity_name: string | null;
+  profile_photo: string | null;
+}
+
+
 const ClientHome = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -48,6 +62,10 @@ const ClientHome = () => {
   const [pros, setPros] = useState<Pro[]>([]);
   const [reviewsByPro, setReviewsByPro] = useState<Record<number, Review[]>>({});
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
+
+  const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([]);
+  const [isLoadingBookings, setIsLoadingBookings] = useState(false);
+
 
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -88,9 +106,9 @@ const ClientHome = () => {
   // ✅ Filtrage optimisé avec useMemo
   const filteredSpecialists = useMemo(() => {
     if (!searchQuery) return specialists;
-    
+
     const q = searchQuery.toLowerCase().trim();
-    
+
     return specialists.filter(s => {
       const searchableText = [
         s.business_name,
@@ -99,7 +117,7 @@ const ClientHome = () => {
         s.user.first_name,
         s.user.last_name
       ].filter(Boolean).join(' ').toLowerCase();
-      
+
       return searchableText.includes(q);
     });
   }, [searchQuery, specialists]);
@@ -112,7 +130,7 @@ const ClientHome = () => {
 
         // 1. Charger les pros actifs
         const usersRes = await fetch(`${API_BASE_URL}/api/users/pros`);
-        
+
         if (!usersRes.ok) {
           throw new Error(`Erreur ${usersRes.status} lors du chargement des pros`);
         }
@@ -127,7 +145,7 @@ const ClientHome = () => {
           const reviewsPromises = activePros.map(async (pro: Pro) => {
             try {
               const reviewsRes = await fetch(`${API_BASE_URL}/api/reviews/pro/${pro.id}`);
-              
+
               if (!reviewsRes.ok) {
                 return { proId: pro.id, reviews: [] };
               }
@@ -147,7 +165,7 @@ const ClientHome = () => {
           });
 
           const reviewsResults = await Promise.all(reviewsPromises);
-          
+
           const reviewsData: Record<number, Review[]> = {};
           reviewsResults.forEach(({ proId, reviews }) => {
             reviewsData[proId] = reviews;
@@ -170,7 +188,7 @@ const ClientHome = () => {
 
             if (favoritesRes.ok) {
               const favoritesData = await favoritesRes.json();
-              
+
               if (favoritesData?.success && Array.isArray(favoritesData?.data)) {
                 const favoriteIds = new Set<number>(
                   favoritesData.data
@@ -200,6 +218,72 @@ const ClientHome = () => {
     fetchData();
   }, [API_BASE_URL]);
 
+useEffect(() => {
+  const fetchUpcomingBookings = async () => {
+    const token = localStorage.getItem('auth_token');
+    if (!token) return; // Pas connecté, pas de réservations
+    
+    try {
+      setIsLoadingBookings(true);
+      
+      const response = await fetch(`${API_BASE_URL}/api/client/my-booking`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem('auth_token');
+        }
+        return;
+      }
+
+      const data = await response.json();
+
+      if (data.success && Array.isArray(data.data)) {
+        // ✅ Mapper avec la bonne structure (comme vous l'avez corrigé)
+        const bookingsMapped: Booking[] = data.data.map((b: any) => ({
+          id: b.id,
+          start_datetime: b.start_datetime,
+          end_datetime: b.end_datetime,
+          status: b.status,
+          price: b.price,
+          paid_online: b.paid_online,
+          // ✅ Données imbriquées
+          prestation_name: b.prestation?.name || 'Prestation',
+          pro_first_name: b.pro?.first_name || '',
+          pro_last_name: b.pro?.last_name || '',
+          activity_name: b.pro?.name || null,
+          profile_photo: b.pro?.profile_photo || null
+        }));
+
+        // ✅ Filtrer uniquement les rendez-vous à venir
+        const now = new Date();
+        const upcoming = bookingsMapped.filter(b => {
+          const bookingDate = new Date(b.start_datetime);
+          return (b.status === 'confirmed' || b.status === 'pending') && bookingDate > now;
+        });
+
+        // ✅ Trier par date (les plus proches en premier)
+        upcoming.sort((a, b) => 
+          new Date(a.start_datetime).getTime() - new Date(b.start_datetime).getTime()
+        );
+
+        setUpcomingBookings(upcoming);
+      }
+    } catch (error) {
+      console.error('Erreur chargement réservations:', error);
+    } finally {
+      setIsLoadingBookings(false);
+    }
+  };
+
+  fetchUpcomingBookings();
+}, [API_BASE_URL]);
+
+
   // ✅ Navigation vers la page spécialiste
   const handleSpecialistClick = (proId: number) => {
     navigate(`/client/specialist/${proId}`);
@@ -210,7 +294,7 @@ const ClientHome = () => {
     e.stopPropagation();
 
     const token = localStorage.getItem('auth_token');
-    
+
     if (!token) {
       localStorage.setItem('returnUrl', '/client');
       navigate('/login', {
@@ -224,14 +308,14 @@ const ClientHome = () => {
 
     const wasFavorite = favorites.has(proId);
     const newFavorites = new Set(favorites);
-    
+
     // Optimistic update
     if (wasFavorite) {
       newFavorites.delete(proId);
     } else {
       newFavorites.add(proId);
     }
-    
+
     setFavorites(newFavorites);
 
     try {
@@ -268,10 +352,10 @@ const ClientHome = () => {
       }
     } catch (error) {
       console.error('Erreur favoris:', error);
-      
+
       // Rollback en cas d'erreur
       setFavorites(favorites);
-      
+
       // Message utilisateur plus doux
       const action = wasFavorite ? 'retirer ce favori' : 'ajouter aux favoris';
       alert(`Impossible de ${action}. Vérifie ta connexion et réessaie.`);
@@ -508,11 +592,10 @@ const ClientHome = () => {
                           >
                             <Heart
                               size={18}
-                              className={`transition-all duration-300 ${
-                                isFavorite
-                                  ? 'text-red-500 fill-red-500'
-                                  : 'text-muted-foreground'
-                              }`}
+                              className={`transition-all duration-300 ${isFavorite
+                                ? 'text-red-500 fill-red-500'
+                                : 'text-muted-foreground'
+                                }`}
                             />
                           </motion.button>
 
@@ -567,7 +650,7 @@ const ClientHome = () => {
 
                           <div className="flex items-center justify-between pt-2 border-t border-border">
                             <span className="text-xs font-semibold text-primary group-hover:text-primary/80 transition-colors">
-                              Voir les créneaux
+                              Réserver
                             </span>
                             <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary transition-all">
                               <ChevronRight
@@ -676,42 +759,111 @@ const ClientHome = () => {
             <p className="text-xs text-muted-foreground">Tes prochains rendez-vous beauté</p>
           </div>
 
-          <motion.div
-            className="relative overflow-hidden p-5 rounded-2xl bg-gradient-to-br from-primary/5 to-primary/10 border-2 border-dashed border-primary/30"
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            whileHover={{ scale: 1.02 }}
-            transition={{ duration: 0.5 }}
-          >
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center flex-shrink-0 shadow-lg">
-                <Calendar size={22} className="text-white" />
-              </div>
-              <div className="flex-1 space-y-2">
-                <p className="text-sm font-semibold text-foreground">Aucun rendez-vous prévu</p>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Réserve dès maintenant auprès d'une experte près de chez toi
-                </p>
+          {isLoadingBookings ? (
+            <div className="p-5 rounded-2xl bg-card border-2 border-border flex items-center justify-center">
+              <Loader2 className="w-6 h-6 text-primary animate-spin" />
+            </div>
+          ) : upcomingBookings.length > 0 ? (
+            <div className="space-y-3">
+              {upcomingBookings.slice(0, 2).map((booking) => {
+                const proName = booking.activity_name ||
+                  `${booking.pro_first_name} ${booking.pro_last_name}`.trim();
+                const bookingDate = new Date(booking.start_datetime);
+                const avatarUrl = getImageUrl(booking.profile_photo);
+
+                return (
+                  <motion.div
+                    key={booking.id}
+                    className="bg-card rounded-2xl overflow-hidden border-2 border-primary/20 shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => navigate(`/client/booking-detail/${booking.id}`)}
+                  >
+                    <div className="p-4 flex items-center gap-4">
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt={proName}
+                          className="w-14 h-14 rounded-xl object-cover shadow-md"
+                        />
+                      ) : (
+                        <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-md">
+                          <span className="text-xl font-bold text-white">
+                            {proName[0]}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-foreground mb-1">{proName}</h3>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          {booking.prestation_name}
+                        </p>
+
+                        <div className="flex items-center gap-3 text-xs">
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Calendar size={12} />
+                            <span>{bookingDate.toLocaleDateString('fr-FR', {
+                              day: 'numeric',
+                              month: 'short'
+                            })}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-primary font-semibold">
+                            <Clock size={12} />
+                            <span>{bookingDate.toLocaleTimeString('fr-FR', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <ChevronRight size={20} className="text-muted-foreground flex-shrink-0" />
+                    </div>
+                  </motion.div>
+                );
+              })}
+
+              {/* Bouton pour voir toutes les réservations */}
+              {upcomingBookings.length > 2 && (
                 <button
                   onClick={() => navigate("/client/my-booking")}
-                  className="
-                    mt-2 px-4 py-2 rounded-xl
-                    bg-primary
-                    text-white text-xs font-semibold
-                    shadow-lg shadow-primary/30
-                    hover:shadow-xl hover:shadow-primary/40
-                    transition-all duration-300
-                    active:scale-95
-                    inline-flex items-center gap-2
-                  "
+                  className="w-full py-3 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-sm font-semibold transition-all duration-300 active:scale-95"
                 >
-                  <Clock size={14} />
-                  Voir mes réservations
+                  Voir toutes mes réservations ({upcomingBookings.length})
                 </button>
-              </div>
+              )}
             </div>
-          </motion.div>
+          ) : (
+            <motion.div
+              className="relative overflow-hidden p-5 rounded-2xl bg-gradient-to-br from-primary/5 to-primary/10 border-2 border-dashed border-primary/30"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              whileHover={{ scale: 1.02 }}
+              transition={{ duration: 0.5 }}
+            >
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center flex-shrink-0 shadow-lg">
+                  <Calendar size={22} className="text-white" />
+                </div>
+                <div className="flex-1 space-y-2">
+                  <p className="text-sm font-semibold text-foreground">Aucun rendez-vous prévu</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Réserve dès maintenant auprès d'une experte près de chez toi
+                  </p>
+                  <button
+                    onClick={() => navigate("/client/specialists")}
+                    className="mt-2 px-4 py-2 rounded-xl bg-primary text-white text-xs font-semibold shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 transition-all duration-300 active:scale-95 inline-flex items-center gap-2"
+                  >
+                    <Sparkles size={14} />
+                    Découvrir les expertes
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
         </motion.section>
+
       </div>
 
       <style>{`

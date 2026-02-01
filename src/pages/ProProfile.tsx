@@ -1,5 +1,4 @@
 import MobileLayout from "@/components/MobileLayout";
-import { useTheme } from '@/hooks/useTheme';
 import { useNavigate } from "react-router-dom";
 import {
   Settings,
@@ -17,110 +16,133 @@ import {
   Eye,
   TrendingUp,
   Calendar,
-  User,
   Briefcase,
-  SunIcon,
-  MoonIcon,
-  Sun,
-  Moon, // Nouvel import pour l'icône des prestations
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import Cropper from "react-easy-crop";
+import Cropper, { Area } from "react-easy-crop";
 import getCroppedImg from "@/utils/cropImage";
 import { proApi } from "@/services/api";
-import { set } from "date-fns";
+
+type Subscription = {
+  id: number;
+  plan: "start" | "serenite" | "signature";
+  billingType: "monthly" | "one_time";
+  monthlyPrice: number;
+  totalPrice: number | null;
+  commitmentMonths: number | null;
+  startDate: string;
+  endDate: string | null;
+  status: string;
+} | null;
+
+type Crop = { x: number; y: number };
+
+// UTILS
+const getDisplayName = (user: any): string =>
+  user ? `${user.first_name} ${user.last_name}` : "Marie Beauté";
+const getDisplayCity = (user: any): string => user?.city || "Non renseigné";
+const getDisplayActivity = (user: any): string =>
+  user?.activity_name || "Non renseignée";
+const getDisplayInstagram = (user: any): string | null =>
+  user?.instagram_account || null;
+const formatAvgRating = (rating: unknown): string => {
+  const value = Number(rating);
+  if (!rating || isNaN(value)) return "–";
+  return value.toFixed(1).replace(".", ",");
+};
+
+const calculateProfileCompleteness = (user: any): number => {
+  let score = 0;
+  let maxScore = 0;
+  maxScore += 10;
+  if (user?.profile_photo && user.profile_photo !== logo) score += 10;
+  maxScore += 15;
+  if (user?.activity_name && user.activity_name.trim().length >= 2) score += 15;
+  maxScore += 15;
+  if (user?.city && user.city.trim().length >= 2) score += 15;
+  maxScore += 15;
+  if (user?.bio && user.bio.trim().length >= 20) score += 15;
+  maxScore += 10;
+  if (user?.instagram_account && user.instagram_account.startsWith("@")) score += 10;
+  maxScore += 10;
+  if (user?.banner_photo) score += 10;
+  maxScore += 5;
+  if (user?.profile_visibility === "public") score += 5;
+  if (user?.accept_online_payment === 1) {
+    maxScore += 20;
+    if (user?.bankaccountname && user.bankaccountname.trim().length >= 2) score += 10;
+    if (user?.IBAN && user.IBAN.length > 10) score += 10;
+  }
+  return maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+};
 
 const ProProfile = () => {
-  const { theme, toggleTheme } = useTheme();
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const navigate = useNavigate();
 
-  const baseUrl = import.meta.env.VITE_SERVER_BASE || 'http://localhost:3001';
+  // STATE
+  const baseUrl = import.meta.env.VITE_SERVER_BASE || "http://localhost:3001";
   const initialPhoto =
     user?.profile_photo && user.profile_photo.startsWith("http")
       ? user.profile_photo
       : user?.profile_photo
-        ? `${baseUrl}${user.profile_photo}`
-        : logo;
+      ? `${baseUrl}${user.profile_photo}`
+      : logo;
 
-  const [profileImage, setProfileImage] = useState(initialPhoto);
+  const [profileImage, setProfileImage] = useState<string>(initialPhoto);
   const [tempProfileImage, setTempProfileImage] = useState<string | null>(null);
-  const [showCropModal, setShowCropModal] = useState(false);
-  const [crop, setCrop] = useState({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(1);
-  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+  const [showCropModal, setShowCropModal] = useState<boolean>(false);
+  const [crop, setCrop] = useState<Crop>({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState<number>(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState<boolean>(false);
+  const [subscription, setSubscription] = useState<Subscription>(null);
   const inputFileRef = useRef<HTMLInputElement>(null);
 
-  // Upload state
-  const [isUploadingPhoto, setIsUploadingPhoto] = useState<boolean>(false);
-
-  const [subscription, setSubscription] = useState<{
-    id: number;
-    plan: "start" | "serenite" | "signature";
-    billingType: "monthly" | "one_time";
-    monthlyPrice: number;
-    totalPrice: number | null;
-    commitmentMonths: number | null;
-    startDate: string;
-    endDate: string | null;
-    status: string;
-  } | null>(null);
-
+  // EFFECTS
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      navigate("/login");
-    }
+    if (!isLoading && !isAuthenticated) navigate("/login");
   }, [isLoading, isAuthenticated, navigate]);
 
   useEffect(() => {
     if (user?.profile_photo) {
       const url = user.profile_photo.startsWith("http")
         ? user.profile_photo
-        : `http://localhost:3001/${user.profile_photo}`;
+        : `${baseUrl}/${user.profile_photo}`;
       setProfileImage(`${url}?t=${Date.now()}`);
     }
-  }, [user?.profile_photo]);
+  }, [user?.profile_photo, baseUrl]);
 
   useEffect(() => {
     if (!isLoading && isAuthenticated && user?.role === "pro") {
       proApi.getSubscription().then((res) => {
-        if (res.success) {
-          setSubscription(res.data ?? null);
-        }
+        if (res.success) setSubscription(res.data ?? null);
       });
     }
   }, [isLoading, isAuthenticated, user]);
 
-  const displayActivity = user?.activity_name || "Non renseignée";
-  const displayName = user
-    ? `${user.first_name} ${user.last_name}`
-    : "Marie Beauté";
-  const displayCity = user?.city || "Non renseigné";
-  const displayInstagram = user?.instagram_account || null;
-
-  const onCropComplete = useCallback((_: any, cropped: any) => {
-    setCroppedAreaPixels(cropped);
-  }, []);
+  // CROP HANDLERS
+  const onCropComplete = useCallback(
+    (_: Area, cropped: Area) => setCroppedAreaPixels(cropped),
+    []
+  );
 
   const handleProfileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
     if (!validTypes.includes(file.type)) {
-      toast.error('Format non supporté. Utilise JPG, PNG ou WebP');
+      toast.error("Format non supporté. Utilise JPG, PNG ou WebP");
       return;
     }
-
     const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
       toast.error("L'image ne doit pas dépasser 5MB");
       return;
     }
-
     const reader = new FileReader();
     reader.onloadend = () => {
       setTempProfileImage(reader.result as string);
@@ -134,167 +156,94 @@ const ProProfile = () => {
       toast.error("Aucune image sélectionnée ou zone de crop manquante");
       return;
     }
-
     try {
       setIsUploadingPhoto(true);
-
       const croppedBase64 = await getCroppedImg(tempProfileImage, croppedAreaPixels);
       if (!croppedBase64) {
         toast.error("Impossible de générer l'image recadrée");
         return;
       }
-
       const blob = await fetch(croppedBase64).then((res) => res.blob());
-
       const formData = new FormData();
-      formData.append('photo', blob, 'profile-photo.jpg');
-
-      const token = localStorage.getItem('auth_token');
+      formData.append("photo", blob, "profile-photo.jpg");
+      const token = localStorage.getItem("auth_token");
       if (!token) {
-        toast.error('Session expirée. Reconnectez-vous.');
-        navigate('/login');
+        toast.error("Session expirée. Reconnectez-vous.");
+        navigate("/login");
         return;
       }
-
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
       const response = await fetch(`${API_URL}/users/upload-photo`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
       });
-
-      if (!response.ok) {
-        throw new Error('Upload failed');
-      }
-
+      if (!response.ok) throw new Error("Upload failed");
       const result = await response.json();
-
       if (result.success) {
-        toast.success('Photo de profil mise à jour !');
+        toast.success("Photo de profil mise à jour !");
         setProfileImage(result.photo);
         setShowCropModal(false);
         setTempProfileImage(null);
       } else {
-        toast.error(result.message || 'Erreur lors de l\'upload');
+        toast.error(result.message || "Erreur lors de l'upload");
       }
-
     } catch (error) {
-      console.error('Error uploading photo:', error);
-      toast.error('Erreur lors de l\'upload de la photo');
+      console.error("Error uploading photo:", error);
+      toast.error("Erreur lors de l'upload de la photo");
     } finally {
       setIsUploadingPhoto(false);
     }
   };
 
+  // LOGOUT
   const handleLogout = async () => {
     await logout();
     navigate("/");
   };
 
+  // SELECTORS
+  const displayActivity = getDisplayActivity(user);
+  const displayName = getDisplayName(user);
+  const displayCity = getDisplayCity(user);
+  const displayInstagram = getDisplayInstagram(user);
+  const profileCompleteness = calculateProfileCompleteness(user);
   const hasActiveSubscription =
     user?.pro_status === "active" && subscription?.status === "active";
-
   const currentPlanLabel = subscription
     ? subscription.plan === "serenite"
       ? "Formule Sérénité"
       : subscription.plan === "start"
-        ? "Formule Start"
-        : "Formule Signature"
+      ? "Formule Start"
+      : "Formule Signature"
     : "Aucune formule";
-
   const currentBillingLabel = subscription
     ? subscription.billingType === "monthly"
       ? "Mensuel"
       : "Paiement unique"
     : "";
-
   const nextBillingDate = subscription?.endDate
     ? new Date(subscription.endDate).toLocaleDateString("fr-FR", {
-      year: "numeric",
-      month: "long",
-      day: "2-digit",
-    })
+        year: "numeric",
+        month: "long",
+        day: "2-digit",
+      })
     : "";
-
-  // Menu items mis à jour avec l'ajout de "Mes prestations"
   const menuItems = [
-    { icon: Briefcase, label: "Mes prestations", path: "/pro/services" }, // Nouveau
+    { icon: Briefcase, label: "Mes prestations", path: "/pro/services" },
     { icon: Settings, label: "Paramètres", path: "/pro/settings" },
     { icon: CreditCard, label: "Encaissements", path: "/pro/payment" },
     { icon: Bell, label: "Notifications", path: "/pro/notifications" },
     { icon: HelpCircle, label: "Aide", path: "/pro/help" },
   ];
 
-  const calculateProfileCompleteness = () => {
-    let score = 0;
-    let maxScore = 0;
-
-    maxScore += 10;
-    if (user?.profile_photo && user.profile_photo !== logo) {
-      score += 10;
-    }
-
-    maxScore += 15;
-    if (user?.activity_name && user.activity_name.trim().length >= 2) {
-      score += 15;
-    }
-
-    maxScore += 15;
-    if (user?.city && user.city.trim().length >= 2) {
-      score += 15;
-    }
-
-    maxScore += 15;
-    if (user?.bio && user.bio.trim().length >= 20) {
-      score += 15;
-    }
-
-    maxScore += 10;
-    if (user?.instagram_account && user.instagram_account.startsWith('@')) {
-      score += 10;
-    }
-
-    maxScore += 10;
-    if (user?.banner_photo) {
-      score += 10;
-    }
-
-    maxScore += 5;
-    if (user?.profile_visibility === 'public') {
-      score += 5;
-    }
-
-    if (user?.accept_online_payment === 1) {
-      maxScore += 20;
-
-      if (user?.bankaccountname && user.bankaccountname.trim().length >= 2) {
-        score += 10;
-      }
-
-      if (user?.IBAN && user.IBAN.length > 10) {
-        score += 10;
-      }
-    }
-
-    return maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
-  };
-
-  const profileCompleteness = calculateProfileCompleteness();
-
   return (
     <MobileLayout>
       <div className="min-h-screen pb-6">
         {/* Header */}
-        <div className="relative -mx-4 px-4 pt-6 pb-6 mb-6 animate-fade-in">
-          <h1 className="text-2xl font-bold text-foreground mb-1">
-            Mon profil pro
-          </h1>
-          <p className="text-sm text-muted-foreground" style={{ animationDelay: "0.1s" }}>
-            Gère ton compte et ton activité
-          </p>
+        <div className="relative -mx-4 px-4 pt-6 pb-6 mb-6 animate-fade-in" style={{ animationDelay: "0.1s" }}>
+          <h1 className="text-2xl font-bold text-foreground mb-1">Mon profil pro</h1>
+          <p className="text-sm text-muted-foreground">Gère ton compte et ton activité</p>
         </div>
 
         {/* Profile Card avec photo */}
@@ -350,9 +299,7 @@ const ProProfile = () => {
         {showCropModal && tempProfileImage && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
             <div className="bg-white rounded-3xl p-6 w-[90%] max-w-sm flex flex-col items-center shadow-2xl animate-scale-in">
-              <h3 className="font-bold text-foreground mb-4 text-lg">
-                Ajuste ta photo
-              </h3>
+              <h3 className="font-bold text-foreground mb-4 text-lg">Ajuste ta photo</h3>
               <div className="relative w-full h-64 rounded-2xl overflow-hidden mb-4 ring-2 ring-border">
                 <Cropper
                   image={tempProfileImage}
@@ -364,7 +311,6 @@ const ProProfile = () => {
                   onCropComplete={onCropComplete}
                 />
               </div>
-
               <input
                 type="range"
                 min={1}
@@ -374,7 +320,6 @@ const ProProfile = () => {
                 onChange={(e) => setZoom(Number(e.target.value))}
                 className="w-full mt-2 mb-6"
               />
-
               <div className="flex gap-3 w-full">
                 <button
                   onClick={() => {
@@ -382,14 +327,17 @@ const ProProfile = () => {
                     setShowCropModal(false);
                   }}
                   className="flex-1 py-3 rounded-xl bg-muted text-foreground font-semibold active:scale-95 transition-transform"
+                  type="button"
                 >
                   Annuler
                 </button>
                 <button
                   onClick={uploadCroppedPhoto}
                   className="flex-1 py-3 rounded-xl bg-primary text-white font-semibold shadow-lg shadow-primary/30 active:scale-95 transition-transform"
+                  type="button"
+                  disabled={isUploadingPhoto}
                 >
-                  Valider
+                  {isUploadingPhoto ? "Envoi..." : "Valider"}
                 </button>
               </div>
             </div>
@@ -419,7 +367,7 @@ const ProProfile = () => {
                 <Star size={18} className="text-primary" />
               </div>
               <p className="text-2xl font-bold text-foreground mb-1">
-                {user?.avg_rating != null ? user.avg_rating.toFixed(1) : "–"}
+                {formatAvgRating(user?.avg_rating)}
               </p>
               <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
                 Note moy.
@@ -567,32 +515,6 @@ const ProProfile = () => {
             </button>
           ))}
         </div>
-
-        {/* Toggle Thème - FONCTIONNEL */}
-      <div className="relative mb-6 animate-slide-up" style={{ animationDelay: "0.55s" }}>
-        <button
-          onClick={toggleTheme}  // ← React handler (pas data-theme-toggler)
-          className="group w-full blyss-card flex items-center gap-4 px-4 py-4 hover:shadow-lg active:scale-[0.98] transition-all duration-300 border border-border/50 hover:border-primary/30"
-          title="Mode sombre/clair"
-        >
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/10 to-secondary/10 group-hover:from-primary/20 group-hover:to-secondary/20 flex items-center justify-center transition-all duration-300 group-hover:scale-110">
-            {theme === 'dark' ? 
-              <Sun size={20} className="text-primary group-hover:rotate-12 transition-transform duration-300" /> : 
-              <Moon size={20} className="text-primary group-hover:rotate-[-12px] transition-transform duration-300" />
-            }
-          </div>
-          <div className="flex-1 text-left">
-            <span className="block font-bold text-foreground text-base mb-0.5">
-              Mode {theme === 'dark' ? 'clair' : 'sombre'}
-            </span>
-            <span className="text-sm text-muted-foreground font-medium">
-              {theme === 'dark' ? 'Activez le mode jour' : 'Activez le mode nuit'}
-            </span>
-          </div>
-          <ChevronRight size={20} className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
-        </button>
-      </div>
-
 
         {/* Déconnexion */}
         <button

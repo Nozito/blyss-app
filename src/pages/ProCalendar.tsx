@@ -709,9 +709,6 @@ const ProCalendar = () => {
               <h1 className="text-xl font-bold text-foreground mb-1 tracking-tight animate-fade-in">
                 Calendrier
               </h1>
-              <p className="text-xs text-muted-foreground animate-fade-in" style={{ animationDelay: "0.05s" }}>
-                {filteredAppointments.length} rendez-vous
-              </p>
             </div>
             <div className="flex items-center gap-2">
               <button
