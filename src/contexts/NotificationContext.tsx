@@ -103,33 +103,20 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         };
     }, [showNotifications]);
 
-    // ✅ Connexion WebSocket avec gestion du token expiré
     useEffect(() => {
         if (!user) return;
 
         let isUnmounted = false;
 
         const connectWebSocket = async () => {
-            // ✅ Récupérer et rafraîchir le token AVANT de connecter
-            let token = localStorage.getItem('auth_token');
+            // ✅ Utiliser le token existant directement
+            const token = localStorage.getItem('auth_token');
 
             if (!token) {
-                console.log('❌ Pas de token, pas de WebSocket');
+                console.log('❌ Pas de token');
                 return;
             }
 
-            // ✅ Tenter de rafraîchir le token d'abord (préventif)
-            try {
-                const refreshedToken = await refreshAuthToken();
-                if (refreshedToken) {
-                    token = refreshedToken;
-                    console.log('✅ Token rafraîchi avant connexion WebSocket');
-                }
-            } catch (err) {
-                console.log('⚠️ Impossible de rafraîchir le token, utilisation du token existant');
-            }
-
-            // Créer la connexion WebSocket
             const ws = new WebSocket(WS_URL);
             wsRef.current = ws;
 
@@ -137,7 +124,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                 console.log("✅ WebSocket connecté");
                 setIsConnected(true);
 
-                // Envoyer le token (frais) pour authentification
+                // ✅ S'authentifier avec le token actuel
                 ws.send(JSON.stringify({
                     type: "auth",
                     data: { token }
@@ -148,22 +135,21 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                 try {
                     const message = JSON.parse(event.data);
 
-                    // ✅ Gérer l'erreur de token expiré
+                    // ✅ Gestion du token expiré uniquement
                     if (message.type === "auth_error" &&
                         (message.data?.code === "TOKEN_EXPIRED" ||
                             message.data?.message?.includes("expired") ||
                             message.data?.message?.includes("Token expired"))) {
 
-                        console.log("🔄 Token expiré, tentative de refresh et reconnexion...");
+                        console.log("🔄 Token expiré, refresh unique...");
                         ws.close();
 
-                        // Attendre un peu avant de reconnecter
                         await new Promise(resolve => setTimeout(resolve, 500));
 
                         const newToken = await refreshAuthToken();
 
                         if (newToken) {
-                            console.log('✅ Token rafraîchi, reconnexion WebSocket...');
+                            console.log('✅ Token rafraîchi, reconnexion...');
                             if (!isUnmounted) {
                                 connectWebSocket();
                             }
@@ -175,6 +161,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                         return;
                     }
 
+                    // ✅ Reste de ta logique de messages inchangée
                     switch (message.type) {
                         case "auth_success":
                             console.log("✅ WebSocket authentifié");
@@ -226,7 +213,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                 console.log("🔌 WebSocket déconnecté");
                 setIsConnected(false);
 
-                // ✅ Reconnexion automatique après 3 secondes
+                // ✅ Reconnexion automatique seulement si non unmounted
                 if (!isUnmounted) {
                     if (reconnectTimeoutRef.current) {
                         clearTimeout(reconnectTimeoutRef.current);
@@ -240,10 +227,9 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
             };
         };
 
-        // Lancer la connexion
         connectWebSocket();
 
-        // Cleanup
+        // ✅ Cleanup au démontage du composant
         return () => {
             isUnmounted = true;
             if (reconnectTimeoutRef.current) {
@@ -254,6 +240,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
             }
         };
     }, [user]);
+
 
     const getDuration = (type: string) => {
         const durations: { [key: string]: number } = {
