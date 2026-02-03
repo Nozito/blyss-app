@@ -124,17 +124,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.log("login response =", response);
 
       if (response.success && response.data) {
-        try {
-          const { accessToken, refreshToken, user: respUser } = response.data;
+        const { accessToken, refreshToken } = response.data;
 
-          console.log("storing token =", accessToken, "user =", respUser);
-          localStorage.setItem("auth_token", accessToken);
-          localStorage.setItem("refresh_token", refreshToken);
-          localStorage.setItem("user", JSON.stringify(respUser));
-          setToken(accessToken);
-          setUser(respUser);
-        } catch (err) {
-          console.error("Error storing token or setting user:", err);
+        console.log("storing token =", accessToken);
+        localStorage.setItem("auth_token", accessToken);
+        localStorage.setItem("refresh_token", refreshToken);
+        setToken(accessToken);
+
+        const profile = await authApi.getProfile();
+        if (profile.success && profile.data) {
+          setUser(profile.data);
+          localStorage.setItem("user", JSON.stringify(profile.data));
         }
       } else {
         console.warn("login failed at API level:", response);

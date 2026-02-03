@@ -478,7 +478,7 @@ const ProDashboard = () => {
           )}
         </section>
 
-        {/* ✅ Weekly Revenue - Tooltip fixe en bas */}
+        {/* ✅ Weekly Revenue - Tooltip avec espace suffisant */}
         <section
           className="rounded-xl p-4 bg-card border border-border shadow-sm animate-slide-up"
           style={{ animationDelay: "0.35s" }}
@@ -494,44 +494,49 @@ const ProDashboard = () => {
               </p>
             </div>
           ) : (
-            <div className="flex items-end justify-between gap-1.5 h-[110px] relative">
-              {weeklyRevenue.map((day, index) => {
-                const amount = day.amount ?? 0;
-                const parentHeightPx = 110;
-                const minBarPx = 10;
-                const barPx =
-                  maxAmount > 0
-                    ? Math.max((amount / maxAmount) * parentHeightPx, minBarPx)
-                    : minBarPx;
-                const isMax = amount === maxAmount && amount > 0;
-                return (
-                  <div
-                    key={index}
-                    className="flex-1 flex flex-col items-center gap-1.5 group relative"
-                  >
-                    {/* ✅ Tooltip fixe au-dessus de la barre (avec position absolute) */}
-                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 rounded-lg bg-white border border-border text-[10px] text-foreground font-bold transition-opacity duration-150 opacity-0 group-hover:opacity-100 select-none shadow-lg pointer-events-none whitespace-nowrap z-10">
-                      {amount.toFixed(0)}€
-                    </div>
+            <div className="pt-8 pb-2"> {/* ✅ Ajoute du padding en haut pour le tooltip */}
+              <div className="flex items-end justify-between gap-1.5 h-[110px] relative">
+                {weeklyRevenue.map((day, index) => {
+                  const amount = day.amount ?? 0;
+                  const parentHeightPx = 110;
+                  const minBarPx = 10;
+                  const barPx =
+                    maxAmount > 0
+                      ? Math.max((amount / maxAmount) * parentHeightPx, minBarPx)
+                      : minBarPx;
+                  const isMax = amount === maxAmount && amount > 0;
 
+                  return (
                     <div
-                      className={`w-full rounded-t-lg transition-all duration-500 cursor-pointer ${isMax
-                          ? "bg-gradient-to-t from-primary to-primary/70 shadow-md shadow-primary/20 scale-105"
-                          : "bg-gradient-to-t from-muted to-muted/60 group-hover:from-primary/40 group-hover:to-primary/20"
-                        }`}
-                      style={{
-                        height: `${barPx}px`,
-                        minHeight: `${minBarPx}px`,
-                        maxHeight: `${parentHeightPx}px`,
-                      }}
-                      tabIndex={0}
-                    />
-                    <span className="text-[10px] text-muted-foreground font-semibold">
-                      {day.day}
-                    </span>
-                  </div>
-                );
-              })}
+                      key={index}
+                      className="flex-1 flex flex-col items-center gap-1.5 group relative"
+                    >
+                      {/* ✅ Tooltip avec position corrigée */}
+                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-lg bg-foreground text-background text-[10px] font-bold transition-all duration-150 opacity-0 group-hover:opacity-100 group-hover:-top-9 select-none shadow-lg pointer-events-none whitespace-nowrap z-10">
+                        {amount.toFixed(0)}€
+                        {/* ✅ Petit triangle pointant vers le bas */}
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] border-t-foreground" />
+                      </div>
+
+                      <div
+                        className={`w-full rounded-t-lg transition-all duration-500 cursor-pointer ${isMax
+                            ? "bg-gradient-to-t from-primary to-primary/70 shadow-md shadow-primary/20 scale-105"
+                            : "bg-gradient-to-t from-muted to-muted/60 group-hover:from-primary/40 group-hover:to-primary/20"
+                          }`}
+                        style={{
+                          height: `${barPx}px`,
+                          minHeight: `${minBarPx}px`,
+                          maxHeight: `${parentHeightPx}px`,
+                        }}
+                      />
+
+                      <span className="text-[10px] text-muted-foreground font-semibold mt-0.5">
+                        {day.day}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </section>

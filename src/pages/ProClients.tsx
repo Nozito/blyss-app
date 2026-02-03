@@ -184,22 +184,26 @@ const ProClients = () => {
           </div>
         </div>
 
-        {/* Top Clientes - Section optionnelle */}
+        {/* Top Clientes - Carrousel pleine largeur */}
         {!searchQuery && topClients.length > 0 && (
           <div
-            className="mb-5 animate-slide-up"
+            className="mb-5 animate-slide-up -mx-4" // ✅ Ajoute -mx-4 pour déborder
             style={{ animationDelay: "0.15s" }}
           >
-            <h2 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
-              <TrendingUp size={16} className="text-primary" />
-              Clientes les plus fidèles
-            </h2>
-            <div className="flex gap-3 overflow-x-auto hide-scrollbar pb-2">
+            <div className="px-4 mb-3"> {/* ✅ Encapsule le titre dans un div avec padding */}
+              <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
+                <TrendingUp size={16} className="text-primary" />
+                Clientes les plus fidèles
+              </h2>
+            </div>
+
+            {/* ✅ Carrousel avec padding uniquement sur les côtés */}
+            <div className="flex gap-3 overflow-x-auto hide-scrollbar pb-2 px-4 snap-x snap-mandatory">
               {topClients.map((client, index) => (
                 <div
                   key={client.id}
                   onClick={() => handleEditClient(client)}
-                  className="flex-shrink-0 w-32 blyss-card text-center cursor-pointer hover:shadow-lg hover:-translate-y-1 active:scale-95 transition-all duration-300"
+                  className="flex-shrink-0 w-32 blyss-card text-center cursor-pointer hover:shadow-lg hover:-translate-y-1 active:scale-95 transition-all duration-300 snap-start"
                   style={{ animationDelay: `${0.2 + index * 0.05}s` }}
                 >
                   <div className="w-14 h-14 rounded-full gradient-primary flex items-center justify-center mx-auto mb-2 shadow-lg shadow-primary/20">
@@ -218,6 +222,7 @@ const ProClients = () => {
             </div>
           </div>
         )}
+
 
         {/* Liste des clientes */}
         <div

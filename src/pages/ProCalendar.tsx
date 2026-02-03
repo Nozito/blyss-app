@@ -690,6 +690,30 @@ const ProCalendar = () => {
     }
   }, [showWeeklyModal]);
 
+  useEffect(() => {
+  const fetchTodaySlots = async () => {
+    try {
+      const today = toISODate(new Date());
+      const res = await api.pro.getSlots({ date: today });
+
+      if (res.success && res.data) {
+        setSlots(res.data.map((s: any) => ({
+          id: s.id.toString(),
+          time: s.time,
+          duration: s.duration,
+          isActive: Boolean(s.isActive),
+          isAvailable: Boolean(s.isAvailable),
+          isPast: s.computed_status === 'past'
+        })));
+      }
+    } catch (error) {
+      console.error('Error fetching today slots:', error);
+    }
+  };
+
+  fetchTodaySlots();
+}, []);
+
   // ========== RENDER ==========
   return (
     <MobileLayout hideNav={showSlotsModal || showActionsModal || showWeeklyModal || showWeekViewModal}>

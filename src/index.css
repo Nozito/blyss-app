@@ -74,12 +74,6 @@
     letter-spacing: -0.01em;
   }
   
-  [data-theme="dark"] [data-theme-toggler] {
-    background: hsl(var(--glass-bg));
-    color: hsl(var(--foreground));
-    border: 1px solid hsl(var(--border));
-  }
-  
   h1, h2, h3, h4, h5, h6 {
     font-family: "Helvetica Neue", Helvetica, -apple-system, BlinkMacSystemFont, sans-serif;
     font-weight: 600;
@@ -95,7 +89,6 @@
   }
 }
 
-/* Reste de votre CSS INCHANGÉ (components, utilities, animations...) */
 @layer components {
   .glass-card {
     background: hsl(var(--glass-bg));
@@ -286,26 +279,6 @@
   transition: all 0.1s ease;
 }
 
-/* Dark mode - Style Apple parfait */
-[data-theme='dark'] .apple-glass-nav {
-  background: rgba(30, 30, 30, 0.68);
-  border: 0.5px solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(40px) saturate(200%) contrast(110%) brightness(90%);
-  -webkit-backdrop-filter: blur(40px) saturate(200%) contrast(110%) brightness(90%);
-  box-shadow: 
-    0 0 0 0.5px rgba(255, 255, 255, 0.1) inset,
-    0 20px 80px -20px rgba(0, 0, 0, 0.6),
-    0 0 1px 0 rgba(255, 255, 255, 0.02);
-}
-
-[data-theme='dark'] .apple-glass-nav:hover {
-  background: rgba(40, 40, 40, 0.75);
-  backdrop-filter: blur(44px) saturate(210%) contrast(112%) brightness(92%);
-  -webkit-backdrop-filter: blur(44px) saturate(210%) contrast(112%) brightness(92%);
-  box-shadow: 
-    0 0 0 0.5px rgba(255, 255, 255, 0.15) inset,
-    0 24px 100px -20px rgba(0, 0, 0, 0.8);
-}
 
 /* ====== APPLE LIQUID GLASS NAVBAR - Version BLYSS ====== */
 .apple-glass-nav {
@@ -340,26 +313,6 @@
 .apple-glass-nav:active {
   transform: translateY(0) scale(0.995);
   transition: all 0.1s ease;
-}
-
-/* Dark mode - Moins transparent aussi */
-[data-theme='dark'] .apple-glass-nav {
-  background: rgba(25, 25, 25, 0.85);
-  border: 0.5px solid rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(36px) saturate(200%) contrast(110%) brightness(92%);
-  -webkit-backdrop-filter: blur(36px) saturate(200%) contrast(110%) brightness(92%);
-  box-shadow: 
-    0 0 0 0.5px rgba(255, 255, 255, 0.12) inset,
-    0 20px 80px -20px rgba(0, 0, 0, 0.7);
-}
-
-[data-theme='dark'] .apple-glass-nav:hover {
-  background: rgba(35, 35, 35, 0.9);
-  backdrop-filter: blur(40px) saturate(210%) contrast(112%) brightness(94%);
-  -webkit-backdrop-filter: blur(40px) saturate(210%) contrast(112%) brightness(94%);
-  box-shadow: 
-    0 0 0 0.5px rgba(255, 255, 255, 0.18) inset,
-    0 24px 100px -20px rgba(0, 0, 0, 0.85);
 }
 
 /* Icons style Apple - ROSE BLYSS */
@@ -402,14 +355,6 @@
   transform: scale(1.02);
 }
 
-[data-theme='dark'] .apple-nav-icon:hover::before {
-  background: linear-gradient(135deg, 
-    hsla(var(--primary), 0.25) 0%, 
-    hsla(var(--primary), 0.18) 100%);
-  box-shadow: 
-    0 0 0 1px hsla(var(--primary), 0.3),
-    0 4px 20px -4px hsla(var(--primary), 0.4);
-}
 
 .apple-nav-icon:active {
   transform: scale(0.94);
@@ -432,15 +377,6 @@
   transform: scale(1.08);
 }
 
-[data-theme='dark'] .apple-nav-icon.active::before {
-  background: linear-gradient(135deg, 
-    hsla(var(--primary), 0.4) 0%, 
-    hsla(var(--primary), 0.28) 100%);
-  box-shadow: 
-    0 0 0 1.5px hsla(var(--primary), 0.5),
-    0 8px 32px -4px hsla(var(--primary), 0.7),
-    0 0 3px 0 hsla(var(--primary), 0.4) inset;
-}
 
 /* Liquid float */
 @keyframes appleFloat {

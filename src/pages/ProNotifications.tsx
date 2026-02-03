@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { getApiEndpoint } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 type ProNotificationKey =
   | "newBookings"
@@ -15,6 +16,7 @@ type ProNotificationKey =
 
 const ProNotifications = () => {
   const navigate = useNavigate();
+  const { token } = useAuth(); // ✅ Récupère le token du context
 
   const [preferences, setPreferences] = useState<Record<ProNotificationKey, boolean>>({
     newBookings: true,
@@ -34,14 +36,13 @@ const ProNotifications = () => {
     const fetchNotificationSettings = async () => {
       setIsLoading(true);
       try {
-        const token = localStorage.getItem("access_token");
+        // ✅ Utilise le token du context
         if (!token) {
           console.warn("Pas de token d'authentification trouvé");
           setIsLoading(false);
           return;
         }
 
-        // ✅ Utilise getApiEndpoint au lieu de construire l'URL manuellement
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
 
@@ -89,7 +90,7 @@ const ProNotifications = () => {
     };
 
     fetchNotificationSettings();
-  }, []);
+  }, [token]); // ✅ Dépend du token
 
   const togglePreference = (key: ProNotificationKey) => {
     setPreferences((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -100,8 +101,7 @@ const ProNotifications = () => {
     setSaving(true);
     
     try {
-      const token = localStorage.getItem("access_token");
-      
+      // ✅ Utilise le token du context
       if (!token) {
         toast.error("Session expirée, veuillez vous reconnecter");
         navigate("/login");
@@ -120,7 +120,6 @@ const ProNotifications = () => {
 
       console.log("Envoi des préférences:", payload);
 
-      // ✅ Utilise getApiEndpoint au lieu de construire l'URL manuellement
       const response = await fetch(getApiEndpoint('/api/pro/notification-settings'), {
         method: "PUT",
         headers: {
@@ -253,7 +252,6 @@ const ProNotifications = () => {
   return (
     <MobileLayout showNav={false}>
       <div className="min-h-screen py-6">
-        {/* ... Reste du JSX identique ... */}
         {/* Header */}
         <div className="relative -mx-4 px-4 pt-2 pb-6 mb-6 animate-fade-in">
           <div className="flex items-center mb-3">

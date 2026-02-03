@@ -3,6 +3,7 @@ import MobileLayout from "@/components/MobileLayout";
 import { Check, ArrowLeft, Zap, Heart, Sparkles, TrendingDown, Calendar, CheckCircle2, ArrowUpRight, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { getApiEndpoint } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 type BillingType = "monthly" | "one_time";
 type PlanId = "start" | "serenite" | "signature";
@@ -21,7 +22,8 @@ const ProSubscription = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentSubscription, setCurrentSubscription] = useState<CurrentSubscription | null>(null);
   const [loadingSubscription, setLoadingSubscription] = useState(true);
-  const [connectionError, setConnectionError] = useState(false); // ✅ Nouveau state
+  const [connectionError, setConnectionError] = useState(false);
+  const { token } = useAuth();
 
   const plans = [
     {
@@ -43,7 +45,7 @@ const ProSubscription = () => {
       icon: Heart,
       monthlyPrice: 29.90,
       commitment: 3,
-      oneTimePrice: 79.90, // ✅ Au lieu de 89.70€
+      oneTimePrice: 79.90, // Au lieu de 89.70€
       savings: "Économise 10€",
       savingsAmount: 10,
       features: [
@@ -61,7 +63,7 @@ const ProSubscription = () => {
       icon: Sparkles,
       monthlyPrice: 24.90,
       commitment: 12,
-      oneTimePrice: 249.00, // ✅ Au lieu de 298.80€
+      oneTimePrice: 249.00, // Au lieu de 298.80€
       savings: "Économise 50€",
       savingsAmount: 50,
       features: [
@@ -74,31 +76,40 @@ const ProSubscription = () => {
   ];
 
 
-  // ✅ Récupérer l'abonnement actuel avec gestion d'erreur robuste
+  //  Récupérer l'abonnement actuel avec gestion d'erreur robuste
   useEffect(() => {
     const fetchCurrentSubscription = async () => {
+      setLoadingSubscription(true); // ✅ Déplacé ici
+
       try {
-        const token = localStorage.getItem("access_token");
+        // ✅ Utilise le token du context
         if (!token) {
+          console.warn("Pas de token d'authentification");
           setLoadingSubscription(false);
           return;
         }
 
-        // ✅ Timeout pour éviter d'attendre indéfiniment
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 secondes max
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        console.log("🔍 Récupération de l'abonnement actuel..."); // ✅ Debug
 
         const res = await fetch(getApiEndpoint("/api/subscriptions/current"), {
           headers: {
             Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json", // ✅ Ajouté
           },
           signal: controller.signal,
         });
 
         clearTimeout(timeoutId);
 
+        console.log("📊 Statut de la réponse:", res.status); // ✅ Debug
+
         if (res.ok) {
           const data = await res.json();
+          console.log("📦 Données reçues:", data); // ✅ Debug
+
           if (data.success && data.data) {
             setCurrentSubscription({
               plan: data.data.plan,
@@ -107,20 +118,25 @@ const ProSubscription = () => {
               endDate: data.data.endDate,
             });
             setConnectionError(false);
+            console.log("✅ Abonnement chargé:", data.data);
           }
         } else if (res.status === 404) {
-          // Pas d'abonnement actuel, c'est normal
+          console.log("ℹ️ Pas d'abonnement actuel (404)");
           setConnectionError(false);
+        } else {
+          const errorData = await res.json();
+          console.error("❌ Erreur serveur:", errorData);
         }
       } catch (error: any) {
-        // ✅ Gérer proprement les erreurs de connexion
         if (error.name === 'AbortError') {
-          console.warn("Timeout lors de la récupération de l'abonnement");
+          console.warn("⏱️ Timeout lors de la récupération de l'abonnement");
+          setConnectionError(true);
         } else if (error.message.includes('Failed to fetch') || error.message.includes('ERR_CONNECTION_REFUSED')) {
-          console.warn("Backend non accessible, mode hors ligne activé");
+          console.warn("🔌 Backend non accessible");
           setConnectionError(true);
         } else {
-          console.error("Erreur lors de la récupération de l'abonnement:", error);
+          console.error("❌ Erreur:", error);
+          setConnectionError(true);
         }
       } finally {
         setLoadingSubscription(false);
@@ -128,7 +144,7 @@ const ProSubscription = () => {
     };
 
     fetchCurrentSubscription();
-  }, []);
+  }, [token]);
 
   const handleSelectPlan = (planId: PlanId) => {
     setSelectedPlan(planId);
@@ -290,298 +306,298 @@ const ProSubscription = () => {
 
 
           {/* Plans */}
-<div className="space-y-3">
-  {plans
-    .filter(plan => {
-      // ✅ En mode annuel, cache les plans sans option de paiement unique
-      if (isAnnual && !plan.oneTimePrice) {
-        return false;
-      }
-      return true;
-    })
-    .map((plan, index) => {
-      const isSelected = selectedPlan === plan.id;
-      const isCurrent = isCurrentPlan(plan.id as PlanId);
-      const Icon = plan.icon;
+          <div className="space-y-3">
+            {plans
+              .filter(plan => {
+                // ✅ En mode annuel, cache les plans sans option de paiement unique
+                if (isAnnual && !plan.oneTimePrice) {
+                  return false;
+                }
+                return true;
+              })
+              .map((plan, index) => {
+                const isSelected = selectedPlan === plan.id;
+                const isCurrent = isCurrentPlan(plan.id as PlanId);
+                const Icon = plan.icon;
 
-      const monthlyTotal = plan.monthlyPrice * (plan.commitment || 1);
-      const annualPrice = plan.oneTimePrice || monthlyTotal;
-      const monthlyEquivalent = plan.commitment
-        ? (annualPrice / plan.commitment)
-        : plan.monthlyPrice;
+                const monthlyTotal = plan.monthlyPrice * (plan.commitment || 1);
+                const annualPrice = plan.oneTimePrice || monthlyTotal;
+                const monthlyEquivalent = plan.commitment
+                  ? (annualPrice / plan.commitment)
+                  : plan.monthlyPrice;
 
-      return (
-        <button
-          key={plan.id}
-                  onClick={() => handleSelectPlan(plan.id as PlanId)}
-                  style={{ animationDelay: `${index * 100}ms` }}
-                  disabled={isCurrent}
-                  className={`
+                return (
+                  <button
+                    key={plan.id}
+                    onClick={() => handleSelectPlan(plan.id as PlanId)}
+                    style={{ animationDelay: `${index * 100}ms` }}
+                    disabled={isCurrent}
+                    className={`
           w-full text-left rounded-2xl p-5 border-2 
           transition-all duration-300 ease-out
           animate-slide-up relative overflow-hidden
           ${isCurrent
-                      ? "border-muted bg-muted/30 opacity-60 cursor-default"
-                      : isSelected
-                        ? "border-primary bg-white shadow-xl shadow-primary/20 scale-[1.02] ring-2 ring-primary/20"
-                        : "border-border bg-card hover:border-primary/30 hover:shadow-md hover:scale-[1.01]"
-                    }
+                        ? "border-muted bg-muted/30 opacity-60 cursor-default"
+                        : isSelected
+                          ? "border-primary bg-white shadow-xl shadow-primary/20 scale-[1.02] ring-2 ring-primary/20"
+                          : "border-border bg-card hover:border-primary/30 hover:shadow-md hover:scale-[1.01]"
+                      }
           ${!isCurrent && "active:scale-[0.98]"}
         `}
-                >
-                  {isCurrent && (
-                    <div className="absolute top-0 left-0 right-0 z-10">
-                      <div className="flex items-center justify-center gap-1.5 bg-gradient-to-r from-muted via-muted/80 to-muted text-muted-foreground text-[11px] font-bold px-4 py-2 rounded-t-2xl border-b border-border">
-                        <CheckCircle2 size={12} />
-                        TON ABONNEMENT ACTUEL
+                  >
+                    {isCurrent && (
+                      <div className="absolute top-0 left-0 right-0 z-10">
+                        <div className="flex items-center justify-center gap-1.5 bg-gradient-to-r from-muted via-muted/80 to-muted text-muted-foreground text-[11px] font-bold px-4 py-2 rounded-t-2xl border-b border-border">
+                          <CheckCircle2 size={12} />
+                          TON ABONNEMENT ACTUEL
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  {isCurrent && <div className="h-4" />}
+                    {isCurrent && <div className="h-4" />}
 
-                  {/* Header */}
-                  <div className="relative flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`
+                    {/* Header */}
+                    <div className="relative flex items-start justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`
               w-12 h-12 rounded-xl flex items-center justify-center
               transition-all duration-300 shadow-sm
               ${isCurrent
-                          ? "bg-muted/50"
-                          : isSelected
-                            ? "bg-gradient-to-br from-primary to-primary/70 scale-110 shadow-primary/30"
-                            : "bg-muted"
-                        }
-            `}>
-                        <Icon
-                          size={24}
-                          className={`transition-all duration-300 ${isCurrent
-                            ? "text-muted-foreground"
+                            ? "bg-muted/50"
                             : isSelected
-                              ? "text-white"
-                              : "text-muted-foreground"
-                            }`}
-                        />
+                              ? "bg-gradient-to-br from-primary to-primary/70 scale-110 shadow-primary/30"
+                              : "bg-muted"
+                          }
+            `}>
+                          <Icon
+                            size={24}
+                            className={`transition-all duration-300 ${isCurrent
+                              ? "text-muted-foreground"
+                              : isSelected
+                                ? "text-white"
+                                : "text-muted-foreground"
+                              }`}
+                          />
+                        </div>
+                        <div>
+                          <h3 className={`text-base font-bold ${isCurrent ? "text-muted-foreground" : "text-foreground"
+                            }`}>
+                            {plan.name}
+                          </h3>
+                          {plan.popular && !isCurrent && (
+                            <span className="inline-block mt-1 text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full animate-pulse">
+                              ⭐ POPULAIRE
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div>
-                        <h3 className={`text-base font-bold ${isCurrent ? "text-muted-foreground" : "text-foreground"
-                          }`}>
-                          {plan.name}
-                        </h3>
-                        {plan.popular && !isCurrent && (
-                          <span className="inline-block mt-1 text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full animate-pulse">
-                            ⭐ POPULAIRE
-                          </span>
-                        )}
-                      </div>
-                    </div>
 
-                    {!isCurrent && (
-                      <div className={`
+                      {!isCurrent && (
+                        <div className={`
               w-6 h-6 rounded-full border-2 flex items-center justify-center 
               transition-all duration-300 shadow-sm
               ${isSelected
-                          ? "border-primary bg-primary scale-110 shadow-lg shadow-primary/30"
-                          : "border-muted-foreground/30 scale-100 bg-background"
-                        }
+                            ? "border-primary bg-primary scale-110 shadow-lg shadow-primary/30"
+                            : "border-muted-foreground/30 scale-100 bg-background"
+                          }
             `}>
-                        <Check
-                          size={14}
-                          className={`text-white transition-all duration-200 ${isSelected ? "scale-100 opacity-100" : "scale-0 opacity-0"
-                            }`}
-                          strokeWidth={3}
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Prix - Version MENSUELLE */}
-                  {!isAnnual && (
-                    <div className="relative mb-4 animate-fade-in">
-                      <div className="flex items-baseline gap-1 mb-1">
-                        <span className={`text-3xl font-bold`}>
-                          {plan.monthlyPrice.toFixed(2).replace('.', ',')}
-                        </span>
-                        <span className={`text-lg font-semibold ${isCurrent ? "text-muted-foreground" : "text-foreground"
-                          }`}>
-                          €
-                        </span>
-                        <span className="text-sm text-muted-foreground">/ mois</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {plan.commitment
-                          ? `Engagement ${plan.commitment} mois`
-                          : "Sans engagement"
-                        }
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Prix - Version ANNUELLE */}
-                  {isAnnual && (
-                    <div className="relative mb-4 space-y-3 animate-fade-in">
-                      {plan.savingsAmount && !isCurrent && (
-                        <div className="absolute -top-3 -right-3 z-10">
-                          <div className="relative">
-                            <div className="absolute inset-0 bg-emerald-500 blur-lg opacity-30 animate-pulse-soft" />
-                            <div className="relative flex items-center gap-1 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-full shadow-lg animate-bounce-in">
-                              <TrendingDown size={11} />
-                              -{plan.savingsAmount}€
-                            </div>
-                          </div>
+                          <Check
+                            size={14}
+                            className={`text-white transition-all duration-200 ${isSelected ? "scale-100 opacity-100" : "scale-0 opacity-0"
+                              }`}
+                            strokeWidth={3}
+                          />
                         </div>
                       )}
+                    </div>
 
-                      <div className={`
-              relative rounded-xl p-4 border-2 transition-all duration-300
-              ${isCurrent
-                          ? "bg-muted/20 border-muted"
-                          : isSelected
-                            ? "bg-gradient-to-br from-primary/8 via-primary/5 to-transparent border-primary/30 shadow-inner"
-                            : "bg-muted/30 border-muted"
-                        }
-            `}>
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-                            Paiement unique
+                    {/* Prix - Version MENSUELLE */}
+                    {!isAnnual && (
+                      <div className="relative mb-4 animate-fade-in">
+                        <div className="flex items-baseline gap-1 mb-1">
+                          <span className={`text-3xl font-bold`}>
+                            {plan.monthlyPrice.toFixed(2).replace('.', ',')}
                           </span>
-                          {plan.commitment && (
-                            <div className={`
-                    flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full
-                    ${isCurrent
-                                ? "bg-muted/50 text-muted-foreground"
-                                : isSelected
-                                  ? "bg-primary/15 text-primary"
-                                  : "bg-muted text-muted-foreground"
-                              }
-                  `}>
-                              <Calendar size={11} />
-                              {plan.commitment} mois
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex items-baseline gap-1.5 mb-3">
-                          <span className={`text-4xl font-black transition-colors ${isCurrent
-                            ? "text-muted-foreground"
-                            : isSelected
-                              ? "text-foreground"
-                              : "text-foreground/90"
-                            }`}>
-                            {Math.floor(annualPrice)}
-                          </span>
-                          <span className={`text-xl font-bold ${isCurrent
-                            ? "text-muted-foreground"
-                            : isSelected
-                              ? "text-foreground"
-                              : "text-foreground/90"
+                          <span className={`text-lg font-semibold ${isCurrent ? "text-muted-foreground" : "text-foreground"
                             }`}>
                             €
                           </span>
+                          <span className="text-sm text-muted-foreground">/ mois</span>
                         </div>
+                        <p className="text-xs text-muted-foreground">
+                          {plan.commitment
+                            ? `Engagement ${plan.commitment} mois`
+                            : "Sans engagement"
+                          }
+                        </p>
+                      </div>
+                    )}
 
-                        <div className={`h-px w-full mb-3 transition-colors ${isCurrent
-                          ? "bg-border"
-                          : isSelected
-                            ? "bg-gradient-to-r from-primary/30 via-primary/50 to-primary/30"
-                            : "bg-border"
-                          }`} />
-
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-medium text-muted-foreground">
-                              Équivalent mensuel
-                            </span>
-                            <div className="flex items-baseline gap-1">
-                              <span className={`text-xl font-bold transition-colors ${isCurrent
-                                ? "text-muted-foreground"
-                                : isSelected
-                                  ? "text-primary"
-                                  : "text-foreground"
-                                }`}>
-                                {monthlyEquivalent.toFixed(2)}
-                              </span>
-                              <span className="text-xs font-semibold text-muted-foreground">
-                                €/mois
-                              </span>
+                    {/* Prix - Version ANNUELLE */}
+                    {isAnnual && (
+                      <div className="relative mb-4 space-y-3 animate-fade-in">
+                        {plan.savingsAmount && !isCurrent && (
+                          <div className="absolute -top-3 -right-3 z-10">
+                            <div className="relative">
+                              <div className="absolute inset-0 bg-emerald-500 blur-lg opacity-30 animate-pulse-soft" />
+                              <div className="relative flex items-center gap-1 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-full shadow-lg animate-bounce-in">
+                                <TrendingDown size={11} />
+                                -{plan.savingsAmount}€
+                              </div>
                             </div>
                           </div>
+                        )}
 
-                          {plan.savingsAmount && !isCurrent && (
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs text-muted-foreground/80">
-                                Au lieu de
-                              </span>
-                              <span className="text-sm line-through text-muted-foreground/60 font-medium">
-                                {plan.monthlyPrice.toFixed(2)}€/mois
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {plan.savingsAmount && !isCurrent && (
                         <div className={`
+              relative rounded-xl p-4 border-2 transition-all duration-300
+              ${isCurrent
+                            ? "bg-muted/20 border-muted"
+                            : isSelected
+                              ? "bg-gradient-to-br from-primary/8 via-primary/5 to-transparent border-primary/30 shadow-inner"
+                              : "bg-muted/30 border-muted"
+                          }
+            `}>
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                              Paiement unique
+                            </span>
+                            {plan.commitment && (
+                              <div className={`
+                    flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full
+                    ${isCurrent
+                                  ? "bg-muted/50 text-muted-foreground"
+                                  : isSelected
+                                    ? "bg-primary/15 text-primary"
+                                    : "bg-muted text-muted-foreground"
+                                }
+                  `}>
+                                <Calendar size={11} />
+                                {plan.commitment} mois
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex items-baseline gap-1.5 mb-3">
+                            <span className={`text-4xl font-black transition-colors ${isCurrent
+                              ? "text-muted-foreground"
+                              : isSelected
+                                ? "text-foreground"
+                                : "text-foreground/90"
+                              }`}>
+                              {Math.floor(annualPrice)}
+                            </span>
+                            <span className={`text-xl font-bold ${isCurrent
+                              ? "text-muted-foreground"
+                              : isSelected
+                                ? "text-foreground"
+                                : "text-foreground/90"
+                              }`}>
+                              €
+                            </span>
+                          </div>
+
+                          <div className={`h-px w-full mb-3 transition-colors ${isCurrent
+                            ? "bg-border"
+                            : isSelected
+                              ? "bg-gradient-to-r from-primary/30 via-primary/50 to-primary/30"
+                              : "bg-border"
+                            }`} />
+
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium text-muted-foreground">
+                                Équivalent mensuel
+                              </span>
+                              <div className="flex items-baseline gap-1">
+                                <span className={`text-xl font-bold transition-colors ${isCurrent
+                                  ? "text-muted-foreground"
+                                  : isSelected
+                                    ? "text-primary"
+                                    : "text-foreground"
+                                  }`}>
+                                  {monthlyEquivalent.toFixed(2)}
+                                </span>
+                                <span className="text-xs font-semibold text-muted-foreground">
+                                  €/mois
+                                </span>
+                              </div>
+                            </div>
+
+                            {plan.savingsAmount && !isCurrent && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-muted-foreground/80">
+                                  Au lieu de
+                                </span>
+                                <span className="text-sm line-through text-muted-foreground/60 font-medium">
+                                  {plan.monthlyPrice.toFixed(2)}€/mois
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {plan.savingsAmount && !isCurrent && (
+                          <div className={`
                 flex items-center justify-center gap-2 px-3 py-2 rounded-xl transition-all
                 ${isSelected
-                            ? "bg-emerald-50 border border-emerald-200"
-                            : "bg-muted/50 border border-transparent"
-                          }
+                              ? "bg-emerald-50 border border-emerald-200"
+                              : "bg-muted/50 border border-transparent"
+                            }
               `}>
-                          <div className={`
+                            <div className={`
                   w-5 h-5 rounded-full flex items-center justify-center
                   ${isSelected ? "bg-emerald-500" : "bg-emerald-500/20"}
                 `}>
-                            <Check
-                              size={12}
-                              className={isSelected ? "text-white" : "text-emerald-600"}
-                              strokeWidth={3}
-                            />
+                              <Check
+                                size={12}
+                                className={isSelected ? "text-white" : "text-emerald-600"}
+                                strokeWidth={3}
+                              />
+                            </div>
+                            <span className={`text-xs font-semibold ${isSelected ? "text-emerald-700" : "text-emerald-600"
+                              }`}>
+                              Tu économises {plan.savingsAmount}€ sur {plan.commitment} mois
+                            </span>
                           </div>
-                          <span className={`text-xs font-semibold ${isSelected ? "text-emerald-700" : "text-emerald-600"
+                        )}
+                      </div>
+                    )}
+
+                    {/* Features */}
+                    <div className="relative space-y-2">
+                      {plan.features.map((feature, i) => (
+                        <div
+                          key={i}
+                          className="flex items-start gap-2"
+                          style={{ animationDelay: `${(index * 100) + (i * 50)}ms` }}
+                        >
+                          <Check
+                            size={16}
+                            className={`mt-0.5 flex-shrink-0 transition-colors ${isCurrent
+                              ? "text-muted-foreground/50"
+                              : isSelected
+                                ? "text-primary"
+                                : "text-muted-foreground"
+                              }`}
+                            strokeWidth={2.5}
+                          />
+                          <span className={`text-sm leading-relaxed ${isCurrent
+                            ? "text-muted-foreground/70"
+                            : "text-muted-foreground"
                             }`}>
-                            Tu économises {plan.savingsAmount}€ sur {plan.commitment} mois
+                            {feature}
                           </span>
                         </div>
-                      )}
+                      ))}
                     </div>
-                  )}
-
-                  {/* Features */}
-                  <div className="relative space-y-2">
-                    {plan.features.map((feature, i) => (
-                      <div
-                        key={i}
-                        className="flex items-start gap-2"
-                        style={{ animationDelay: `${(index * 100) + (i * 50)}ms` }}
-                      >
-                        <Check
-                          size={16}
-                          className={`mt-0.5 flex-shrink-0 transition-colors ${isCurrent
-                            ? "text-muted-foreground/50"
-                            : isSelected
-                              ? "text-primary"
-                              : "text-muted-foreground"
-                            }`}
-                          strokeWidth={2.5}
-                        />
-                        <span className={`text-sm leading-relaxed ${isCurrent
-                          ? "text-muted-foreground/70"
-                          : "text-muted-foreground"
-                          }`}>
-                          {feature}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </button>
-              );
-            })}
+                  </button>
+                );
+              })}
           </div>
 
           {/* Footer fixe */}
           <div
-            className="fixed inset-x-0 bottom-0 bg-background/95 backdrop-blur-lg border-t border-border/50 px-4 py-4"
+            className="fixed inset-x-0 bottom-0 bg-background/95 backdrop-blur-lg border-t border-border/50 px-4 py-4 z-50"
             style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom))" }}
           >
             <div className="max-w-md mx-auto">

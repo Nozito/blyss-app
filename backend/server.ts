@@ -1010,7 +1010,7 @@ app.get(
   "/api/slots/available/:proId/:date",
   async (req: Request, res: Response) => {
     try {
-      const proId = parseParamToInt(req.params.id);
+      const proId = parseParamToInt(req.params.proId);
       const dateStr = req.params.date; // Format: YYYY-MM-DD
 
       const startOfDay = `${dateStr} 00:00:00`;
@@ -1121,7 +1121,7 @@ app.patch(
   authenticateToken,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const slotId = parseParamToInt(req.params.id);
+      const slotId = parseParamToInt(req.params.slotId);
       const proId = req.user?.id;
 
       // Vérifier que le slot appartient au pro
@@ -1167,7 +1167,7 @@ app.delete(
   authenticateToken,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const slotId = parseParamToInt(req.params.id);
+      const slotId = parseParamToInt(req.params.slotId);
       const proId = req.user?.id;
 
       // Vérifier que le slot appartient au pro
@@ -1203,6 +1203,73 @@ app.delete(
     }
   }
 );
+
+// GET: Récupérer les dates avec au moins un slot disponible pour un pro dans un mois donné
+app.get(
+  "/api/slots/available-dates/:proId/:month",
+  async (req: Request, res: Response) => {
+    try {
+      const proIdParam = req.params.proId;
+      const monthParam = req.params.month;
+
+      if (typeof proIdParam !== 'string' || typeof monthParam !== 'string') {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Paramètres invalides" 
+        });
+      }
+      
+      const proId = parseInt(proIdParam, 10);
+
+      console.log("🔍 Params reçus:", { proId, month: monthParam });
+
+      if (isNaN(proId) || proId <= 0) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "ID invalide" 
+        });
+      }
+
+      if (!/^\d{4}-\d{2}$/.test(monthParam)) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Format mois invalide (attendu: YYYY-MM)" 
+        });
+      }
+
+      const [yearStr, monthStr] = monthParam.split('-');
+      const year = parseInt(yearStr, 10);
+      const monthNumber = parseInt(monthStr, 10);
+
+      console.log("🔍 Recherche pour:", { year, monthNumber });
+
+      const [result] = await db.query(
+        `SELECT DISTINCT DATE_FORMAT(start_datetime, '%Y-%m-%d') as available_date
+         FROM slots
+         WHERE pro_id = ? 
+         AND status = 'available'
+         AND YEAR(start_datetime) = ?
+         AND MONTH(start_datetime) = ?
+         ORDER BY available_date ASC`,
+        [proId, year, monthNumber]
+      );
+
+      console.log("📊 Résultats:", (result as any[]).length, "jours");
+
+      const dates = (result as any[]).map((row: any) => row.available_date);
+
+      res.json({ success: true, data: dates });
+    } catch (error) {
+      console.error("❌ Erreur:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: "Erreur serveur"
+      });
+    }
+  }
+);
+
+
 
 // ==========================================
 // AUTH ROUTES
@@ -4779,7 +4846,7 @@ app.delete("/api/favorites/:proId", authenticateToken, async (req: Request, res:
   let connection;
   try {
     const clientId = (req as AuthenticatedRequest).user?.id;
-    const proId = parseParamToInt(req.params.id);
+    const proId = parseParamToInt(req.params.proId);
 
     if (!clientId) {
       return res.status(401).json({
@@ -4819,7 +4886,8 @@ app.delete("/api/favorites/:proId", authenticateToken, async (req: Request, res:
         isFavorite: false
       }
     });
-  } catch {
+  } catch (error) {
+    console.error("❌ Erreur suppression favori:", error);
     res.status(500).json({
       success: false,
       message: "Erreur lors de la suppression"
@@ -4834,7 +4902,7 @@ app.get("/api/favorites/check/:proId", authenticateToken, async (req: Request, r
   let connection;
   try {
     const clientId = (req as AuthenticatedRequest).user?.id;
-    const proId = parseParamToInt(req.params.id);
+    const proId = parseParamToInt(req.params.proId);
 
     if (!clientId) {
       return res.status(401).json({
@@ -4866,7 +4934,8 @@ app.get("/api/favorites/check/:proId", authenticateToken, async (req: Request, r
         favoriteId: isFavorite ? (rows[0] as { id: number }).id : null
       }
     });
-  } catch {
+  } catch (error) {
+    console.error("❌ Erreur lors de la vérification favori:", error);
     res.status(500).json({
       success: false,
       message: "Erreur lors de la vérification"

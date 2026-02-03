@@ -533,12 +533,13 @@ const ProPublicProfile = () => {
                 <div className="flex items-center justify-center gap-2">
                   <Star size={16} className="text-yellow-400 fill-yellow-400" />
                   <span className="font-semibold text-foreground">
-                    {user?.avg_rating?.toFixed(1) || "5.0"}
+                    {user?.avg_rating ? Number(user.avg_rating).toFixed(1) : "5.0"}
                   </span>
                   <span className="text-sm text-muted-foreground">
                     ({user?.clients_count || "0"} avis)
                   </span>
                 </div>
+
 
                 {city && (
                   <div className="flex items-center justify-center gap-1.5">
@@ -666,7 +667,7 @@ const ProPublicProfile = () => {
                 </p>
               </section>
 
-              {/* Avis - Exemple */}
+              {/* Avis clients */}
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-base font-bold text-foreground">
@@ -675,13 +676,14 @@ const ProPublicProfile = () => {
                   <div className="flex items-center gap-1">
                     <Star size={14} className="text-yellow-400 fill-yellow-400" />
                     <span className="font-semibold text-foreground text-sm">
-                      {user?.avg_rating?.toFixed(1) || "5.0"}
+                      {user?.avg_rating ? Number(user.avg_rating).toFixed(1) : "5.0"}
                     </span>
                     <span className="text-xs text-muted-foreground">
                       ({user?.clients_count || "0"})
                     </span>
                   </div>
                 </div>
+
 
                 <div className="space-y-3">
                   {/* Exemple d'avis 1 */}
@@ -775,8 +777,8 @@ const ProPublicProfile = () => {
                               key={star}
                               size={12}
                               className={`${star <= 4
-                                  ? "text-yellow-400 fill-yellow-400"
-                                  : "text-muted-foreground/30"
+                                ? "text-yellow-400 fill-yellow-400"
+                                : "text-muted-foreground/30"
                                 }`}
                             />
                           ))}

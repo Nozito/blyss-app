@@ -47,11 +47,28 @@ const getDisplayCity = (user: any): string => user?.city || "Non renseigné";
 const getDisplayActivity = (user: any): string =>
   user?.activity_name || "Non renseignée";
 const getDisplayInstagram = (user: any): string | null =>
-  user?.instagram_account || null;
+  user?.instagram_account || "Non renseigné";
 const formatAvgRating = (rating: unknown): string => {
   const value = Number(rating);
-  if (!rating || isNaN(value)) return "–";
+  if (!rating || isNaN(value) || value === 0) return "Nouveau";
   return value.toFixed(1).replace(".", ",");
+};
+
+const calculateYearsOnBlyss = (createdAt: string | undefined): string => {
+  if (!createdAt) return "0";
+  
+  const accountDate = new Date(createdAt);
+  const now = new Date();
+  const diffMs = now.getTime() - accountDate.getTime();
+  const years = Math.floor(diffMs / (365.25 * 24 * 60 * 60 * 1000));
+  
+  if (years === 0) {
+    const months = Math.floor(diffMs / (30.44 * 24 * 60 * 60 * 1000));
+    if (months === 0) return "<1"; 
+    return `${months}m`;
+  }
+  
+  return `${years}`;
 };
 
 const calculateProfileCompleteness = (user: any): number => {
@@ -89,8 +106,8 @@ const ProProfile = () => {
     user?.profile_photo && user.profile_photo.startsWith("http")
       ? user.profile_photo
       : user?.profile_photo
-      ? `${baseUrl}${user.profile_photo}`
-      : logo;
+        ? `${baseUrl}${user.profile_photo}`
+        : logo;
 
   const [profileImage, setProfileImage] = useState<string>(initialPhoto);
   const [tempProfileImage, setTempProfileImage] = useState<string | null>(null);
@@ -214,8 +231,8 @@ const ProProfile = () => {
     ? subscription.plan === "serenite"
       ? "Formule Sérénité"
       : subscription.plan === "start"
-      ? "Formule Start"
-      : "Formule Signature"
+        ? "Formule Start"
+        : "Formule Signature"
     : "Aucune formule";
   const currentBillingLabel = subscription
     ? subscription.billingType === "monthly"
@@ -224,10 +241,10 @@ const ProProfile = () => {
     : "";
   const nextBillingDate = subscription?.endDate
     ? new Date(subscription.endDate).toLocaleDateString("fr-FR", {
-        year: "numeric",
-        month: "long",
-        day: "2-digit",
-      })
+      year: "numeric",
+      month: "long",
+      day: "2-digit",
+    })
     : "";
   const menuItems = [
     { icon: Briefcase, label: "Mes prestations", path: "/pro/services" },
@@ -355,10 +372,12 @@ const ProProfile = () => {
                 <Calendar size={18} className="text-primary" />
               </div>
               <p className="text-2xl font-bold text-foreground mb-1">
-                {user?.clients_count ?? "–"}
+                {user?.clients_count !== undefined && user?.clients_count !== null
+                  ? user.clients_count
+                  : 0}
               </p>
               <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
-                Clientes
+                Client{user?.clients_count > 1 ? 'es' : 'e'}
               </p>
             </div>
 
@@ -378,8 +397,8 @@ const ProProfile = () => {
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
                 <TrendingUp size={18} className="text-primary" />
               </div>
-              <p className="text-lg font-bold text-foreground mb-1">
-                {user?.years_on_blyss ?? "–"}
+              <p className="text-2xl font-bold text-foreground mb-1">
+                {calculateYearsOnBlyss(user?.created_at)}
               </p>
               <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
                 Sur Blyss

@@ -37,6 +37,172 @@ interface Prestation {
   active: boolean;
 }
 
+interface CalendarProps {
+  selectedDate: Date | null;
+  onSelectDate: (date: Date) => void;
+  proId: string;
+  availableDates: Set<string>;
+}
+
+const Calendar: React.FC<CalendarProps> = ({ selectedDate, onSelectDate, proId, availableDates }) => {
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+
+  const monthNames = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+  const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = firstDay.getDay();
+
+    const days: (Date | null)[] = [];
+
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      days.push(null);
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      days.push(new Date(year, month, day));
+    }
+
+    return days;
+  };
+
+  const goToPreviousMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
+  };
+
+  const goToNextMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
+  };
+
+  const isDateInPast = (date: Date) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    date.setHours(0, 0, 0, 0);
+    return date < today;
+  };
+
+  const hasAvailability = (date: Date) => {
+  const dateStr = date.toISOString().split('T')[0];
+  const has = availableDates.has(dateStr);
+  
+  return has;
+};
+
+  const isDateSelected = (date: Date) => {
+    if (!selectedDate) return false;
+    return (
+      date.getDate() === selectedDate.getDate() &&
+      date.getMonth() === selectedDate.getMonth() &&
+      date.getFullYear() === selectedDate.getFullYear()
+    );
+  };
+
+  const isToday = (date: Date) => {
+    const today = new Date();
+    return (
+      date.getDate() === today.getDate() &&
+      date.getMonth() === today.getMonth() &&
+      date.getFullYear() === today.getFullYear()
+    );
+  };
+
+  const days = getDaysInMonth(currentMonth);
+
+  const canGoPrevious = () => {
+    const today = new Date();
+    const firstDayOfCurrentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+    const firstDayOfThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    return firstDayOfCurrentMonth > firstDayOfThisMonth;
+  };
+
+  return (
+    <div className="bg-card rounded-3xl p-5 shadow-lg shadow-black/5 border border-muted">
+      <div className="flex items-center justify-between mb-4">
+        <button
+          onClick={goToPreviousMonth}
+          disabled={!canGoPrevious()}
+          className="w-9 h-9 rounded-xl bg-muted/50 hover:bg-muted flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed active:scale-95"
+        >
+          <ArrowLeft size={18} className="text-foreground" />
+        </button>
+
+        <h3 className="text-base font-bold text-foreground">
+          {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+        </h3>
+
+        <button
+          onClick={goToNextMonth}
+          className="w-9 h-9 rounded-xl bg-muted/50 hover:bg-muted flex items-center justify-center transition-all active:scale-95"
+        >
+          <ArrowLeft size={18} className="text-foreground rotate-180" />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-7 gap-2 mb-2">
+        {dayNames.map((day) => (
+          <div key={day} className="text-center text-xs font-semibold text-muted-foreground py-2">
+            {day}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-2">
+        {days.map((date, index) => {
+          if (!date) {
+            return <div key={`empty-${index}`} className="aspect-square" />;
+          }
+
+          const isPast = isDateInPast(date);
+          const available = hasAvailability(date);
+          const selected = isDateSelected(date);
+          const today = isToday(date);
+          
+          // ✅ Jour sélectionnable : ni passé, ET avec disponibilités
+          const selectable = !isPast && available;
+          
+          // ✅ Jour sans dispo (futur mais pas de créneaux)
+          const noAvailability = !isPast && !available;
+
+          return (
+            <div key={date.toISOString()} className="flex flex-col items-center gap-1">
+              <motion.button
+                onClick={() => selectable && onSelectDate(date)}
+                disabled={!selectable}
+                className={`
+                  w-full aspect-square rounded-xl text-sm font-semibold
+                  transition-all duration-300 flex items-center justify-center
+                  ${selected 
+                    ? 'bg-primary text-white shadow-lg shadow-primary/30 scale-105' 
+                    : noAvailability
+                      ? 'bg-muted/50 text-muted-foreground/50 cursor-not-allowed'
+                      : selectable
+                        ? 'bg-background hover:bg-muted/50 text-foreground active:scale-95'
+                        : 'bg-transparent text-muted-foreground/30 cursor-not-allowed'
+                  }
+                  ${today && !selected ? 'ring-2 ring-primary/30' : ''}
+                `}
+                whileTap={selectable ? { scale: 0.9 } : {}}
+              >
+                {date.getDate()}
+              </motion.button>
+              
+              {/* ✅ Point indicateur de disponibilité */}
+              {available && !selected && (
+                <div className="w-1 h-1 rounded-full bg-primary" />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const ClientBooking = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -61,8 +227,11 @@ const ClientBooking = () => {
     duration: number;
   }>>([]);
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+  
+  // ✅ NOUVEAU : État pour les jours avec disponibilités
+  const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
+  const [currentMonth, setCurrentMonth] = useState(new Date());
 
-  // Vérifier l'authentification
   useEffect(() => {
     if (authLoading) return;
 
@@ -81,7 +250,6 @@ const ClientBooking = () => {
     }
   }, [isAuthenticated, authLoading, id, navigate, token]);
 
-  // Charger les données du pro et prestations
   useEffect(() => {
     const fetchData = async () => {
       if (!id || authLoading || !isAuthenticated) {
@@ -93,14 +261,19 @@ const ClientBooking = () => {
         setIsLoading(true);
         console.log("🔄 Chargement des données pour le pro ID:", id);
 
-        // Récupérer le pro
-        const proRes = await fetch(`${API_URL}/api/users/pros/${id}`);
-        
-        if (!proRes.ok) {
-          throw new Error(`Erreur HTTP ${proRes.status}`);
+        const [proRes, prestationsRes] = await Promise.all([
+          fetch(`${API_URL}/api/users/pros/${id}`),
+          fetch(`${API_URL}/api/prestations/pro/${id}`)
+        ]);
+
+        if (!proRes.ok || !prestationsRes.ok) {
+          throw new Error("Erreur lors du chargement");
         }
 
-        const proData = await proRes.json();
+        const [proData, prestationsData] = await Promise.all([
+          proRes.json(),
+          prestationsRes.json()
+        ]);
 
         if (proData.success && proData.data) {
           setPro(proData.data);
@@ -110,15 +283,6 @@ const ClientBooking = () => {
           navigate('/client');
           return;
         }
-
-        // Récupérer les prestations
-        const prestationsRes = await fetch(`${API_URL}/api/prestations/pro/${id}`);
-        
-        if (!prestationsRes.ok) {
-          throw new Error(`Erreur HTTP ${prestationsRes.status}`);
-        }
-
-        const prestationsData = await prestationsRes.json();
 
         if (prestationsData.success && prestationsData.data) {
           const activePrestations = prestationsData.data
@@ -131,7 +295,7 @@ const ClientBooking = () => {
               duration_minutes: Number(p.duration_minutes),
               active: p.active
             }));
-          
+
           setPrestations(activePrestations);
           console.log("✅ Prestations chargées:", activePrestations.length);
 
@@ -151,7 +315,80 @@ const ClientBooking = () => {
     fetchData();
   }, [id, authLoading, isAuthenticated, navigate]);
 
-  // Charger les créneaux disponibles
+  // ✅ NOUVEAU : Charger les jours avec disponibilités pour le mois
+  useEffect(() => {
+    const fetchAvailableDates = async () => {
+      if (!id || step !== 2) return;
+
+      try {
+        const year = currentMonth.getFullYear();
+        const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
+        
+        const response = await fetch(`${API_URL}/api/slots/available-dates/${id}/${year}-${month}`);
+        
+        if (!response.ok) {
+          throw new Error(`Erreur HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.success && data.data) {
+          // assurer que data.data est un tableau de strings
+          const datesArray: string[] = Array.isArray(data.data) ? data.data.map(String) : [];
+          setAvailableDates(new Set<string>(datesArray));
+        } else {
+          setAvailableDates(new Set());
+        }
+      } catch (error) {
+        console.error("Erreur lors du chargement des dates disponibles:", error);
+        setAvailableDates(new Set());
+      }
+    };
+
+    fetchAvailableDates();
+  }, [id, currentMonth, step]);
+
+  // ✅ NOUVEAU : Charger les jours avec disponibilités pour le mois (avec logs)
+useEffect(() => {
+  const fetchAvailableDates = async () => {
+    if (!id || step !== 2) {
+      console.log("⏸️ Pas de chargement dates:", { id, step });
+      return;
+    }
+
+    try {
+      const year = currentMonth.getFullYear();
+      const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
+      const url = `${API_URL}/api/slots/available-dates/${id}/${year}-${month}`;
+      
+      console.log("🔄 Chargement des dates disponibles:", url);
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        console.error("❌ Erreur HTTP:", response.status);
+        throw new Error(`Erreur HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("📥 Données reçues:", data);
+
+      if (data.success && data.data) {
+        const datesArray: string[] = Array.isArray(data.data) ? data.data.map(String) : [];
+        const datesSet = new Set<string>(datesArray);
+        setAvailableDates(datesSet);
+      } else {
+        setAvailableDates(new Set());
+      }
+    } catch (error) {
+      setAvailableDates(new Set());
+    }
+  };
+
+  fetchAvailableDates();
+}, [id, currentMonth, step]);
+
+
   useEffect(() => {
     const fetchSlots = async () => {
       if (!selectedDate || !id) return;
@@ -160,7 +397,7 @@ const ClientBooking = () => {
       try {
         const dateStr = selectedDate.toISOString().split('T')[0];
         const response = await fetch(`${API_URL}/api/slots/available/${id}/${dateStr}`);
-        
+
         if (!response.ok) {
           throw new Error(`Erreur HTTP ${response.status}`);
         }
@@ -183,7 +420,6 @@ const ClientBooking = () => {
     fetchSlots();
   }, [selectedDate, id]);
 
-  // Reset selectedTime quand la date change
   useEffect(() => {
     setSelectedTime(null);
   }, [selectedDate]);
@@ -192,37 +428,6 @@ const ClientBooking = () => {
     () => prestations.find((p) => p.id === selectedPrestation),
     [selectedPrestation, prestations]
   );
-
-  const availableDates = useMemo(() => {
-    const dates = [];
-    const today = new Date();
-
-    for (let i = 1; i <= 7; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() + i);
-
-      const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
-      const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
-
-      dates.push({
-        date: date,
-        label: `${dayNames[date.getDay()]} ${date.getDate()} ${monthNames[date.getMonth()]}`
-      });
-    }
-
-    return dates;
-  }, []);
-
-  const selectedDateLabel = useMemo(() => {
-    if (!selectedDate) return "";
-    const found = availableDates.find(
-      (d) =>
-        d.date.getFullYear() === selectedDate.getFullYear() &&
-        d.date.getMonth() === selectedDate.getMonth() &&
-        d.date.getDate() === selectedDate.getDate()
-    );
-    return found?.label ?? "";
-  }, [selectedDate, availableDates]);
 
   const formatDuration = (minutes: number): string => {
     const hours = Math.floor(minutes / 60);
@@ -312,7 +517,6 @@ const ClientBooking = () => {
 
       console.log("📤 Envoi de la réservation:", reservationData);
 
-      // ✅ CORRIGÉ : Ajout du préfixe /api/
       const reservationRes = await fetch(`${API_URL}/api/reservations`, {
         method: 'POST',
         headers: {
@@ -341,7 +545,6 @@ const ClientBooking = () => {
       console.log("✅ Réservation créée:", reservationResult);
 
       if (reservationResult.success && reservationResult.data) {
-        // Créer l'enregistrement de paiement
         await fetch(`${API_URL}/api/payments`, {
           method: 'POST',
           headers: {
@@ -374,7 +577,6 @@ const ClientBooking = () => {
     await handleConfirmBooking();
   };
 
-  // Loader pendant chargement initial
   if (authLoading || isLoading) {
     return (
       <MobileLayout showNav={false}>
@@ -386,12 +588,10 @@ const ClientBooking = () => {
     );
   }
 
-  // Ne rien afficher si pas authentifié
   if (!isAuthenticated) {
     return null;
   }
 
-  // Vérifier si les données sont chargées
   if (!pro || prestations.length === 0) {
     return (
       <MobileLayout showNav={false}>
@@ -518,28 +718,12 @@ const ClientBooking = () => {
                 <CalendarIcon size={18} className="text-primary" />
                 Date
               </h3>
-              <div className="space-y-2">
-                {availableDates.map((d) => {
-                  const isSelected = selectedDate && d.date.toDateString() === selectedDate.toDateString();
-                  return (
-                    <button
-                      key={d.date.toISOString()}
-                      onClick={() => setSelectedDate(d.date)}
-                      className={`
-                        w-full rounded-2xl px-5 py-4 
-                        text-base font-semibold
-                        transition-all duration-300
-                        ${isSelected
-                          ? "bg-primary text-white shadow-lg shadow-primary/30"
-                          : "bg-card text-foreground border border-muted hover:bg-muted/50"
-                        }
-                      `}
-                    >
-                      {d.label}
-                    </button>
-                  );
-                })}
-              </div>
+              <Calendar
+                selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
+                proId={id!}
+                availableDates={availableDates}
+              />
             </section>
 
             <section className="space-y-3">
@@ -554,7 +738,7 @@ const ClientBooking = () => {
               ) : availableSlots.length === 0 ? (
                 <div className="text-center py-8 bg-card rounded-2xl border border-muted">
                   <p className="text-sm text-muted-foreground">
-                    Aucun créneau disponible pour cette date
+                    {selectedDate ? "Aucun créneau disponible pour cette date" : "Sélectionne d'abord une date"}
                   </p>
                 </div>
               ) : (
@@ -611,7 +795,14 @@ const ClientBooking = () => {
               <Divider />
               <SummaryRow label="Prestation" value={selectedPrestationData?.name} />
               <Divider />
-              <SummaryRow label="Date" value={selectedDateLabel} />
+              <SummaryRow
+                label="Date"
+                value={selectedDate ? selectedDate.toLocaleDateString('fr-FR', {
+                  weekday: 'short',
+                  day: 'numeric',
+                  month: 'long'
+                }) : undefined}
+              />
               <Divider />
               <SummaryRow label="Horaire" value={selectedTime || undefined} />
               <Divider />
@@ -677,7 +868,14 @@ const ClientBooking = () => {
               </div>
               <Divider />
               <SummaryRow label="Prestation" value={selectedPrestationData?.name} />
-              <SummaryRow label="Date" value={selectedDateLabel} />
+              <SummaryRow
+                label="Date"
+                value={selectedDate ? selectedDate.toLocaleDateString('fr-FR', {
+                  weekday: 'short',
+                  day: 'numeric',
+                  month: 'long'
+                }) : undefined}
+              />
               <SummaryRow label="Horaire" value={selectedTime || undefined} />
             </div>
 
@@ -778,7 +976,14 @@ const ClientBooking = () => {
               <Divider />
               <SummaryRow label="Prestation" value={selectedPrestationData?.name} />
               <Divider />
-              <SummaryRow label="Date" value={selectedDateLabel} />
+              <SummaryRow
+                label="Date"
+                value={selectedDate ? selectedDate.toLocaleDateString('fr-FR', {
+                  weekday: 'short',
+                  day: 'numeric',
+                  month: 'long'
+                }) : undefined}
+              />
               <Divider />
               <SummaryRow label="Horaire" value={selectedTime || undefined} />
               <Divider />
@@ -872,7 +1077,6 @@ const ClientBooking = () => {
   );
 };
 
-/* Helpers UI */
 type SummaryRowProps = { label: string; value?: string; };
 const SummaryRow = ({ label, value }: SummaryRowProps) => (
   <div className="flex items-center justify-between gap-4">
