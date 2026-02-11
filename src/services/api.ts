@@ -111,6 +111,16 @@ export interface SavedCard {
   is_default: boolean;
 }
 
+type UpdateServicePayload = Partial<{
+  nom: string;
+  typePrestation: string;
+  description: string;
+  prixBase: number;
+  tempsBloque: number;
+  reservable: boolean;
+  options: { id?: number; nom: string; supplement: number }[];
+}>;
+
 // =====================
 // SESSION MANAGEMENT
 // =====================
@@ -595,6 +605,135 @@ export const proApi = {
       body: JSON.stringify(settings),
     });
   },
+
+  getServices: () => apiCall<any[]>("/api/pro/prestations"),
+
+  createService: (data: {
+  name: string;
+  description: string;
+  price: number;
+  duration_minutes: number;
+  active?: boolean;
+}) =>
+  apiCall("/api/pro/prestations", {
+    method: "POST",
+    body: JSON.stringify(data),
+  }),
+
+updateService: (id: number, data: Partial<{
+  name: string;
+  description: string;
+  price: number;
+  duration_minutes: number;
+  active: boolean;
+}>) =>
+  apiCall(`/api/pro/prestations/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  }),
+
+deleteService: (id: number) =>
+  apiCall(`/api/pro/prestations/${id}`, {
+    method: "DELETE",
+  }),
+
+duplicateService: (id: number) =>
+  apiCall(`/api/pro/prestations/${id}/duplicate`, {
+    method: "POST",
+  }),
+
+getFinanceStats: () => 
+  apiCall<{
+    today: number;
+    week: number;
+    month: number;
+    lastMonth: number;
+    objective: number;
+    forecast: number;
+    topServices: Array<{
+      name: string;
+      revenue: number;
+      count: number;
+      percentage: number;
+    }>;
+    trend: "up" | "down" | "stable";
+  }>("/api/pro/finance/stats"),
+
+  updateFinanceObjective: (objective: number) =>
+  apiCall("/api/pro/finance/objective", {
+    method: "PUT",
+    body: JSON.stringify({ objective }),
+  }),
+
+exportFinanceData: async (period: "week" | "month" | "year"): Promise<ApiResponse<Blob>> => {
+  try {
+    const token = getAccessToken();
+    
+    const response = await fetch(
+      `${API_BASE_URL}/api/pro/finance/export?period=${period}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    if (response.status === 401) {
+      const refreshed = await tryRefreshToken();
+      if (!refreshed) {
+        return {
+          success: false,
+          error: "Session expirée, veuillez vous reconnecter",
+        };
+      }
+      
+      const newToken = getAccessToken();
+      const retryResponse = await fetch(
+        `${API_BASE_URL}/api/pro/finance/export?period=${period}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${newToken}`,
+          },
+        }
+      );
+      
+      if (!retryResponse.ok) {
+        return {
+          success: false,
+          error: "Erreur lors de l'export",
+        };
+      }
+      
+      const blob = await retryResponse.blob();
+      return {
+        success: true,
+        data: blob,
+      };
+    }
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: "Erreur lors de l'export",
+      };
+    }
+
+    const blob = await response.blob();
+    return {
+      success: true,
+      data: blob,
+    };
+  } catch (error) {
+    console.error("Export error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Erreur de connexion",
+    };
+  }
+},
+
 };
 
 // =====================

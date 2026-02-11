@@ -3,7 +3,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronLeft,
-  Plus,
   Trash2,
   Info,
   Euro,
@@ -15,20 +14,15 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import React from "react";
-
-interface ServiceVariation {
-  id?: number;
-  name: string;
-  price: number;
-}
+import { proApi } from "@/services/api";
+import type { Prestation } from "./ProServices";
 
 interface ServiceFormData {
   name: string;
-  category: string;
   description: string;
-  basePrice: number | string;
-  duration: number | string;
-  variations: ServiceVariation[];
+  price: number | string;
+  duration_minutes: number;
+  active: boolean;
 }
 
 const showNotification = (notification: any) => {
@@ -45,25 +39,22 @@ const ProServiceForm = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [direction, setDirection] = useState(0);
 
-  const categories = ["Pose", "Remplissage", "Nail art", "Dépose", "Soin", "Autre"];
   const durations = [15, 30, 45, 60, 75, 90, 120, 150, 180];
 
   const [formData, setFormData] = useState<ServiceFormData>({
     name: "",
-    category: categories[0],
     description: "",
-    basePrice: "",
-    duration: 60,
-    variations: [],
+    price: "",
+    duration_minutes: 60,
+    active: true,
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const steps = [
-    { title: "Nom & Catégorie", icon: Tag },
+    { title: "Nom", icon: Tag },
     { title: "Description", icon: FileText },
-    { title: "Tarification", icon: Euro },
-    { title: "Durée", icon: Clock },
+    { title: "Prix & Durée", icon: Euro },
     { title: "Confirmation", icon: CheckCircle2 },
   ];
 
@@ -76,26 +67,28 @@ const ProServiceForm = () => {
   const loadService = async () => {
     try {
       setIsLoading(true);
+      const res = await proApi.getServices();
+      if (!res?.success) throw new Error();
+
+      const service = (res.data as Prestation[]).find((s) => s.id === parseInt(id || "0"));
+      if (!service) throw new Error("Service introuvable");
+
       setFormData({
-        name: "Pose complète gel",
-        category: "Pose",
-        description: "Pose complète en gel avec French ou couleur unie",
-        basePrice: 45,
-        duration: 90,
-        variations: [
-          { id: 1, name: "Court", price: 45 },
-          { id: 2, name: "Long", price: 55 },
-        ],
+        name: service.name,
+        description: service.description,
+        price: service.price,
+        duration_minutes: service.duration_minutes,
+        active: service.active,
       });
     } catch (error) {
       showNotification({ type: "error", title: "Erreur", message: "Impossible de charger la prestation" });
-      navigate("/pro/services");
+      navigate("/pro/prestations");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleInputChange = (field: keyof ServiceFormData, value: string | number) => {
+  const handleInputChange = (field: keyof ServiceFormData, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) {
       setErrors((prev) => {
@@ -106,30 +99,6 @@ const ProServiceForm = () => {
     }
   };
 
-  const addVariation = () => {
-    if (formData.variations.length >= 10) {
-      showNotification({ type: "warning", title: "Limite atteinte", message: "Maximum 10 variations par prestation" });
-      return;
-    }
-    setFormData((prev) => ({
-      ...prev,
-      variations: [...prev.variations, { name: "", price: 0 }],
-    }));
-  };
-
-  const updateVariation = (index: number, field: "name" | "price", value: string | number) => {
-    const newVariations = [...formData.variations];
-    newVariations[index] = { ...newVariations[index], [field]: value };
-    setFormData((prev) => ({ ...prev, variations: newVariations }));
-  };
-
-  const removeVariation = (index: number) => {
-    setFormData((prev) => ({
-      ...prev,
-      variations: prev.variations.filter((_, i) => i !== index),
-    }));
-  };
-
   const validateStep = (step: number): boolean => {
     const newErrors: Record<string, string> = {};
 
@@ -137,8 +106,8 @@ const ProServiceForm = () => {
       case 0:
         if (!formData.name.trim()) {
           newErrors.name = "Le nom est requis";
-        } else if (formData.name.trim().length > 60) {
-          newErrors.name = "Maximum 60 caractères";
+        } else if (formData.name.trim().length > 100) {
+          newErrors.name = "Maximum 100 caractères";
         }
         break;
       case 1:
@@ -147,15 +116,13 @@ const ProServiceForm = () => {
         }
         break;
       case 2:
-        const price = Number(formData.basePrice);
-        if (!formData.basePrice || price <= 0) {
-          newErrors.basePrice = "Le prix doit être supérieur à 0€";
+        const price = Number(formData.price);
+        if (!formData.price || price <= 0) {
+          newErrors.price = "Le prix doit être supérieur à 0€";
         }
-        break;
-      case 3:
-        const duration = Number(formData.duration);
-        if (!formData.duration || duration < 15 || duration > 300) {
-          newErrors.duration = "La durée doit être entre 15 et 300 minutes";
+        const duration = Number(formData.duration_minutes);
+        if (!formData.duration_minutes || duration < 15 || duration > 300) {
+          newErrors.duration_minutes = "La durée doit être entre 15 et 300 minutes";
         }
         break;
     }
@@ -181,8 +148,23 @@ const ProServiceForm = () => {
   const handleSubmit = async () => {
     try {
       setIsSaving(true);
-      const validVariations = formData.variations.filter((v) => v.name.trim() && v.price > 0);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      const payload = {
+        name: formData.name.trim(),
+        description: formData.description.trim(),
+        price: parseFloat(formData.price.toString()),
+        duration_minutes: formData.duration_minutes,
+        active: formData.active,
+      };
+
+      let res;
+      if (isEditMode) {
+        res = await proApi.updateService(parseInt(id!), payload);
+      } else {
+        res = await proApi.createService(payload);
+      }
+
+      if (!res?.success) throw new Error(res?.error || "Erreur serveur");
 
       showNotification({
         type: "success",
@@ -190,9 +172,9 @@ const ProServiceForm = () => {
         message: "Tes clientes peuvent maintenant la réserver",
       });
 
-      navigate("/pro/services");
-    } catch (error) {
-      showNotification({ type: "error", title: "Erreur", message: "Impossible d'enregistrer la prestation" });
+      navigate("/pro/prestations");
+    } catch (error: any) {
+      showNotification({ type: "error", title: "Erreur", message: error.message || "Impossible d'enregistrer la prestation" });
     } finally {
       setIsSaving(false);
     }
@@ -204,15 +186,6 @@ const ProServiceForm = () => {
     if (hours > 0 && mins > 0) return `${hours}h${mins}`;
     if (hours > 0) return `${hours}h`;
     return `${mins}min`;
-  };
-
-  const getPrixAffiche = (): string => {
-    const validVariations = formData.variations.filter((v) => v.name.trim() && v.price > 0);
-    if (validVariations.length === 0) return `${formData.basePrice}€`;
-    const prixMax = Math.max(...validVariations.map((v) => v.price));
-    const prixMin = Math.min(...validVariations.map((v) => v.price));
-    if (prixMin === prixMax) return `${prixMin}€`;
-    return `${prixMin} - ${prixMax}€`;
   };
 
   const variants = {
@@ -241,7 +214,7 @@ const ProServiceForm = () => {
             animate={{ opacity: 1, x: 0 }}
             whileHover={{ scale: 1.05, x: -2 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => navigate("/pro/services")}
+            onClick={() => navigate("/pro/prestations")}
             className="absolute left-4 top-6 w-10 h-10 rounded-xl bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl border border-white/20 shadow-sm flex items-center justify-center"
           >
             <ChevronLeft size={20} className="text-foreground" />
@@ -254,13 +227,8 @@ const ProServiceForm = () => {
             </p>
           </motion.div>
 
-          {/* Step indicator - SIMPLIFIÉ sans animation */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="mt-6 flex justify-center"
-          >
+          {/* Step indicator */}
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="mt-6 flex justify-center">
             <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-primary shadow-md">
               <div className="flex items-center gap-2">
                 {React.createElement(steps[currentStep].icon, { size: 18, className: "text-white" })}
@@ -291,67 +259,31 @@ const ProServiceForm = () => {
               }}
               className="w-full"
             >
-              {/* Step 0: Nom & Catégorie */}
+              {/* Step 0: Nom */}
               {currentStep === 0 && (
                 <div className="space-y-4">
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="rounded-2xl bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl border border-white/20 shadow-sm p-5"
-                  >
-                    <div className="mb-5">
-                      <label className="block text-sm font-semibold text-foreground mb-2">Nom de la prestation *</label>
-                      <input
-                        type="text"
-                        value={formData.name}
-                        onChange={(e) => handleInputChange("name", e.target.value)}
-                        placeholder="Ex: Pose complète gel"
-                        maxLength={60}
-                        className={`w-full px-4 py-3 rounded-xl border-2 ${errors.name ? "border-destructive" : "border-border"
-                          } bg-background/50 backdrop-blur-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors`}
-                      />
-                      {errors.name && (
-                        <p className="text-xs text-destructive mt-2 flex items-center gap-1">
-                          <Info size={12} />
-                          {errors.name}
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground mt-2">{formData.name.length}/60 caractères</p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-foreground mb-2">Catégorie *</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {categories.map((cat) => (
-                          <motion.button
-                            key={cat}
-                            type="button"
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={() => handleInputChange("category", cat)}
-                            className={`px-4 py-3 rounded-xl border-2 font-semibold text-sm transition-all backdrop-blur-sm ${formData.category === cat
-                                ? "border-primary bg-primary/10 text-primary shadow-lg shadow-primary/20"
-                                : "border-border bg-background/50 text-muted-foreground hover:border-primary/50"
-                              }`}
-                          >
-                            {cat}
-                          </motion.button>
-                        ))}
-                      </div>
-                    </div>
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-2xl bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl border border-white/20 shadow-sm p-5">
+                    <label className="block text-sm font-semibold text-foreground mb-2">Nom de la prestation *</label>
+                    <input
+                      type="text"
+                      value={formData.name}
+                      onChange={(e) => handleInputChange("name", e.target.value)}
+                      placeholder="Ex: Pose complète gel"
+                      maxLength={100}
+                      className={`w-full px-4 py-3 rounded-xl border-2 ${errors.name ? "border-destructive" : "border-border"} bg-background/50 backdrop-blur-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors`}
+                    />
+                    {errors.name && (
+                      <p className="text-xs text-destructive mt-2 flex items-center gap-1">
+                        <Info size={12} />
+                        {errors.name}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-2">{formData.name.length}/100 caractères</p>
                   </motion.div>
 
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className="flex items-start gap-3 p-4 rounded-xl bg-primary/5 backdrop-blur-sm border border-primary/10"
-                  >
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="flex items-start gap-3 p-4 rounded-xl bg-primary/5 backdrop-blur-sm border border-primary/10">
                     <Sparkles size={18} className="text-primary mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-muted-foreground">
-                      Choisis un nom clair et précis pour que tes clientes comprennent facilement la prestation.
-                    </p>
+                    <p className="text-xs text-muted-foreground">Choisis un nom clair et précis pour que tes clientes comprennent facilement la prestation.</p>
                   </motion.div>
                 </div>
               )}
@@ -359,12 +291,7 @@ const ProServiceForm = () => {
               {/* Step 1: Description */}
               {currentStep === 1 && (
                 <div className="space-y-4">
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="rounded-2xl bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl border border-white/20 shadow-sm p-5"
-                  >
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-2xl bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl border border-white/20 shadow-sm p-5">
                     <label className="block text-sm font-semibold text-foreground mb-2">
                       Description <span className="text-xs text-muted-foreground font-normal">(optionnel)</span>
                     </label>
@@ -374,8 +301,7 @@ const ProServiceForm = () => {
                       placeholder="Décris ta prestation en quelques mots..."
                       maxLength={500}
                       rows={7}
-                      className={`w-full px-4 py-3 rounded-xl border-2 ${errors.description ? "border-destructive" : "border-border"
-                        } bg-background/50 backdrop-blur-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors resize-none`}
+                      className={`w-full px-4 py-3 rounded-xl border-2 ${errors.description ? "border-destructive" : "border-border"} bg-background/50 backdrop-blur-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors resize-none`}
                     />
                     {errors.description && (
                       <p className="text-xs text-destructive mt-2 flex items-center gap-1">
@@ -386,186 +312,75 @@ const ProServiceForm = () => {
                     <p className="text-xs text-muted-foreground mt-2">{formData.description.length}/500 caractères</p>
                   </motion.div>
 
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className="flex items-start gap-3 p-4 rounded-xl bg-primary/5 backdrop-blur-sm border border-primary/10"
-                  >
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="flex items-start gap-3 p-4 rounded-xl bg-primary/5 backdrop-blur-sm border border-primary/10">
                     <Info size={18} className="text-primary mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-muted-foreground">
-                      La description aide tes clientes à savoir exactement ce qui est inclus dans la prestation.
-                    </p>
+                    <p className="text-xs text-muted-foreground">La description aide tes clientes à savoir exactement ce qui est inclus dans la prestation.</p>
                   </motion.div>
                 </div>
               )}
 
-              {/* Step 2: Tarification */}
+              {/* Step 2: Prix & Durée */}
               {currentStep === 2 && (
                 <div className="space-y-4">
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="rounded-2xl bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl border border-white/20 shadow-sm p-5"
-                  >
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-2xl bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl border border-white/20 shadow-sm p-5">
                     <div className="mb-5">
-                      <label className="block text-sm font-semibold text-foreground mb-2">Prix de base *</label>
+                      <label className="block text-sm font-semibold text-foreground mb-2">Prix *</label>
                       <div className="relative">
                         <input
                           type="number"
-                          value={formData.basePrice}
-                          onChange={(e) => handleInputChange("basePrice", e.target.value)}
+                          value={formData.price}
+                          onChange={(e) => handleInputChange("price", e.target.value)}
                           placeholder="0"
                           min="0"
                           step="0.5"
-                          className={`w-full px-4 py-3 pr-12 rounded-xl border-2 ${errors.basePrice ? "border-destructive" : "border-border"
-                            } bg-background/50 backdrop-blur-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors font-semibold`}
+                          className={`w-full px-4 py-3 pr-12 rounded-xl border-2 ${errors.price ? "border-destructive" : "border-border"} bg-background/50 backdrop-blur-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors font-semibold`}
                         />
                         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-bold">€</span>
                       </div>
-                      {errors.basePrice && (
+                      {errors.price && (
                         <p className="text-xs text-destructive mt-2 flex items-center gap-1">
                           <Info size={12} />
-                          {errors.basePrice}
+                          {errors.price}
                         </p>
                       )}
                     </div>
 
                     <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <label className="text-sm font-semibold text-foreground">
-                          Variations <span className="text-xs text-muted-foreground font-normal">(optionnel)</span>
-                        </label>
-                        <motion.button
-                          type="button"
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={addVariation}
-                          disabled={formData.variations.length >= 10}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-all disabled:opacity-50"
-                        >
-                          <Plus size={14} />
-                          Ajouter
-                        </motion.button>
+                      <label className="block text-sm font-semibold text-foreground mb-3">Durée estimée *</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {durations.map((duration) => (
+                          <motion.button
+                            key={duration}
+                            type="button"
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => handleInputChange("duration_minutes", duration)}
+                            className={`px-4 py-3 rounded-xl border-2 font-bold text-sm transition-all backdrop-blur-sm ${formData.duration_minutes === duration ? "border-primary bg-primary/10 text-primary shadow-lg shadow-primary/20" : "border-border bg-background/50 text-muted-foreground hover:border-primary/50"}`}
+                          >
+                            {formatDuration(duration)}
+                          </motion.button>
+                        ))}
                       </div>
-
-                      {formData.variations.length > 0 ? (
-                        <div className="space-y-2">
-                          {formData.variations.map((variation, index) => (
-                            <motion.div
-                              key={index}
-                              initial={{ opacity: 0, x: -20 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={{ delay: index * 0.05 }}
-                              className="flex items-center gap-2 p-3 rounded-xl bg-muted/50 backdrop-blur-sm border border-border/40"
-                            >
-                              <input
-                                type="text"
-                                value={variation.name}
-                                onChange={(e) => updateVariation(index, "name", e.target.value)}
-                                placeholder="Ex: Court"
-                                maxLength={40}
-                                className="flex-1 px-3 py-2 rounded-lg border border-border bg-background/50 backdrop-blur-sm text-sm font-medium"
-                              />
-                              <div className="relative w-24">
-                                <input
-                                  type="number"
-                                  value={variation.price || ""}
-                                  onChange={(e) => updateVariation(index, "price", e.target.value)}
-                                  placeholder="0"
-                                  min="0"
-                                  step="0.5"
-                                  className="w-full px-3 py-2 pr-7 rounded-lg border border-border bg-background/50 backdrop-blur-sm text-sm font-semibold"
-                                />
-                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-bold">€</span>
-                              </div>
-                              <motion.button
-                                type="button"
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.9 }}
-                                onClick={() => removeVariation(index)}
-                                className="w-8 h-8 rounded-lg bg-destructive/10 flex items-center justify-center hover:bg-destructive/20 transition-all"
-                              >
-                                <Trash2 size={14} className="text-destructive" />
-                              </motion.button>
-                            </motion.div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-center py-6 px-4 rounded-xl border-2 border-dashed border-border/50 bg-muted/20 backdrop-blur-sm">
-                          <p className="text-sm text-muted-foreground">Aucune variation</p>
-                        </div>
+                      {errors.duration_minutes && (
+                        <p className="text-xs text-destructive mt-2 flex items-center gap-1">
+                          <Info size={12} />
+                          {errors.duration_minutes}
+                        </p>
                       )}
                     </div>
                   </motion.div>
 
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className="flex items-start gap-3 p-4 rounded-xl bg-primary/5 backdrop-blur-sm border border-primary/10"
-                  >
-                    <Info size={18} className="text-primary mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-muted-foreground">
-                      Propose différents prix selon la longueur, la complexité, etc. (Ex: Court 45€, Long 55€)
-                    </p>
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="flex items-start gap-3 p-4 rounded-xl bg-primary/5 backdrop-blur-sm border border-primary/10">
+                    <Clock size={18} className="text-primary mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-muted-foreground">Cette durée sera utilisée pour bloquer automatiquement ton calendrier lors des réservations.</p>
                   </motion.div>
                 </div>
               )}
 
-              {/* Step 3: Durée */}
+              {/* Step 3: Confirmation */}
               {currentStep === 3 && (
                 <div className="space-y-4">
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="rounded-2xl bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl border border-white/20 shadow-sm p-5"
-                  >
-                    <label className="block text-sm font-semibold text-foreground mb-3">Durée estimée *</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {durations.map((duration) => (
-                        <motion.button
-                          key={duration}
-                          type="button"
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => handleInputChange("duration", duration)}
-                          className={`px-4 py-3 rounded-xl border-2 font-bold text-sm transition-all backdrop-blur-sm ${formData.duration === duration
-                              ? "border-primary bg-primary/10 text-primary shadow-lg shadow-primary/20"
-                              : "border-border bg-background/50 text-muted-foreground hover:border-primary/50"
-                            }`}
-                        >
-                          {formatDuration(duration)}
-                        </motion.button>
-                      ))}
-                    </div>
-                  </motion.div>
-
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className="flex items-start gap-3 p-4 rounded-xl bg-primary/5 backdrop-blur-sm border border-primary/10"
-                  >
-                    <Clock size={18} className="text-primary mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-muted-foreground">
-                      Cette durée sera utilisée pour bloquer automatiquement ton calendrier lors des réservations.
-                    </p>
-                  </motion.div>
-                </div>
-              )}
-
-              {/* Step 4: Confirmation */}
-              {currentStep === 4 && (
-                <div className="space-y-4">
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent backdrop-blur-xl border border-primary/20 shadow-lg p-5"
-                  >
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent backdrop-blur-xl border border-primary/20 shadow-lg p-5">
                     <div className="flex items-center gap-3 mb-5">
                       <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
                         <CheckCircle2 size={20} className="text-primary" />
@@ -582,13 +397,6 @@ const ProServiceForm = () => {
                         <p className="text-sm font-bold text-foreground">{formData.name}</p>
                       </div>
 
-                      <div className="p-3 rounded-xl bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm border border-white/20">
-                        <p className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-wide">Catégorie</p>
-                        <span className="inline-block px-2.5 py-1 rounded-lg bg-primary/10 text-primary text-xs font-semibold">
-                          {formData.category}
-                        </span>
-                      </div>
-
                       {formData.description && (
                         <div className="p-3 rounded-xl bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm border border-white/20">
                           <p className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-wide">Description</p>
@@ -599,29 +407,26 @@ const ProServiceForm = () => {
                       <div className="grid grid-cols-2 gap-2">
                         <div className="p-3 rounded-xl bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/20 border border-green-200/50 dark:border-green-800/50">
                           <p className="text-[10px] font-bold text-green-600 dark:text-green-400 mb-1 uppercase tracking-wide">Prix</p>
-                          <p className="text-lg font-bold text-foreground">{getPrixAffiche()}</p>
+                          <p className="text-lg font-bold text-foreground">{formData.price}€</p>
                         </div>
                         <div className="p-3 rounded-xl bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-950/30 dark:to-cyan-950/20 border border-blue-200/50 dark:border-blue-800/50">
                           <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 mb-1 uppercase tracking-wide">Durée</p>
-                          <p className="text-lg font-bold text-foreground">{formatDuration(Number(formData.duration))}</p>
+                          <p className="text-lg font-bold text-foreground">{formatDuration(formData.duration_minutes)}</p>
                         </div>
                       </div>
 
-                      {formData.variations.filter((v) => v.name.trim() && v.price > 0).length > 0 && (
-                        <div className="p-3 rounded-xl bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm border border-white/20">
-                          <p className="text-[10px] font-bold text-muted-foreground mb-2 uppercase tracking-wide">Variations</p>
-                          <div className="space-y-1.5">
-                            {formData.variations
-                              .filter((v) => v.name.trim() && v.price > 0)
-                              .map((variation, index) => (
-                                <div key={index} className="flex items-center justify-between p-2 rounded-lg bg-muted/30">
-                                  <span className="text-xs font-medium text-foreground">{variation.name}</span>
-                                  <span className="text-xs font-bold text-primary">{variation.price}€</span>
-                                </div>
-                              ))}
-                          </div>
+                      <div className="flex items-center justify-between p-3 rounded-xl bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm border border-white/20">
+                        <div>
+                          <p className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-wide">Visibilité</p>
+                          <p className="text-sm font-semibold text-foreground">{formData.active ? "Réservable" : "Masquée"}</p>
                         </div>
-                      )}
+                        <button
+                          onClick={() => handleInputChange("active", !formData.active)}
+                          className={`relative w-14 h-8 rounded-full transition-all ${formData.active ? "bg-primary" : "bg-muted"}`}
+                        >
+                          <div className={`absolute top-1 w-6 h-6 rounded-full bg-white shadow-md transition-all ${formData.active ? "left-7" : "left-1"}`} />
+                        </button>
+                      </div>
                     </div>
                   </motion.div>
 
@@ -643,23 +448,16 @@ const ProServiceForm = () => {
                     ) : (
                       <>
                         <CheckCircle2 size={18} className="text-white" />
-                        <span className="font-bold text-white">Confirmer la création</span>
+                        <span className="font-bold text-white">{isEditMode ? "Mettre à jour" : "Créer la prestation"}</span>
                       </>
                     )}
                   </motion.button>
 
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.4 }}
-                    className="flex items-start gap-3 p-4 rounded-xl bg-green-50 dark:bg-green-950/20 backdrop-blur-sm border border-green-200 dark:border-green-800"
-                  >
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="flex items-start gap-3 p-4 rounded-xl bg-green-50 dark:bg-green-950/20 backdrop-blur-sm border border-green-200 dark:border-green-800">
                     <Sparkles size={18} className="text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                     <div>
                       <p className="text-sm font-semibold text-green-700 dark:text-green-400 mb-0.5">Tout est prêt !</p>
-                      <p className="text-xs text-green-600 dark:text-green-500">
-                        Confirme pour que tes clientes puissent réserver cette prestation.
-                      </p>
+                      <p className="text-xs text-green-600 dark:text-green-500">Confirme pour que tes clientes puissent réserver cette prestation.</p>
                     </div>
                   </motion.div>
                 </div>
@@ -669,13 +467,8 @@ const ProServiceForm = () => {
         </div>
       </div>
 
-      {/* Barre de navigation style iOS - COMME DANS L'IMAGE */}
-      <motion.div
-        initial={{ y: 100 }}
-        animate={{ y: 0 }}
-        transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        className="fixed bottom-6 inset-x-0 z-50 flex justify-center"
-      >
+      {/* Barre de navigation iOS */}
+      <motion.div initial={{ y: 100 }} animate={{ y: 0 }} transition={{ type: "spring", stiffness: 300, damping: 30 }} className="fixed bottom-6 inset-x-0 z-50 flex justify-center">
         <div className="relative rounded-full bg-white/95 dark:bg-gray-900/95 backdrop-blur-2xl border border-white/20 shadow-2xl p-2 flex items-center gap-3">
           {steps.map((step, index) => (
             <motion.button
@@ -689,21 +482,9 @@ const ProServiceForm = () => {
               }}
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
-              className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all ${index === currentStep
-                  ? "bg-primary shadow-lg shadow-primary/30"
-                  : index < currentStep
-                    ? "bg-primary/20"
-                    : "bg-muted/50"
-                }`}
+              className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all ${index === currentStep ? "bg-primary shadow-lg shadow-primary/30" : index < currentStep ? "bg-primary/20" : "bg-muted/50"}`}
             >
-              {index < currentStep ? (
-                <CheckCircle2 size={20} className="text-primary" />
-              ) : (
-                React.createElement(step.icon, {
-                  size: 20,
-                  className: index === currentStep ? "text-white" : "text-muted-foreground",
-                })
-              )}
+              {index < currentStep ? <CheckCircle2 size={20} className="text-primary" /> : React.createElement(step.icon, { size: 20, className: index === currentStep ? "text-white" : "text-muted-foreground" })}
             </motion.button>
           ))}
         </div>

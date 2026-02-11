@@ -56,18 +56,18 @@ const formatAvgRating = (rating: unknown): string => {
 
 const calculateYearsOnBlyss = (createdAt: string | undefined): string => {
   if (!createdAt) return "0";
-  
+
   const accountDate = new Date(createdAt);
   const now = new Date();
   const diffMs = now.getTime() - accountDate.getTime();
   const years = Math.floor(diffMs / (365.25 * 24 * 60 * 60 * 1000));
-  
+
   if (years === 0) {
     const months = Math.floor(diffMs / (30.44 * 24 * 60 * 60 * 1000));
-    if (months === 0) return "<1"; 
+    if (months === 0) return "<1";
     return `${months}m`;
   }
-  
+
   return `${years}`;
 };
 
@@ -247,7 +247,8 @@ const ProProfile = () => {
     })
     : "";
   const menuItems = [
-    { icon: Briefcase, label: "Mes prestations", path: "/pro/services" },
+    { icon: Briefcase, label: "Mes prestations", path: "/pro/prestations" },
+    { icon: TrendingUp, label: "Finance", path: "/pro/finance" },
     { icon: Settings, label: "Paramètres", path: "/pro/settings" },
     { icon: CreditCard, label: "Encaissements", path: "/pro/payment" },
     { icon: Bell, label: "Notifications", path: "/pro/notifications" },
@@ -398,12 +399,18 @@ const ProProfile = () => {
                 <TrendingUp size={18} className="text-primary" />
               </div>
               <p className="text-2xl font-bold text-foreground mb-1">
-                {calculateYearsOnBlyss(user?.created_at)}
-              </p>
+              {calculateYearsOnBlyss(user?.created_at)}
+                {(() => {
+                  const years = calculateYearsOnBlyss(user?.created_at);
+                  if (years === "0" || years === "<1") return "Nouveau";
+                  if (years.endsWith("m")) return " Mois";
+                  return " ans";
+                })()}              </p>
               <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
                 Sur Blyss
               </p>
             </div>
+
           </div>
         </div>
 
