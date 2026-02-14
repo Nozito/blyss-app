@@ -28,5 +28,5 @@ backend/.env.dev
 .env.devlopment
 .env.production
 backend/.env.prod
-backend/.env.prod
 .env.dev
+.env.development
