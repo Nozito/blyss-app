@@ -15,6 +15,7 @@ import http from "http";
 import { isValidIBAN, electronicFormatIBAN } from "ibantools";
 import crypto from "crypto";
 import ExcelJS from "exceljs";
+import Stripe from "stripe";
 
 // ==========================================
 // 2. CONFIGURATION ENV
@@ -31,6 +32,14 @@ if (!process.env.JWT_SECRET) {
   console.error("JWT_SECRET is not defined. Exiting.");
   process.exit(1);
 }
+
+// ==========================================
+// 2b. STRIPE INIT
+// ==========================================
+const key = process.env.STRIPE_SECRET_KEY;
+if (!key) throw new Error("STRIPE_SECRET_KEY manquante dans .env.dev");
+const stripe = new Stripe(key);
+
 
 // ==========================================
 // 3. INTERFACES
@@ -281,6 +290,80 @@ app.use(
   })
 );
 
+// ==========================================
+// STRIPE WEBHOOK (raw body - BEFORE express.json())
+// ==========================================
+app.post(
+  "/api/webhooks/stripe",
+  express.raw({ type: "application/json" }),
+  async (req: Request, res: Response) => {
+    const sig = req.headers["stripe-signature"] as string;
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    } catch (err: any) {
+      console.error("[STRIPE_WEBHOOK] Signature verification failed:", err.message);
+      return res.status(400).json({ error: "Invalid signature" });
+    }
+
+    console.log(`[STRIPE_WEBHOOK] Event: ${event.type}, id: ${event.id}`);
+
+    try {
+      switch (event.type) {
+        case "payment_intent.succeeded": {
+          const pi = event.data.object as Stripe.PaymentIntent;
+          await db.execute(
+            `UPDATE payments SET status = 'succeeded', updated_at = NOW() WHERE stripe_payment_intent_id = ?`,
+            [pi.id]
+          );
+          // Get payment info to update reservation
+          const [paymentRows] = await db.query(
+            `SELECT reservation_id, amount, type FROM payments WHERE stripe_payment_intent_id = ?`,
+            [pi.id]
+          );
+          const payment = (paymentRows as any[])[0];
+          if (payment) {
+            const newStatus = payment.type === "deposit" ? "deposit_paid" : "fully_paid";
+            await db.execute(
+              `UPDATE reservations SET payment_status = ?, total_paid = total_paid + ? WHERE id = ?`,
+              [newStatus, payment.amount, payment.reservation_id]
+            );
+          }
+          break;
+        }
+        case "payment_intent.payment_failed": {
+          const pi = event.data.object as Stripe.PaymentIntent;
+          await db.execute(
+            `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE stripe_payment_intent_id = ?`,
+            [pi.id]
+          );
+          break;
+        }
+        case "charge.refunded": {
+          const charge = event.data.object as Stripe.Charge;
+          const piId = charge.payment_intent as string;
+          if (piId) {
+            await db.execute(
+              `UPDATE payments SET status = 'refunded', updated_at = NOW() WHERE stripe_payment_intent_id = ?`,
+              [piId]
+            );
+          }
+          break;
+        }
+        default:
+          console.log(`[STRIPE_WEBHOOK] Unhandled event type: ${event.type}`);
+      }
+
+      return res.status(200).json({ received: true });
+    } catch (error) {
+      console.error("[STRIPE_WEBHOOK] Processing error:", error);
+      return res.status(500).json({ error: "Webhook processing failed" });
+    }
+  }
+);
+
 app.use(express.json());
 
 const authMiddleware = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -524,6 +607,100 @@ wss.on("close", () => {
 });
 
 console.log("✅ WebSocket server ready with heartbeat");
+
+// ==========================================
+// REVENUECAT WEBHOOK (no auth middleware - uses its own secret)
+// ==========================================
+
+app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const expectedSecret = process.env.REVENUECAT_WEBHOOK_SECRET;
+
+    if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const event = req.body?.event;
+    if (!event) {
+      return res.status(400).json({ success: false, message: "No event in body" });
+    }
+
+    const eventType: string = event.type;
+    const appUserId: string = event.app_user_id;
+    const productId: string = event.product_id ?? "";
+    const expirationAtMs: number | null = event.expiration_at_ms ?? null;
+
+    if (!appUserId) {
+      return res.status(400).json({ success: false, message: "Missing app_user_id" });
+    }
+
+    const userId = parseInt(appUserId, 10);
+    if (isNaN(userId)) {
+      return res.status(400).json({ success: false, message: "Invalid app_user_id" });
+    }
+
+    // Determine plan from product_id
+    let plan: string = "start";
+    if (productId.includes("signature")) plan = "signature";
+    else if (productId.includes("serenite")) plan = "serenite";
+
+    // Determine billing type
+    const billingType = productId.includes("annual") ? "one_time" : "monthly";
+
+    console.log(`[RC_WEBHOOK] Event: ${eventType}, userId: ${userId}, product: ${productId}, plan: ${plan}`);
+
+    const activateEvents = ["INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "PRODUCT_CHANGE"];
+    const deactivateEvents = ["CANCELLATION", "EXPIRATION"];
+
+    if (activateEvents.includes(eventType)) {
+      const startDate = new Date().toISOString().slice(0, 10);
+      const endDate = expirationAtMs
+        ? new Date(expirationAtMs).toISOString().slice(0, 10)
+        : null;
+
+      // Cancel existing active subscriptions for this user
+      await db.execute(
+        `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
+        [userId]
+      );
+
+      // Insert new subscription
+      await db.execute(
+        `INSERT INTO subscriptions (client_id, plan, billing_type, monthly_price, total_price, commitment_months, start_date, end_date, status, payment_id)
+         VALUES (?, ?, ?, 0, NULL, NULL, ?, ?, 'active', ?)`,
+        [userId, plan, billingType, startDate, endDate, `rc_${event.id ?? eventType}`]
+      );
+
+      // Activate pro status
+      await db.execute(
+        `UPDATE users SET pro_status = 'active' WHERE id = ?`,
+        [userId]
+      );
+
+      console.log(`[RC_WEBHOOK] Activated plan=${plan} for userId=${userId}`);
+    } else if (deactivateEvents.includes(eventType)) {
+      await db.execute(
+        `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
+        [userId]
+      );
+
+      await db.execute(
+        `UPDATE users SET pro_status = 'inactive' WHERE id = ?`,
+        [userId]
+      );
+
+      console.log(`[RC_WEBHOOK] Deactivated subscription for userId=${userId}`);
+    } else {
+      console.log(`[RC_WEBHOOK] Unhandled event type: ${eventType}`);
+    }
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("[RC_WEBHOOK] Error:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
 
 // ==========================================
 // API ROUTES - NOTIFICATIONS
@@ -5129,7 +5306,7 @@ app.patch(
       connection = await db.getConnection();
 
       const [existing] = await connection.query(
-        `SELECT id, status, start_datetime FROM reservations 
+        `SELECT id, status, start_datetime, slot_id FROM reservations
          WHERE id = ? AND client_id = ?`,
         [bookingId, clientId]
       ) as [any[], any];
@@ -5172,6 +5349,14 @@ app.patch(
         `UPDATE reservations SET status = 'cancelled' WHERE id = ?`,
         [bookingId]
       );
+
+      // Re-open the slot if one was linked to this booking
+      if (booking.slot_id) {
+        await connection.query(
+          `UPDATE slots SET status = 'available' WHERE id = ?`,
+          [booking.slot_id]
+        );
+      }
 
       console.log(`✅ Réservation ${bookingId} annulée par le client ${clientId}`);
 
@@ -6036,6 +6221,415 @@ app.delete("/api/admin/bookings/:id", authenticateToken, async (req: Authenticat
   } catch (error) {
     console.error("Error deleting booking:", error);
     res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// ==========================================
+// STRIPE CONNECT - PRO ONBOARDING
+// ==========================================
+
+// POST /api/pro/stripe/onboard - Create Connect account + return onboarding URL
+app.post("/api/pro/stripe/onboard", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const [userRows] = await db.query(
+      `SELECT email, first_name, last_name, stripe_account_id FROM users WHERE id = ?`,
+      [userId]
+    );
+    const user = (userRows as any[])[0];
+    if (!user) return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+
+    let accountId = user.stripe_account_id;
+
+    if (!accountId) {
+      const account = await stripe.accounts.create({
+        type: "express",
+        country: "FR",
+        email: user.email,
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+        },
+        business_profile: {
+          mcc: "7299",
+          product_description: "Prestations de beauté et bien-être",
+        },
+      });
+      accountId = account.id;
+      await db.execute(
+        `UPDATE users SET stripe_account_id = ? WHERE id = ?`,
+        [accountId, userId]
+      );
+    }
+
+    const returnUrl = `${req.headers.origin || "https://app.blyssapp.fr"}/pro/payments?stripe_return=true`;
+    const refreshUrl = `${req.headers.origin || "https://app.blyssapp.fr"}/pro/payments?stripe_refresh=true`;
+
+    const accountLink = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: refreshUrl,
+      return_url: returnUrl,
+      type: "account_onboarding",
+    });
+
+    return res.json({ success: true, url: accountLink.url });
+  } catch (error) {
+    console.error("[STRIPE_ONBOARD] Error:", error);
+    return res.status(500).json({ success: false, message: "Erreur Stripe onboarding" });
+  }
+});
+
+// GET /api/pro/stripe/onboard/return - Check status after Stripe redirect
+app.get("/api/pro/stripe/onboard/return", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const [userRows] = await db.query(
+      `SELECT stripe_account_id FROM users WHERE id = ?`,
+      [userId]
+    );
+    const user = (userRows as any[])[0];
+    if (!user?.stripe_account_id) {
+      return res.json({ success: true, onboarding_complete: false });
+    }
+
+    const account = await stripe.accounts.retrieve(user.stripe_account_id);
+    const isComplete = account.charges_enabled && account.payouts_enabled;
+
+    if (isComplete) {
+      await db.execute(
+        `UPDATE users SET stripe_onboarding_complete = 1 WHERE id = ?`,
+        [userId]
+      );
+    }
+
+    return res.json({
+      success: true,
+      onboarding_complete: isComplete,
+      charges_enabled: account.charges_enabled,
+      payouts_enabled: account.payouts_enabled,
+    });
+  } catch (error) {
+    console.error("[STRIPE_ONBOARD_RETURN] Error:", error);
+    return res.status(500).json({ success: false, message: "Erreur vérification Stripe" });
+  }
+});
+
+// GET /api/pro/stripe/account - Get Connect account status
+app.get("/api/pro/stripe/account", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const [userRows] = await db.query(
+      `SELECT stripe_account_id, stripe_onboarding_complete, deposit_percentage FROM users WHERE id = ?`,
+      [userId]
+    );
+    const user = (userRows as any[])[0];
+    if (!user) return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+
+    if (!user.stripe_account_id) {
+      return res.json({
+        success: true,
+        data: {
+          has_account: false,
+          onboarding_complete: false,
+          deposit_percentage: user.deposit_percentage,
+        },
+      });
+    }
+
+    const account = await stripe.accounts.retrieve(user.stripe_account_id);
+    const isComplete = account.charges_enabled && account.payouts_enabled;
+
+    // Sync onboarding status if changed
+    if (isComplete && !user.stripe_onboarding_complete) {
+      await db.execute(
+        `UPDATE users SET stripe_onboarding_complete = 1 WHERE id = ?`,
+        [userId]
+      );
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        has_account: true,
+        onboarding_complete: isComplete,
+        charges_enabled: account.charges_enabled,
+        payouts_enabled: account.payouts_enabled,
+        deposit_percentage: user.deposit_percentage,
+      },
+    });
+  } catch (error) {
+    console.error("[STRIPE_ACCOUNT] Error:", error);
+    return res.status(500).json({ success: false, message: "Erreur récupération compte Stripe" });
+  }
+});
+
+// PUT /api/pro/stripe/deposit - Update deposit percentage
+app.put("/api/pro/stripe/deposit", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const { deposit_percentage } = req.body;
+
+    if (![0, 30, 50, 100].includes(deposit_percentage)) {
+      return res.status(400).json({ success: false, message: "Pourcentage invalide (0, 30, 50, 100)" });
+    }
+
+    await db.execute(
+      `UPDATE users SET deposit_percentage = ? WHERE id = ?`,
+      [deposit_percentage, userId]
+    );
+
+    return res.json({ success: true, data: { deposit_percentage } });
+  } catch (error) {
+    console.error("[STRIPE_DEPOSIT] Error:", error);
+    return res.status(500).json({ success: false, message: "Erreur mise à jour acompte" });
+  }
+});
+
+// ==========================================
+// RESERVATIONS API (client-facing)
+// ==========================================
+
+// POST /api/reservations - Create a reservation
+app.post("/api/reservations", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const clientId = req.user?.id;
+    const { pro_id, prestation_id, start_datetime, end_datetime, price, slot_id } = req.body;
+
+    if (!pro_id || !prestation_id || !start_datetime || !end_datetime || !price) {
+      return res.status(400).json({ success: false, message: "Champs requis manquants" });
+    }
+
+    // Get pro's deposit percentage
+    const [proRows] = await db.query(
+      `SELECT deposit_percentage, stripe_onboarding_complete FROM users WHERE id = ?`,
+      [pro_id]
+    );
+    const pro = (proRows as any[])[0];
+    const depositPct = pro?.deposit_percentage ?? 50;
+    const depositAmount = depositPct > 0 ? Math.round(price * depositPct) / 100 : null;
+
+    const [result] = await db.execute(
+      `INSERT INTO reservations (client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, payment_status, deposit_amount, slot_id, created_at)
+       VALUES (?, ?, ?, ?, ?, 'confirmed', ?, 'unpaid', ?, ?, NOW())`,
+      [clientId, pro_id, prestation_id, start_datetime, end_datetime, price, depositAmount, slot_id || null]
+    );
+
+    const insertId = (result as any).insertId;
+
+    // If slot_id, mark the slot as booked
+    if (slot_id) {
+      await db.execute(
+        `UPDATE slots SET status = 'booked' WHERE id = ?`,
+        [slot_id]
+      );
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        id: insertId,
+        deposit_percentage: depositPct,
+        deposit_amount: depositAmount,
+        price,
+      },
+    });
+  } catch (error) {
+    console.error("[RESERVATION_CREATE] Error:", error);
+    return res.status(500).json({ success: false, message: "Erreur création réservation" });
+  }
+});
+
+// GET /api/reservations/:id/payment-status - Get payment status
+app.get("/api/reservations/:id/payment-status", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const reservationId = parseInt(req.params.id as string, 10);
+
+    const [rows] = await db.query(
+      `SELECT id, price, payment_status, total_paid, deposit_amount, client_id, pro_id
+       FROM reservations WHERE id = ?`,
+      [reservationId]
+    );
+    const reservation = (rows as any[])[0];
+    if (!reservation) {
+      return res.status(404).json({ success: false, message: "Réservation non trouvée" });
+    }
+
+    if (reservation.client_id !== userId && reservation.pro_id !== userId) {
+      return res.status(403).json({ success: false, message: "Accès non autorisé" });
+    }
+
+    const remaining = reservation.price - reservation.total_paid;
+
+    return res.json({
+      success: true,
+      data: {
+        payment_status: reservation.payment_status,
+        price: reservation.price,
+        total_paid: reservation.total_paid,
+        deposit_amount: reservation.deposit_amount,
+        remaining,
+      },
+    });
+  } catch (error) {
+    console.error("[PAYMENT_STATUS] Error:", error);
+    return res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// PUT /api/reservations/:id/pay-on-site - Mark balance as paid on site (pro only)
+app.put("/api/reservations/:id/pay-on-site", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const proId = req.user?.id;
+    const reservationId = parseInt(req.params.id as string, 10);
+
+    const [rows] = await db.query(
+      `SELECT id, price, total_paid, pro_id FROM reservations WHERE id = ?`,
+      [reservationId]
+    );
+    const reservation = (rows as any[])[0];
+    if (!reservation) {
+      return res.status(404).json({ success: false, message: "Réservation non trouvée" });
+    }
+    if (reservation.pro_id !== proId) {
+      return res.status(403).json({ success: false, message: "Seul le professionnel peut marquer un paiement sur place" });
+    }
+
+    const remaining = reservation.price - reservation.total_paid;
+
+    // Record on-site payment
+    await db.execute(
+      `INSERT INTO payments (reservation_id, client_id, pro_id, type, amount, status)
+       SELECT ?, client_id, pro_id, 'on_site', ?, 'succeeded'
+       FROM reservations WHERE id = ?`,
+      [reservationId, remaining, reservationId]
+    );
+
+    await db.execute(
+      `UPDATE reservations SET payment_status = 'paid_on_site', total_paid = price WHERE id = ?`,
+      [reservationId]
+    );
+
+    return res.json({ success: true, message: "Paiement sur place enregistré" });
+  } catch (error) {
+    console.error("[PAY_ON_SITE] Error:", error);
+    return res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// ==========================================
+// PAYMENTS API - Stripe PaymentIntents
+// ==========================================
+
+// POST /api/payments/create-intent - Create a PaymentIntent
+app.post("/api/payments/create-intent", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const clientId = req.user?.id;
+    const { reservation_id, type } = req.body;
+
+    if (!reservation_id || !type || !["deposit", "balance", "full"].includes(type)) {
+      return res.status(400).json({ success: false, message: "Paramètres invalides" });
+    }
+
+    // Get reservation details
+    const [resaRows] = await db.query(
+      `SELECT id, pro_id, client_id, price, total_paid, deposit_amount, payment_status
+       FROM reservations WHERE id = ?`,
+      [reservation_id]
+    );
+    const reservation = (resaRows as any[])[0];
+    if (!reservation) {
+      return res.status(404).json({ success: false, message: "Réservation non trouvée" });
+    }
+    if (reservation.client_id !== clientId) {
+      return res.status(403).json({ success: false, message: "Accès non autorisé" });
+    }
+
+    // Get pro's Stripe Connect account
+    const [proRows] = await db.query(
+      `SELECT stripe_account_id, stripe_onboarding_complete FROM users WHERE id = ?`,
+      [reservation.pro_id]
+    );
+    const pro = (proRows as any[])[0];
+    if (!pro?.stripe_account_id || !pro.stripe_onboarding_complete) {
+      return res.status(400).json({ success: false, message: "Le professionnel n'a pas configuré ses paiements Stripe" });
+    }
+
+    // Calculate amount based on type
+    let amount: number;
+    if (type === "deposit") {
+      amount = reservation.deposit_amount || reservation.price;
+    } else if (type === "balance") {
+      amount = reservation.price - reservation.total_paid;
+    } else {
+      amount = reservation.price;
+    }
+
+    if (amount <= 0) {
+      return res.status(400).json({ success: false, message: "Montant invalide" });
+    }
+
+    // Amount in cents for Stripe
+    const amountCents = Math.round(amount * 100);
+
+    // Ensure customer exists
+    let stripeCustomerId: string;
+    const [clientRows] = await db.query(
+      `SELECT stripe_customer_id, email, first_name, last_name FROM users WHERE id = ?`,
+      [clientId]
+    );
+    const client = (clientRows as any[])[0];
+
+    if (client.stripe_customer_id) {
+      stripeCustomerId = client.stripe_customer_id;
+    } else {
+      const customer = await stripe.customers.create({
+        email: client.email,
+        name: `${client.first_name} ${client.last_name}`,
+        metadata: { blyss_user_id: String(clientId) },
+      });
+      stripeCustomerId = customer.id;
+      await db.execute(
+        `UPDATE users SET stripe_customer_id = ? WHERE id = ?`,
+        [stripeCustomerId, clientId]
+      );
+    }
+
+    // Create PaymentIntent with direct charge on connected account
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: "eur",
+      customer: stripeCustomerId,
+      metadata: {
+        reservation_id: String(reservation_id),
+        client_id: String(clientId),
+        pro_id: String(reservation.pro_id),
+        type,
+      },
+      automatic_payment_methods: { enabled: true },
+      transfer_data: {
+        destination: pro.stripe_account_id,
+      },
+    });
+
+    // Record payment in DB
+    await db.execute(
+      `INSERT INTO payments (reservation_id, client_id, pro_id, type, amount, stripe_payment_intent_id, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+      [reservation_id, clientId, reservation.pro_id, type, amount, paymentIntent.id]
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        client_secret: paymentIntent.client_secret,
+        payment_intent_id: paymentIntent.id,
+        amount,
+      },
+    });
+  } catch (error) {
+    console.error("[CREATE_INTENT] Error:", error);
+    return res.status(500).json({ success: false, message: "Erreur création paiement" });
   }
 });
 

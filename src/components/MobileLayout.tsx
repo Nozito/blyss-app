@@ -43,7 +43,7 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
         className="relative w-full min-h-[100dvh] bg-background flex flex-col overflow-x-hidden"
       >
         <main
-          className="px-4 pb-4"
+          className="px-4 md:px-6 pb-4 max-w-[600px] mx-auto w-full"
           style={{
             paddingTop: "calc(8px + env(safe-area-inset-top, 0px))"
           }}
@@ -54,7 +54,7 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
         {showNav && !hideNav && (
           <nav className="fixed inset-x-0 bottom-0 z-50 flex justify-center pointer-events-none">
             <div
-              className="apple-glass-nav pointer-events-auto mb-3 h-[56px] w-full max-w-[280px] px-3 flex items-center justify-around gap-1.5 rounded-[28px]"
+              className="apple-glass-nav pointer-events-auto mb-3 h-[56px] w-full max-w-[280px] md:max-w-[320px] px-3 flex items-center justify-around gap-1.5 rounded-[28px]"
               style={{
                 paddingBottom: "calc(4px + env(safe-area-inset-bottom, 0px))"
               }}

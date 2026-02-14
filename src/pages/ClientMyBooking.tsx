@@ -182,8 +182,8 @@ const ClientMyBooking = () => {
   const handleCancelBooking = useCallback(async (bookingId: number) => {
     try {
       const response = await fetchWithTokenRefresh(
-        `${API_BASE_URL}/api/client/booking/${bookingId}/cancel`,
-        { method: 'PUT' }
+        `${API_BASE_URL}/api/client/my-booking/${bookingId}/cancel`,
+        { method: 'PATCH' }
       );
 
       if (!response.ok) {

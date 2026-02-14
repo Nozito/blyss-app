@@ -13,8 +13,13 @@ import {
 } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from '@/contexts/AuthContext';
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { stripePaymentsApi } from "@/services/api";
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+const stripePromise = STRIPE_PK ? loadStripe(STRIPE_PK) : null;
 
 interface Pro {
   id: number;
@@ -203,6 +208,106 @@ const Calendar: React.FC<CalendarProps> = ({ selectedDate, onSelectDate, proId, 
   );
 };
 
+// Stripe Checkout Form (used inside Elements provider)
+const StripeCheckoutForm = ({
+  amount,
+  onSuccess,
+  prestationName,
+}: {
+  amount: number;
+  onSuccess: () => void;
+  prestationName?: string;
+}) => {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setProcessing(true);
+    setError(null);
+
+    const { error: submitError } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: window.location.origin + "/client/my-booking",
+      },
+      redirect: "if_required",
+    });
+
+    if (submitError) {
+      setError(submitError.message || "Erreur lors du paiement");
+      setProcessing(false);
+    } else {
+      onSuccess();
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="bg-card rounded-3xl p-5 shadow-lg shadow-black/5 border border-muted space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Total à payer</span>
+          <span className="font-bold text-2xl text-foreground">
+            {Number(amount).toFixed(2)}€
+          </span>
+        </div>
+        {prestationName && (
+          <>
+            <div className="h-px bg-muted" />
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-muted-foreground">Prestation</span>
+              <span className="text-sm font-medium text-foreground">{prestationName}</span>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="bg-card rounded-3xl p-5 shadow-lg shadow-black/5 border border-muted">
+        <PaymentElement />
+      </div>
+
+      {error && (
+        <div className="p-3 rounded-xl bg-destructive/5 border border-destructive/20">
+          <p className="text-xs text-destructive">{error}</p>
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={!stripe || processing}
+        className="
+          w-full h-14 rounded-2xl
+          bg-primary text-white font-semibold
+          shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40
+          transition-all duration-300 active:scale-[0.98]
+          disabled:opacity-50
+          flex items-center justify-center gap-2
+        "
+      >
+        {processing ? (
+          <>
+            <Loader2 size={20} className="animate-spin" />
+            Paiement en cours...
+          </>
+        ) : (
+          <>
+            <CreditCard size={20} />
+            Payer {Number(amount).toFixed(2)}€
+          </>
+        )}
+      </button>
+
+      <p className="text-xs text-muted-foreground text-center">
+        Paiement sécurisé par Stripe
+      </p>
+    </form>
+  );
+};
+
 const ClientBooking = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -218,6 +323,10 @@ const ClientBooking = () => {
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [reservationId, setReservationId] = useState<number | null>(null);
+  const [depositAmount, setDepositAmount] = useState<number | null>(null);
+  const [depositPercentage, setDepositPercentage] = useState<number>(0);
 
   const totalSteps = 5;
 
@@ -448,7 +557,8 @@ useEffect(() => {
 
   const handleNext = () => {
     if (step === 5) return;
-    if (step === 3 && paymentMethod === "on-site") {
+    if (step === 3) {
+      // Both on-site and online: create reservation first
       handleConfirmBooking();
       return;
     }
@@ -504,77 +614,51 @@ useEffect(() => {
         selectedPrestationData.duration_minutes
       );
 
-      const reservationData = {
+      // 1. Create reservation via API
+      const resaResult = await stripePaymentsApi.createReservation({
         pro_id: Number(id),
         prestation_id: selectedPrestation,
         start_datetime: startDateTime.toISOString().slice(0, 19).replace('T', ' '),
         end_datetime: endDateTime.toISOString().slice(0, 19).replace('T', ' '),
-        status: "confirmed",
         price: selectedPrestationData.price,
-        paid_online: paymentMethod === "online" ? 1 : 0,
-        slot_id: selectedSlot?.id || null
-      };
-
-      console.log("📤 Envoi de la réservation:", reservationData);
-
-      const reservationRes = await fetch(`${API_URL}/api/reservations`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(reservationData)
+        slot_id: selectedSlot?.id || null,
       });
 
-      console.log("📥 Réponse réservation:", reservationRes.status);
+      if (!resaResult.success || !resaResult.data) {
+        throw new Error(resaResult.message || "Erreur lors de la réservation");
+      }
 
-      if (reservationRes.status === 401) {
-        alert("Votre session a expiré. Veuillez vous reconnecter.");
-        localStorage.removeItem('auth_token');
-        navigate('/login');
+      const resaData = resaResult.data;
+      setReservationId(resaData.id);
+      setDepositPercentage(resaData.deposit_percentage);
+      setDepositAmount(resaData.deposit_amount);
+
+      // 2. If on-site payment, go directly to confirmation
+      if (paymentMethod === "on-site") {
+        setStep(5);
         return;
       }
 
-      if (!reservationRes.ok) {
-        const errorText = await reservationRes.text();
-        console.error("Erreur serveur:", errorText);
-        throw new Error("Erreur lors de la réservation");
+      // 3. If online payment, create PaymentIntent
+      const paymentType = resaData.deposit_percentage === 100 ? "full" : "deposit";
+      const intentResult = await stripePaymentsApi.createPaymentIntent({
+        reservation_id: resaData.id,
+        type: paymentType,
+      });
+
+      if (!intentResult.success || !intentResult.data) {
+        throw new Error(intentResult.error || intentResult.message || "Erreur lors de la création du paiement");
       }
 
-      const reservationResult = await reservationRes.json();
-      console.log("✅ Réservation créée:", reservationResult);
-
-      if (reservationResult.success && reservationResult.data) {
-        await fetch(`${API_URL}/api/payments`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            reservation_id: reservationResult.data.id,
-            pro_id: Number(id),
-            amount: selectedPrestationData.price,
-            method: paymentMethod === "online" ? "online" : "on_site",
-            status: paymentMethod === "online" ? "paid" : "pending"
-          })
-        });
-
-        setStep(5);
-      } else {
-        throw new Error("Erreur lors de la réservation");
-      }
-    } catch (error) {
+      setClientSecret(intentResult.data.client_secret);
+      setDepositAmount(intentResult.data.amount);
+      setStep(4);
+    } catch (error: any) {
       console.error("Error creating booking:", error);
-      alert("Erreur lors de la réservation. Veuillez réessayer.");
+      alert(error.message || "Erreur lors de la réservation. Veuillez réessayer.");
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handlePayment = async (method: string) => {
-    console.log(`Processing ${method} payment`);
-    await handleConfirmBooking();
   };
 
   if (authLoading || isLoading) {
@@ -855,87 +939,31 @@ useEffect(() => {
                 Paiement sécurisé
               </h1>
               <p className="text-muted-foreground">
-                Termine le paiement pour confirmer
+                {depositPercentage < 100
+                  ? `Acompte de ${depositPercentage}% à payer maintenant`
+                  : "Termine le paiement pour confirmer"}
               </p>
             </div>
 
-            <div className="bg-card rounded-3xl p-5 shadow-lg shadow-black/5 border border-muted space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Total à payer</span>
-                <span className="font-bold text-2xl text-foreground">
-                  {selectedPrestationData?.price.toFixed(2)}€
-                </span>
+            {clientSecret ? (
+              <Elements
+                stripe={stripePromise}
+                options={{
+                  clientSecret,
+                  appearance: { theme: "stripe" },
+                }}
+              >
+                <StripeCheckoutForm
+                  amount={depositAmount || selectedPrestationData?.price || 0}
+                  onSuccess={() => setStep(5)}
+                  prestationName={selectedPrestationData?.name}
+                />
+              </Elements>
+            ) : (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
               </div>
-              <Divider />
-              <SummaryRow label="Prestation" value={selectedPrestationData?.name} />
-              <SummaryRow
-                label="Date"
-                value={selectedDate ? selectedDate.toLocaleDateString('fr-FR', {
-                  weekday: 'short',
-                  day: 'numeric',
-                  month: 'long'
-                }) : undefined}
-              />
-              <SummaryRow label="Horaire" value={selectedTime || undefined} />
-            </div>
-
-            <div className="space-y-3">
-              <button
-                onClick={() => handlePayment("apple-pay")}
-                disabled={isSubmitting}
-                className="
-                  w-full h-14 rounded-2xl 
-                  bg-black text-white font-semibold 
-                  shadow-lg hover:shadow-xl 
-                  transition-all duration-300 active:scale-[0.98] 
-                  disabled:opacity-50 
-                  flex items-center justify-center
-                "
-              >
-                {isSubmitting ? <Loader2 className="w-6 h-6 animate-spin" /> : "Apple Pay"}
-              </button>
-
-              <button
-                onClick={() => handlePayment("google-pay")}
-                disabled={isSubmitting}
-                className="
-                  w-full h-14 rounded-2xl 
-                  bg-white border-2 border-muted text-foreground font-semibold 
-                  shadow-lg hover:shadow-xl 
-                  transition-all duration-300 active:scale-[0.98] 
-                  disabled:opacity-50 
-                  flex items-center justify-center
-                "
-              >
-                {isSubmitting ? <Loader2 className="w-6 h-6 animate-spin" /> : "Google Pay"}
-              </button>
-
-              <button
-                onClick={() => handlePayment("card")}
-                disabled={isSubmitting}
-                className="
-                  w-full h-14 rounded-2xl 
-                  bg-primary text-white font-semibold 
-                  shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 
-                  transition-all duration-300 active:scale-[0.98] 
-                  disabled:opacity-50 
-                  flex items-center justify-center gap-2
-                "
-              >
-                {isSubmitting ? (
-                  <Loader2 size={20} className="animate-spin" />
-                ) : (
-                  <>
-                    <CreditCard size={20} />
-                    Carte bancaire
-                  </>
-                )}
-              </button>
-            </div>
-
-            <p className="text-xs text-muted-foreground text-center">
-              Paiement sécurisé. Tu recevras un reçu par email
-            </p>
+            )}
           </motion.div>
         );
 
@@ -989,7 +1017,13 @@ useEffect(() => {
               <Divider />
               <SummaryRow
                 label="Paiement"
-                value={paymentMethod === "on-site" ? "Sur place" : "Payé en ligne"}
+                value={
+                  paymentMethod === "on-site"
+                    ? "Sur place"
+                    : depositPercentage < 100
+                    ? `Acompte payé (${Number(depositAmount || 0).toFixed(2)}€)`
+                    : "Payé en ligne"
+                }
               />
             </div>
 

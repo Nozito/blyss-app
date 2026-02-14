@@ -566,6 +566,18 @@ export const proApi = {
       status: string;
     } | null>("/api/pro/subscription"),
 
+  createSubscription: (data: {
+    plan: "start" | "serenite" | "signature";
+    billingType: "monthly" | "one_time";
+    monthlyPrice: number;
+    totalPrice?: number | null;
+    commitmentMonths?: number | null;
+  }) =>
+    apiCall("/api/subscriptions", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
   cancelSubscription: () =>
     apiCall("/api/pro/subscription/cancel", {
       method: "PUT",
@@ -790,6 +802,98 @@ export const paymentMethodsApi = {
 };
 
 // =====================
+// STRIPE CONNECT API (Pro)
+// =====================
+
+export const stripeApi = {
+  onboard: async (): Promise<ApiResponse<{ url: string }>> => {
+    return apiCall("/api/pro/stripe/onboard", {
+      method: "POST",
+    });
+  },
+
+  checkOnboardReturn: async (): Promise<ApiResponse<{
+    onboarding_complete: boolean;
+    charges_enabled?: boolean;
+    payouts_enabled?: boolean;
+  }>> => {
+    return apiCall("/api/pro/stripe/onboard/return");
+  },
+
+  getAccount: async (): Promise<ApiResponse<{
+    has_account: boolean;
+    onboarding_complete: boolean;
+    charges_enabled?: boolean;
+    payouts_enabled?: boolean;
+    deposit_percentage: number;
+  }>> => {
+    return apiCall("/api/pro/stripe/account");
+  },
+
+  updateDeposit: async (deposit_percentage: number): Promise<ApiResponse<{ deposit_percentage: number }>> => {
+    return apiCall("/api/pro/stripe/deposit", {
+      method: "PUT",
+      body: JSON.stringify({ deposit_percentage }),
+    });
+  },
+};
+
+// =====================
+// STRIPE PAYMENTS API (Client)
+// =====================
+
+export const stripePaymentsApi = {
+  createPaymentIntent: async (data: {
+    reservation_id: number;
+    type: "deposit" | "balance" | "full";
+  }): Promise<ApiResponse<{
+    client_secret: string;
+    payment_intent_id: string;
+    amount: number;
+  }>> => {
+    return apiCall("/api/payments/create-intent", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  createReservation: async (data: {
+    pro_id: number;
+    prestation_id: number;
+    start_datetime: string;
+    end_datetime: string;
+    price: number;
+    slot_id?: number | null;
+  }): Promise<ApiResponse<{
+    id: number;
+    deposit_percentage: number;
+    deposit_amount: number | null;
+    price: number;
+  }>> => {
+    return apiCall("/api/reservations", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  getPaymentStatus: async (reservationId: number): Promise<ApiResponse<{
+    payment_status: string;
+    price: number;
+    total_paid: number;
+    deposit_amount: number | null;
+    remaining: number;
+  }>> => {
+    return apiCall(`/api/reservations/${reservationId}/payment-status`);
+  },
+
+  markPaidOnSite: async (reservationId: number): Promise<ApiResponse<void>> => {
+    return apiCall(`/api/reservations/${reservationId}/pay-on-site`, {
+      method: "PUT",
+    });
+  },
+};
+
+// =====================
 // DEFAULT EXPORT
 // =====================
 
@@ -803,4 +907,6 @@ export default {
   payments: paymentsApi,
   paymentMethods: paymentMethodsApi,
   pro: proApi,
+  stripe: stripeApi,
+  stripePayments: stripePaymentsApi,
 };

@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { RevenueCatProvider } from "@/contexts/RevenueCatContext";
 import SplashScreen from "@/components/SplashScreen";
 import MobileLayout from "@/components/MobileLayout";
 import ScrollToTop from "@/components/ScrollToTop";
@@ -26,7 +27,6 @@ import ProHelp from "./pages/ProHelp";
 import ProPayments from "./pages/ProPayements";
 import ProSubscription from "./pages/ProSubscription";
 import ProSubscriptionSettings from "./pages/ProSubscriptionSettings";
-import ProSubscriptionPayment from "./pages/ProSubscriptionPayment";
 import ProSubscriptionSuccess from "./pages/ProSubscriptionSuccess";
 import ProPublicProfile from "./pages/ProPublicProfile";
 
@@ -76,6 +76,7 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <RevenueCatProvider>
         <NotificationProvider>
           <TooltipProvider>
             <Toaster />
@@ -100,7 +101,6 @@ const App = () => {
                 {/* PRO */}
                 <Route path="/pro/subscription" element={<ProSubscription />} />
                 <Route path="/pro/subscription-settings" element={<ProSubscriptionSettings />} />
-                <Route path="/pro/subscription-payment" element={<ProSubscriptionPayment />} />
                 <Route path="/pro/subscription-success" element={<ProSubscriptionSuccess />} />
                 <Route path="/pro/help" element={<ProHelp />} />
                 <Route path="/pro/notifications" element={<ProNotifications />} />
@@ -249,6 +249,7 @@ const App = () => {
             </BrowserRouter>
           </TooltipProvider>
         </NotificationProvider>
+        </RevenueCatProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

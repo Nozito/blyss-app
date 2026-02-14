@@ -4,10 +4,15 @@ import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
 import {
   ArrowLeft, Calendar, Clock, MapPin, Star, MessageSquare,
-  Euro, Loader2, AlertCircle, CheckCircle2, Phone
+  Euro, Loader2, AlertCircle, CheckCircle2, Phone, CreditCard
 } from "lucide-react";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { stripePaymentsApi } from "@/services/api";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+const stripePromise = STRIPE_PK ? loadStripe(STRIPE_PK) : null;
 
 const getImageUrl = (imagePath: string | null): string | null => {
   if (!imagePath) return null;
@@ -15,13 +20,16 @@ const getImageUrl = (imagePath: string | null): string | null => {
   return `${API_BASE_URL}/${imagePath}`;
 };
 
-interface BookingDetail {
+interface BookingDetailData {
   id: number;
   start_datetime: string;
   end_datetime: string;
   status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
   price: number;
   paid_online: number;
+  payment_status?: 'unpaid' | 'deposit_paid' | 'fully_paid' | 'paid_on_site';
+  total_paid?: number;
+  deposit_amount?: number;
   prestation_name: string;
   prestation_description: string | null;
   duration_minutes: number;
@@ -33,10 +41,86 @@ interface BookingDetail {
   pro_phone: string | null;
 }
 
+// Balance payment form component
+const BalancePaymentForm = ({
+  amount,
+  onSuccess,
+}: {
+  amount: number;
+  onSuccess: () => void;
+}) => {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setProcessing(true);
+    setError(null);
+
+    const { error: submitError } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: window.location.href,
+      },
+      redirect: "if_required",
+    });
+
+    if (submitError) {
+      setError(submitError.message || "Erreur lors du paiement");
+      setProcessing(false);
+    } else {
+      onSuccess();
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="bg-card rounded-2xl p-4 border border-muted">
+        <PaymentElement />
+      </div>
+
+      {error && (
+        <div className="p-3 rounded-xl bg-destructive/5 border border-destructive/20">
+          <p className="text-xs text-destructive">{error}</p>
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={!stripe || processing}
+        className="
+          w-full h-14 rounded-2xl
+          bg-primary text-white font-semibold
+          shadow-lg shadow-primary/30 hover:shadow-xl
+          transition-all duration-300 active:scale-[0.98]
+          disabled:opacity-50
+          flex items-center justify-center gap-2
+        "
+      >
+        {processing ? (
+          <>
+            <Loader2 size={20} className="animate-spin" />
+            Paiement en cours...
+          </>
+        ) : (
+          <>
+            <CreditCard size={20} />
+            Payer {amount.toFixed(2)}€
+          </>
+        )}
+      </button>
+    </form>
+  );
+};
+
 const BookingDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const [booking, setBooking] = useState<BookingDetail | null>(null);
+  const [booking, setBooking] = useState<BookingDetailData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -44,6 +128,10 @@ const BookingDetail = () => {
   const [comment, setComment] = useState("");
   const [hoveredStar, setHoveredStar] = useState(0);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [showPayBalanceModal, setShowPayBalanceModal] = useState(false);
+  const [balanceClientSecret, setBalanceClientSecret] = useState<string | null>(null);
+  const [balanceAmount, setBalanceAmount] = useState(0);
+  const [loadingBalance, setLoadingBalance] = useState(false);
 
   // Parse id and validate
   const bookingId = id && !isNaN(Number(id)) ? Number(id) : null;
@@ -238,6 +326,32 @@ const BookingDetail = () => {
   const isCancelled = booking.status === 'cancelled';
   const proName = booking.activity_name || `${booking.pro_first_name} ${booking.pro_last_name}`;
   const profilePhotoUrl = getImageUrl(booking.profile_photo);
+
+  const remaining = (booking.price || 0) - (booking.total_paid || 0);
+  const canPayBalance = booking.payment_status === 'deposit_paid' && remaining > 0;
+
+  const handlePayBalance = async () => {
+    if (!booking) return;
+    setLoadingBalance(true);
+    try {
+      const res = await stripePaymentsApi.createPaymentIntent({
+        reservation_id: booking.id,
+        type: "balance",
+      });
+      if (res.success && res.data) {
+        setBalanceClientSecret(res.data.client_secret);
+        setBalanceAmount(res.data.amount);
+        setShowPayBalanceModal(true);
+      } else {
+        alert(res.message || "Erreur lors de la création du paiement");
+      }
+    } catch (error) {
+      console.error("Error creating balance payment:", error);
+      alert("Erreur de connexion");
+    } finally {
+      setLoadingBalance(false);
+    }
+  };
 
   return (
     <MobileLayout showNav={false}>
@@ -444,14 +558,52 @@ const BookingDetail = () => {
               <span className="text-xs text-muted-foreground">Paiement</span>
               <span className={`
                 text-xs font-bold px-3 py-1 rounded-full
-                ${booking.paid_online
+                ${booking.payment_status === 'fully_paid' || booking.payment_status === 'paid_on_site'
                   ? 'bg-green-100 text-green-700'
+                  : booking.payment_status === 'deposit_paid'
+                  ? 'bg-blue-100 text-blue-700'
                   : 'bg-yellow-100 text-yellow-700'
                 }
               `}>
-                {booking.paid_online ? 'Payé en ligne' : 'Sur place'}
+                {booking.payment_status === 'fully_paid' ? 'Payé en ligne' :
+                 booking.payment_status === 'paid_on_site' ? 'Payé sur place' :
+                 booking.payment_status === 'deposit_paid' ? `Acompte payé (${(booking.total_paid || 0).toFixed(2)}€)` :
+                 booking.paid_online ? 'Payé en ligne' : 'Sur place'}
               </span>
             </div>
+
+            {canPayBalance && (
+              <div className="pt-3 border-t border-border">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs text-muted-foreground">Reste à payer</span>
+                  <span className="text-sm font-bold text-foreground">{remaining.toFixed(2)}€</span>
+                </div>
+                <button
+                  onClick={handlePayBalance}
+                  disabled={loadingBalance}
+                  className="
+                    w-full py-3 rounded-xl
+                    bg-primary text-white font-semibold text-sm
+                    shadow-lg shadow-primary/30
+                    flex items-center justify-center gap-2
+                    transition-all duration-300 active:scale-[0.98]
+                    disabled:opacity-50
+                  "
+                >
+                  {loadingBalance ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Chargement...
+                    </>
+                  ) : (
+                    <>
+                      <CreditCard size={16} />
+                      Payer le solde ({remaining.toFixed(2)}€)
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </motion.div>
 
           {booking.status === 'completed' && (
@@ -596,6 +748,62 @@ const BookingDetail = () => {
                     )}
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Pay Balance Modal */}
+      <AnimatePresence>
+        {showPayBalanceModal && balanceClientSecret && (
+          <>
+            <motion.div
+              className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setShowPayBalanceModal(false);
+                setBalanceClientSecret(null);
+              }}
+            />
+            <motion.div
+              className="fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-4"
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+            >
+              <div
+                className="w-full max-w-lg bg-card rounded-3xl p-6 shadow-2xl border-2 border-border"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="w-12 h-1.5 bg-muted rounded-full mx-auto mb-6" />
+                <h3 className="text-xl font-display font-bold text-foreground text-center mb-2">
+                  Payer le solde
+                </h3>
+                <p className="text-sm text-muted-foreground text-center mb-6">
+                  Solde restant pour {booking?.prestation_name}
+                </p>
+
+                <Elements
+                  stripe={stripePromise}
+                  options={{
+                    clientSecret: balanceClientSecret,
+                    appearance: { theme: "stripe" },
+                  }}
+                >
+                  <BalancePaymentForm
+                    amount={balanceAmount}
+                    onSuccess={() => {
+                      setShowPayBalanceModal(false);
+                      setBalanceClientSecret(null);
+                      // Refresh booking data
+                      window.location.reload();
+                    }}
+                  />
+                </Elements>
               </div>
             </motion.div>
           </>

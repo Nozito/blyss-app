@@ -25,6 +25,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import Cropper, { Area } from "react-easy-crop";
 import getCroppedImg from "@/utils/cropImage";
 import { proApi } from "@/services/api";
+import { useRevenueCat } from "@/contexts/RevenueCatContext";
 
 type Subscription = {
   id: number;
@@ -37,6 +38,8 @@ type Subscription = {
   endDate: string | null;
   status: string;
 } | null;
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 
 type Crop = { x: number; y: number };
 
@@ -98,6 +101,7 @@ const calculateProfileCompleteness = (user: any): number => {
 
 const ProProfile = () => {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const { activePlan } = useRevenueCat();
   const navigate = useNavigate();
 
   // STATE
@@ -116,7 +120,6 @@ const ProProfile = () => {
   const [zoom, setZoom] = useState<number>(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState<boolean>(false);
-  const [subscription, setSubscription] = useState<Subscription>(null);
   const inputFileRef = useRef<HTMLInputElement>(null);
 
   // EFFECTS
@@ -132,14 +135,6 @@ const ProProfile = () => {
       setProfileImage(`${url}?t=${Date.now()}`);
     }
   }, [user?.profile_photo, baseUrl]);
-
-  useEffect(() => {
-    if (!isLoading && isAuthenticated && user?.role === "pro") {
-      proApi.getSubscription().then((res) => {
-        if (res.success) setSubscription(res.data ?? null);
-      });
-    }
-  }, [isLoading, isAuthenticated, user]);
 
   // CROP HANDLERS
   const onCropComplete = useCallback(
@@ -225,27 +220,16 @@ const ProProfile = () => {
   const displayCity = getDisplayCity(user);
   const displayInstagram = getDisplayInstagram(user);
   const profileCompleteness = calculateProfileCompleteness(user);
-  const hasActiveSubscription =
-    user?.pro_status === "active" && subscription?.status === "active";
-  const currentPlanLabel = subscription
-    ? subscription.plan === "serenite"
-      ? "Formule Sérénité"
-      : subscription.plan === "start"
+  const hasActiveSubscription = activePlan !== null;
+  const currentPlanLabel = activePlan
+    ? activePlan === "serenite"
+      ? "Formule Serenite"
+      : activePlan === "start"
         ? "Formule Start"
         : "Formule Signature"
     : "Aucune formule";
-  const currentBillingLabel = subscription
-    ? subscription.billingType === "monthly"
-      ? "Mensuel"
-      : "Paiement unique"
-    : "";
-  const nextBillingDate = subscription?.endDate
-    ? new Date(subscription.endDate).toLocaleDateString("fr-FR", {
-      year: "numeric",
-      month: "long",
-      day: "2-digit",
-    })
-    : "";
+  const currentBillingLabel = "";
+  const nextBillingDate = "";
   const menuItems = [
     { icon: Briefcase, label: "Mes prestations", path: "/pro/prestations" },
     { icon: TrendingUp, label: "Finance", path: "/pro/finance" },
