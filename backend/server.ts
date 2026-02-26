@@ -3,6 +3,8 @@
 // ==========================================
 import express, { Request, Response, NextFunction, Router } from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import bcrypt from "bcrypt";
 import mysql from "mysql2/promise";
 import dotenv from "dotenv";
@@ -25,8 +27,6 @@ const envPath = path.resolve(__dirname, "..", envFile);
 console.log("Loading env from:", envPath);
 
 dotenv.config({ path: envPath });
-
-console.log("JWT_SECRET after dotenv =", process.env.JWT_SECRET);
 
 if (!process.env.JWT_SECRET) {
   console.error("JWT_SECRET is not defined. Exiting.");
@@ -277,6 +277,15 @@ export async function broadcastNotification(
 // ==========================================
 // 8. MIDDLEWARE
 // ==========================================
+
+// Security headers (before anything else, after Stripe raw-body route)
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Géré côté frontend/CDN
+    crossOriginEmbedderPolicy: false, // WebSocket + assets cross-origin
+  })
+);
+
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -289,6 +298,31 @@ app.use(
     credentials: true,
   })
 );
+
+// Rate limiters sur les endpoints d'authentification
+const authLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: "too_many_requests", message: "Trop de tentatives, réessayez dans 15 minutes." },
+});
+
+const authSignupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 heure
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: "too_many_requests", message: "Trop de créations de compte, réessayez dans 1 heure." },
+});
+
+const authRefreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: "too_many_requests", message: "Trop de tentatives, réessayez dans 15 minutes." },
+});
 
 // ==========================================
 // STRIPE WEBHOOK (raw body - BEFORE express.json())
@@ -1457,6 +1491,7 @@ app.get(
 /* AUTH SIGNUP */
 app.post(
   "/api/auth/signup",
+  authSignupLimiter,
   async (req: Request<{}, {}, SignupRequestBody>, res: Response) => {
     let connection;
     try {
@@ -2299,6 +2334,7 @@ app.get("/api/pro/finance/export", authenticateToken, async (req: any, res) => {
 /* AUTH LOGIN */
 app.post(
   "/api/auth/login",
+  authLoginLimiter,
   async (req: Request<{}, {}, LoginRequestBody>, res: Response) => {
     try {
       const { email, password } = req.body;
@@ -2312,14 +2348,14 @@ app.post(
       ]);
       const user = (rows as User[])[0];
 
-      if (!user) {
-        return res.status(404).json({ success: false, error: "user_not_found" });
-      }
+      // Réponse identique si user inexistant ou mot de passe incorrect
+      // (évite l'énumération d'emails)
+      const isValid = user
+        ? await bcrypt.compare(password, user.password_hash)
+        : false;
 
-      const isValid = await bcrypt.compare(password, user.password_hash);
-
-      if (!isValid) {
-        return res.status(401).json({ success: false, error: "invalid_password" });
+      if (!user || !isValid) {
+        return res.status(401).json({ success: false, error: "invalid_credentials" });
       }
 
       const { password_hash, ...userWithoutPassword } = user;
@@ -2343,7 +2379,7 @@ app.post(
 );
 
 /* AUTH REFRESH */
-app.post("/api/auth/refresh", async (req: Request, res: Response) => {
+app.post("/api/auth/refresh", authRefreshLimiter, async (req: Request, res: Response) => {
   try {
     const { refreshToken } = req.body as { refreshToken?: string };
 
@@ -6632,6 +6668,336 @@ app.post("/api/payments/create-intent", authenticateToken, async (req: Authentic
     return res.status(500).json({ success: false, message: "Erreur création paiement" });
   }
 });
+
+// ==========================================
+// INSTAGRAM INTEGRATION
+// ==========================================
+
+import { InstagramService } from "./services/InstagramService";
+
+// ── Plan hierarchy pour le middleware requirePlan ──
+const PLAN_HIERARCHY: Record<string, number> = {
+  start: 1,
+  serenite: 2,
+  signature: 3,
+};
+
+/**
+ * Middleware : vérifie en DB que l'utilisateur authentifié est un Pro
+ * avec un abonnement actif au niveau requis.
+ * Source of truth = base de données (jamais le JWT seul).
+ */
+function requirePlan(minPlan: "start" | "serenite" | "signature") {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const proId = req.user?.id;
+    if (!proId) {
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    try {
+      // Vérification rôle + plan en une seule requête
+      const [rows] = await db.query(
+        `SELECT s.plan, s.status, u.role
+         FROM subscriptions s
+         JOIN users u ON u.id = s.client_id
+         WHERE s.client_id = ?
+           AND u.role = 'pro'
+           AND s.status = 'active'
+           AND (s.end_date IS NULL OR s.end_date > NOW())
+         ORDER BY s.created_at DESC
+         LIMIT 1`,
+        [proId]
+      );
+
+      const sub = (rows as any[])[0];
+
+      if (!sub) {
+        return res.status(403).json({
+          success: false,
+          error: "Active subscription required",
+          code: "NO_ACTIVE_SUBSCRIPTION",
+        });
+      }
+
+      if (sub.role !== "pro") {
+        return res.status(403).json({
+          success: false,
+          error: "Pro account required",
+          code: "NOT_PRO",
+        });
+      }
+
+      const userLevel = PLAN_HIERARCHY[sub.plan] ?? 0;
+      const requiredLevel = PLAN_HIERARCHY[minPlan];
+
+      if (userLevel < requiredLevel) {
+        return res.status(403).json({
+          success: false,
+          error: `Plan "${minPlan}" required`,
+          code: "INSUFFICIENT_PLAN",
+          currentPlan: sub.plan,
+        });
+      }
+
+      next();
+    } catch (err) {
+      console.error("[requirePlan] DB error:", err);
+      return res.status(500).json({ success: false, error: "Cannot verify subscription" });
+    }
+  };
+}
+
+// ── Initialisation du service (lazy — valide les env vars au démarrage) ──
+let instagramService: InstagramService;
+try {
+  instagramService = new InstagramService(db);
+  console.log("✅ InstagramService initialized");
+} catch (err: any) {
+  console.warn("⚠️  InstagramService not initialized:", err.message);
+}
+
+// ── 1. Initier la connexion OAuth Instagram ──
+app.get(
+  "/api/instagram/connect",
+  authenticateToken,
+  requirePlan("signature"),
+  (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { url } = instagramService.buildAuthUrl(req.user!.id);
+      res.json({ success: true, data: { authUrl: url } });
+    } catch (err) {
+      console.error("[Instagram] buildAuthUrl error:", err);
+      res.status(500).json({ success: false, error: "Cannot build auth URL" });
+    }
+  }
+);
+
+// ── 2. Callback OAuth (Instagram redirige ici après autorisation) ──
+app.get("/api/instagram/callback", async (req: Request, res: Response) => {
+  const { code, state, error } = req.query as Record<string, string>;
+  const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+
+  if (error || !code || !state) {
+    return res.redirect(`${FRONTEND_URL}/pro/public-profile?ig_error=denied`);
+  }
+
+  // Récupérer le proId depuis le state stocké (lecture sans consommation)
+  const storedState = instagramService.getStoredState(state);
+  if (!storedState) {
+    return res.redirect(`${FRONTEND_URL}/pro/public-profile?ig_error=invalid_state`);
+  }
+
+  const proId = storedState.proId;
+
+  // Valider et consommer le state (CSRF + HMAC + TTL + one-time)
+  if (!instagramService.validateAndConsumeState(state, proId)) {
+    return res.redirect(`${FRONTEND_URL}/pro/public-profile?ig_error=state_mismatch`);
+  }
+
+  try {
+    // Double vérification : plan Signature actif en DB
+    const [subRows] = await db.query(
+      `SELECT s.id
+       FROM subscriptions s
+       JOIN users u ON u.id = s.client_id
+       WHERE s.client_id = ?
+         AND u.role = 'pro'
+         AND s.plan = 'signature'
+         AND s.status = 'active'
+         AND (s.end_date IS NULL OR s.end_date > NOW())
+       LIMIT 1`,
+      [proId]
+    );
+
+    if (!(subRows as any[]).length) {
+      return res.redirect(`${FRONTEND_URL}/pro/public-profile?ig_error=plan_required`);
+    }
+
+    // Échange du code contre un long-lived token
+    const { accessToken, userId, expiresIn } =
+      await instagramService.exchangeCodeForLongLivedToken(code);
+
+    // Récupérer le username Instagram
+    const profileRes = await fetch(
+      `https://graph.instagram.com/me?fields=id,username&access_token=${accessToken}`
+    );
+
+    if (!profileRes.ok) {
+      throw new Error(`Failed to fetch IG profile: ${profileRes.status}`);
+    }
+
+    const profile = await profileRes.json();
+
+    // Stocker la connexion (UPSERT chiffré)
+    await instagramService.saveConnection(
+      proId,
+      userId,
+      profile.username,
+      accessToken,
+      expiresIn
+    );
+
+    // Sync immédiate des photos (fire & forget si lente)
+    instagramService
+      .fetchAndCachePhotos(proId)
+      .catch((e) => console.error("[Instagram] Initial sync error:", e));
+
+    res.redirect(`${FRONTEND_URL}/pro/public-profile?ig_connected=true`);
+  } catch (err: any) {
+    console.error("[Instagram] OAuth callback error:", err.message);
+    res.redirect(`${FRONTEND_URL}/pro/public-profile?ig_error=server_error`);
+  }
+});
+
+// ── 3. Statut de la connexion Instagram du pro connecté ──
+app.get(
+  "/api/instagram/status",
+  authenticateToken,
+  requirePlan("signature"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const status = await instagramService.getConnectionStatus(req.user!.id);
+      res.json({ success: true, data: status });
+    } catch (err) {
+      console.error("[Instagram] Status error:", err);
+      res.status(500).json({ success: false, error: "Cannot fetch status" });
+    }
+  }
+);
+
+// ── 4. Déconnecter Instagram ──
+app.delete(
+  "/api/instagram/disconnect",
+  authenticateToken,
+  requirePlan("signature"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await instagramService.disconnect(req.user!.id);
+      res.json({ success: true });
+    } catch (err) {
+      console.error("[Instagram] Disconnect error:", err);
+      res.status(500).json({ success: false, error: "Cannot disconnect" });
+    }
+  }
+);
+
+// ── 5. Sync manuelle (throttle 5min) ──
+app.post(
+  "/api/instagram/sync",
+  authenticateToken,
+  requirePlan("signature"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const proId = req.user!.id;
+
+    try {
+      const { allowed, retryAfterSeconds } =
+        await instagramService.canManualSync(proId);
+
+      if (!allowed) {
+        return res.status(429).json({
+          success: false,
+          error: "Sync too frequent. Wait 5 minutes.",
+          retryAfterSeconds,
+        });
+      }
+
+      await instagramService.refreshTokenIfNeeded(proId);
+      const ok = await instagramService.fetchAndCachePhotos(proId);
+      res.json({ success: ok });
+    } catch (err) {
+      console.error("[Instagram] Manual sync error:", err);
+      res.status(500).json({ success: false, error: "Sync failed" });
+    }
+  }
+);
+
+// ── 6. Endpoint PUBLIC : photos Instagram d'un pro ──
+// Pas d'auth requise — vérification plan + visibilité en DB
+app.get(
+  "/api/public/pro/:proId/instagram",
+  async (req: Request, res: Response) => {
+    const proId = parseInt(req.params.proId as string, 10);
+
+    if (!proId || proId <= 0 || !Number.isInteger(proId)) {
+      return res.status(400).json({ success: false, error: "Invalid pro ID" });
+    }
+
+    try {
+      // Vérifier que ce pro a plan Signature actif + profil public + compte actif
+      const [subRows] = await db.query(
+        `SELECT s.id
+         FROM subscriptions s
+         JOIN users u ON u.id = s.client_id
+         WHERE s.client_id = ?
+           AND u.role = 'pro'
+           AND u.pro_status = 'active'
+           AND u.profile_visibility = 'public'
+           AND s.plan = 'signature'
+           AND s.status = 'active'
+           AND (s.end_date IS NULL OR s.end_date > NOW())
+         LIMIT 1`,
+        [proId]
+      );
+
+      if (!(subRows as any[]).length) {
+        // Ne pas révéler la raison — réponse neutre
+        return res.json({ success: true, data: { photos: [], connected: false } });
+      }
+
+      // Vérifier connexion Instagram active
+      const status = await instagramService.getConnectionStatus(proId);
+      if (!status.connected) {
+        return res.json({ success: true, data: { photos: [], connected: false } });
+      }
+
+      // Photos depuis le cache
+      const photos = await instagramService.getCachedPhotos(proId);
+
+      // Si cache vide ou expiré → déclencher re-sync asynchrone (ne pas bloquer)
+      const cacheExpired = await instagramService.isCacheExpired(proId);
+      if (photos.length === 0 || cacheExpired) {
+        instagramService
+          .refreshTokenIfNeeded(proId)
+          .then(() => instagramService.fetchAndCachePhotos(proId))
+          .catch((e) => console.error("[Instagram] Background sync error:", e));
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          photos,
+          connected: true,
+          username: status.username,
+        },
+      });
+    } catch (err) {
+      console.error("[Instagram] Public endpoint error:", err);
+      // Fallback silencieux : ne pas exposer d'erreur interne
+      return res.json({ success: true, data: { photos: [], connected: false } });
+    }
+  }
+);
+
+// ── Cron jobs Instagram ──
+// Refresh des tokens qui expirent bientôt (toutes les 6h)
+setInterval(async () => {
+  if (!instagramService) return;
+  console.log("[Instagram CRON] Starting token refresh batch...");
+  await instagramService.batchRefreshExpiringTokens().catch((e) =>
+    console.error("[Instagram CRON] Refresh error:", e)
+  );
+}, 6 * 60 * 60 * 1000);
+
+// Re-sync des photos (toutes les 6h, décalé de 30min)
+setTimeout(() => {
+  setInterval(async () => {
+    if (!instagramService) return;
+    console.log("[Instagram CRON] Starting photo sync batch...");
+    await instagramService.batchSyncPhotos(100).catch((e) =>
+      console.error("[Instagram CRON] Sync error:", e)
+    );
+  }, 6 * 60 * 60 * 1000);
+}, 30 * 60 * 1000);
 
 // ==========================================
 // START SERVER
