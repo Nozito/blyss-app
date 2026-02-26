@@ -8,5 +8,5 @@
     "strict": false,
     "skipLibCheck": true
   },
-  "include": ["server.ts", "__tests__/**/*.ts", "vitest.config.ts"]
+  "include": ["server.ts", "lib/**/*.ts", "middleware/**/*.ts", "routes/**/*.ts", "__tests__/**/*.ts", "vitest.config.ts"]
 }
