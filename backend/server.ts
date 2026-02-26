@@ -7005,9 +7005,14 @@ setTimeout(() => {
 
 const PORT = process.env.PORT || 3001;
 
-server.listen(PORT, () => {
-  console.log(`🚀 Backend running on http://localhost:${PORT}`);
-  console.log(`🔌 WebSocket server ready on ws://localhost:${PORT}`);
-});
+// Ne pas démarrer le serveur en mode test (permet l'import par supertest)
+if (process.env.NODE_ENV !== "test") {
+  server.listen(PORT, () => {
+    console.log(`🚀 Backend running on http://localhost:${PORT}`);
+    console.log(`🔌 WebSocket server ready on ws://localhost:${PORT}`);
+  });
+}
+
+export { app };
 // Mount the prestations router under /api/pro
 app.use('/api/pro', router);

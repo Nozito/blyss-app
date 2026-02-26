@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "cross-env NODE_ENV=development ts-node backend/server.ts",
     "build": "tsc",
-    "start": "NODE_ENV=production node dist/server.js"
+    "start": "NODE_ENV=production node dist/server.js",
+    "test": "vitest run --config backend/vitest.config.ts",
+    "test:watch": "vitest --config backend/vitest.config.ts"
   },
   "keywords": [],
   "author": "",
