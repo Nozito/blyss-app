@@ -6,7 +6,7 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import bcrypt from "bcrypt";
-import mysql from "mysql2/promise";
+import { getDb } from "./lib/db";
 import dotenv from "dotenv";
 import multer, { FileFilterCallback } from "multer";
 import path from "path";
@@ -76,16 +76,9 @@ const allowedOrigins = [
 ];
 
 // ==========================================
-// 5. CONNEXION DATABASE
+// 5. CONNEXION DATABASE (Supabase via pg)
 // ==========================================
-const db = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-});
-
-console.log("✅ Database pool created");
+const db = getDb();
 
 // ==========================================
 // 6. WEBSOCKET - CLIENTS MAP → lib/notifications.ts
@@ -687,7 +680,7 @@ async function revokeRefreshToken(token: string) {
   await db.execute(
     `
       UPDATE refresh_tokens
-      SET revoked = 1
+      SET revoked = true
       WHERE token = ?
     `,
     [token]
@@ -1023,12 +1016,12 @@ app.get(
       console.log("🔍 Recherche pour:", { year, monthNumber });
 
       const [result] = await db.query(
-        `SELECT DISTINCT DATE_FORMAT(start_datetime, '%Y-%m-%d') as available_date
+        `SELECT DISTINCT TO_CHAR(start_datetime, 'YYYY-MM-DD') as available_date
          FROM slots
-         WHERE pro_id = ? 
+         WHERE pro_id = ?
          AND status = 'available'
-         AND YEAR(start_datetime) = ?
-         AND MONTH(start_datetime) = ?
+         AND EXTRACT(YEAR FROM start_datetime) = ?
+         AND EXTRACT(MONTH FROM start_datetime) = ?
          ORDER BY available_date ASC`,
         [proId, year, monthNumber]
       );
@@ -1279,7 +1272,7 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
       `SELECT COALESCE(SUM(price), 0) AS total
        FROM reservations
        WHERE pro_id = ?
-       AND DATE(start_datetime) = ?
+       AND start_datetime::date = ?
        AND status IN ('confirmed','completed')`,
       [userId, today]
     );
@@ -1288,7 +1281,7 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
       `SELECT COALESCE(SUM(price), 0) AS total
        FROM reservations
        WHERE pro_id = ?
-       AND DATE(start_datetime) >= ?
+       AND start_datetime::date >= ?
        AND status IN ('confirmed','completed')`,
       [userId, startOfMonth]
     );
@@ -1297,7 +1290,7 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
       `SELECT COALESCE(SUM(price), 0) AS total
        FROM reservations
        WHERE pro_id = ?
-       AND DATE(start_datetime) BETWEEN ? AND ?
+       AND start_datetime::date BETWEEN ? AND ?
        AND status IN ('confirmed','completed')`,
       [userId, startOfLastMonth, endOfLastMonth]
     );
@@ -1476,7 +1469,7 @@ app.get("/api/pro/finance/export", authenticateToken, async (req: any, res) => {
       JOIN prestations p ON r.prestation_id = p.id
       JOIN users c ON r.client_id = c.id
       WHERE r.pro_id = ?
-      AND DATE(r.start_datetime) >= ?
+      AND r.start_datetime::date >= ?
       AND r.status IN ('confirmed', 'completed')
       ORDER BY r.start_datetime DESC`,
       [userId, startDate]
@@ -1659,8 +1652,8 @@ app.get(
       const [durationRows] = await db.execute(
         `
         SELECT
-          TIMESTAMPDIFF(YEAR, created_at, CURDATE()) AS diff_years,
-          TIMESTAMPDIFF(MONTH, created_at, CURDATE()) AS diff_months
+          EXTRACT(YEAR FROM AGE(CURRENT_DATE, created_at))::int AS diff_years,
+          (EXTRACT(YEAR FROM AGE(CURRENT_DATE, created_at)) * 12 + EXTRACT(MONTH FROM AGE(CURRENT_DATE, created_at)))::int AS diff_months
         FROM users
         WHERE id = ?
         `,
@@ -2026,7 +2019,7 @@ app.put(
             bankaccountname = ?, 
             IBAN = ?, 
             iban_last4 = ?,
-            accept_online_payment = 1,
+            accept_online_payment = true,
             bank_info_updated_at = NOW()
           WHERE id = ?
         `,
@@ -2036,7 +2029,7 @@ app.put(
         await db.execute(
           `
           UPDATE users
-          SET accept_online_payment = 0
+          SET accept_online_payment = false
           WHERE id = ?
         `,
           [userId]
@@ -2533,7 +2526,7 @@ app.get(
         FROM reservations
         WHERE pro_id = ?
           AND status IN ('confirmed', 'completed')
-          AND YEARWEEK(start_datetime, 1) = YEARWEEK(CURDATE(), 1)
+          AND DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE)
         `,
         [proId]
       )) as [{ count: number }[], any];
@@ -2545,7 +2538,7 @@ app.get(
         FROM reservations
         WHERE pro_id = ?
           AND status IN ('confirmed', 'completed')
-          AND YEARWEEK(start_datetime, 1) = YEARWEEK(CURDATE(), 1) - 1
+          AND DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'
         `,
         [proId]
       )) as [{ count: number }[], any];
@@ -2563,11 +2556,11 @@ app.get(
 
       const [todayRows] = (await connection.query(
         `
-        SELECT IFNULL(SUM(price), 0) AS total
+        SELECT COALESCE(SUM(price), 0) AS total
         FROM reservations
         WHERE pro_id = ?
           AND status IN ('confirmed', 'completed')
-          AND DATE(start_datetime) = CURDATE()
+          AND start_datetime::date = CURRENT_DATE
         `,
         [proId]
       )) as [{ total: number | null }[], any];
@@ -2579,7 +2572,7 @@ app.get(
           r.id,
           CONCAT(u.first_name, ' ', u.last_name) AS client_name,
           p.name AS prestation_name,
-          DATE_FORMAT(r.start_datetime, '%H:%i') AS start_time,
+          TO_CHAR(r.start_datetime, 'HH24:MI') AS start_time,
           r.price,
           r.status
         FROM reservations r
@@ -2625,9 +2618,9 @@ app.get(
   SELECT COUNT(*) AS total_slots
   FROM slots
   WHERE pro_id = ?
-    AND status IN ('available', 'booked')  -- ✅ Tous les créneaux ouverts
-    AND start_datetime >= CURDATE()
-    AND start_datetime < DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+    AND status IN ('available', 'booked')
+    AND start_datetime >= CURRENT_DATE
+    AND start_datetime < CURRENT_DATE + INTERVAL '7 days'
   `,
         [proId]
       )) as [{ total_slots: number }[], any];
@@ -2638,9 +2631,9 @@ app.get(
   SELECT COUNT(*) AS booked_slots
   FROM slots
   WHERE pro_id = ?
-    AND status = 'booked'  -- ✅ Créneaux réservés uniquement
-    AND start_datetime >= CURDATE()
-    AND start_datetime < DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+    AND status = 'booked'
+    AND start_datetime >= CURRENT_DATE
+    AND start_datetime < CURRENT_DATE + INTERVAL '7 days'
   `,
         [proId]
       )) as [{ booked_slots: number }[], any];
@@ -2657,7 +2650,7 @@ app.get(
         FROM reservations
         WHERE pro_id = ?
           AND status IN ('confirmed', 'completed')
-          AND YEARWEEK(start_datetime, 1) = YEARWEEK(CURDATE(), 1)
+          AND DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE)
         `,
         [proId]
       )) as [{ count: number }[], any];
@@ -2672,7 +2665,7 @@ app.get(
         JOIN prestations p ON p.id = r.prestation_id
         WHERE r.pro_id = ?
           AND r.status IN ('confirmed', 'completed')
-          AND r.start_datetime >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+          AND r.start_datetime >= CURRENT_DATE - INTERVAL '30 days'
         GROUP BY p.id, p.name
         ORDER BY count DESC
         LIMIT 5
@@ -2698,16 +2691,16 @@ app.get(
         SELECT
           jour,
           total,
-          DAYOFWEEK(jour) AS dayOfWeek
+          EXTRACT(DOW FROM jour)::int + 1 AS dayOfWeek
         FROM (
           SELECT
-            DATE(start_datetime) AS jour,
+            start_datetime::date AS jour,
             SUM(price) AS total
           FROM reservations
           WHERE pro_id = ?
             AND status IN ('confirmed', 'completed')
-            AND YEARWEEK(start_datetime, 1) = YEARWEEK(CURDATE(), 1)
-          GROUP BY DATE(start_datetime)
+            AND DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE)
+          GROUP BY start_datetime::date
         ) AS t
         ORDER BY jour
         `,
@@ -2791,11 +2784,11 @@ app.get(
       let where = "r.pro_id = ? AND r.status IN ('confirmed','completed')";
 
       if (from) {
-        where += " AND DATE(r.start_datetime) >= ?";
+        where += " AND r.start_datetime::date >= ?";
         params.push(from);
       }
       if (to) {
-        where += " AND DATE(r.start_datetime) <= ?";
+        where += " AND r.start_datetime::date <= ?";
         params.push(to);
       }
 
@@ -2803,8 +2796,8 @@ app.get(
         `
         SELECT
           r.id,
-          DATE(r.start_datetime) AS date,
-          DATE_FORMAT(r.start_datetime, '%H:%i') AS time,
+          r.start_datetime::date AS date,
+          TO_CHAR(r.start_datetime, 'HH24:MI') AS time,
           p.duration_minutes AS duration_minutes,
           r.price,
           r.status,
@@ -3481,7 +3474,7 @@ app.post(
         VALUES (
           ?, 
           ?, 
-          DATE_ADD(?, INTERVAL ? MINUTE), 
+          ? + (? * INTERVAL '1 minute'),
           ?, 
           'available', 
           NOW()
@@ -3520,27 +3513,27 @@ app.get(
         `
         SELECT
           id,
-          DATE_FORMAT(start_datetime, '%H:%i') AS time,
+          TO_CHAR(start_datetime, 'HH24:MI') AS time,
           duration,
-          CASE 
-            WHEN DATE_ADD(start_datetime, INTERVAL duration MINUTE) < NOW() THEN 'past'
+          CASE
+            WHEN start_datetime + (duration * INTERVAL '1 minute') < NOW() THEN 'past'
             ELSE status
           END AS computed_status,
           status AS original_status,
-          CASE 
-            WHEN DATE_ADD(start_datetime, INTERVAL duration MINUTE) < NOW() THEN 0
+          CASE
+            WHEN start_datetime + (duration * INTERVAL '1 minute') < NOW() THEN 0
             WHEN status = 'available' THEN 1
             ELSE 0
           END AS isActive,
-          CASE 
-            WHEN DATE_ADD(start_datetime, INTERVAL duration MINUTE) < NOW() THEN 0
+          CASE
+            WHEN start_datetime + (duration * INTERVAL '1 minute') < NOW() THEN 0
             WHEN status = 'available' THEN 1
             WHEN status = 'booked' THEN 0
             ELSE 1
           END AS isAvailable
         FROM slots
         WHERE pro_id = ?
-          AND DATE(start_datetime) = ?
+          AND start_datetime::date = ?
         ORDER BY start_datetime ASC
         `,
         [proId, date]
@@ -4846,7 +4839,7 @@ app.get("/api/pro/stripe/onboard/return", authenticateToken, async (req: Authent
 
     if (isComplete) {
       await db.execute(
-        `UPDATE users SET stripe_onboarding_complete = 1 WHERE id = ?`,
+        `UPDATE users SET stripe_onboarding_complete = true WHERE id = ?`,
         [userId]
       );
     }
@@ -4891,7 +4884,7 @@ app.get("/api/pro/stripe/account", authenticateToken, async (req: AuthenticatedR
     // Sync onboarding status if changed
     if (isComplete && !user.stripe_onboarding_complete) {
       await db.execute(
-        `UPDATE users SET stripe_onboarding_complete = 1 WHERE id = ?`,
+        `UPDATE users SET stripe_onboarding_complete = true WHERE id = ?`,
         [userId]
       );
     }

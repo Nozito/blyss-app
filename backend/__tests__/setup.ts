@@ -16,14 +16,10 @@ process.env.REVENUECAT_WEBHOOK_SECRET = "rc_test_fake_secret";
 // IBAN_ENC_KEY : 32 octets = 64 hex chars
 process.env.IBAN_ENC_KEY =
   "0101010101010101010101010101010101010101010101010101010101010101";
-// IBAN_ENC_IV : 12 octets = 24 hex chars
-process.env.IBAN_ENC_IV = "010101010101010101010101";
+// IBAN_ENC_IV supprimée (Sprint 1 : IV aléatoire par enregistrement, plus de clé statique)
 
-// Base de données — non utilisée réellement (mysql2/promise est mocké dans chaque test)
-process.env.DB_HOST = "localhost";
-process.env.DB_USER = "test";
-process.env.DB_PASSWORD = "test";
-process.env.DB_NAME = "test_blyss";
+// Base de données Supabase — non utilisée réellement (lib/db est mocké dans chaque test)
+process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test_blyss";
 process.env.PORT = "0";
 process.env.FRONTEND_URL = "http://localhost:5173";
 

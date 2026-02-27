@@ -20,22 +20,20 @@ const { mockExecute, mockQuery } = vi.hoisted(() => {
   return { mockExecute, mockQuery };
 });
 
-// ─── 2. Mock mysql2/promise ────────────────────────────────────────────────
-vi.mock("mysql2/promise", () => ({
-  default: {
-    createPool: () => ({
+// ─── 2. Mock lib/db ────────────────────────────────────────────────────────
+vi.mock("../lib/db", () => ({
+  getDb: () => ({
+    execute: mockExecute,
+    query: mockQuery,
+    getConnection: vi.fn().mockResolvedValue({
       execute: mockExecute,
       query: mockQuery,
-      getConnection: vi.fn().mockResolvedValue({
-        execute: mockExecute,
-        query: mockQuery,
-        beginTransaction: vi.fn().mockResolvedValue(undefined),
-        commit: vi.fn().mockResolvedValue(undefined),
-        rollback: vi.fn().mockResolvedValue(undefined),
-        release: vi.fn(),
-      }),
+      beginTransaction: vi.fn().mockResolvedValue(undefined),
+      commit: vi.fn().mockResolvedValue(undefined),
+      rollback: vi.fn().mockResolvedValue(undefined),
+      release: vi.fn(),
     }),
-  },
+  }),
 }));
 
 // ─── 3. Mock Stripe — doit être une classe (new Stripe() dans server.ts) ──

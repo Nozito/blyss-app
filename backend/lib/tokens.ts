@@ -12,7 +12,7 @@ export async function generateAndStoreRefreshToken(userId: number): Promise<stri
   expiresAt.setDate(expiresAt.getDate() + 30);
 
   await getDb().execute(
-    `INSERT INTO refresh_tokens (user_id, token, expires_at, revoked) VALUES (?, ?, ?, 0)`,
+    `INSERT INTO refresh_tokens (user_id, token, expires_at, revoked) VALUES (?, ?, ?, false)`,
     [userId, refreshToken, expiresAt]
   );
 
@@ -21,7 +21,7 @@ export async function generateAndStoreRefreshToken(userId: number): Promise<stri
 
 export async function revokeRefreshToken(token: string): Promise<void> {
   await getDb().execute(
-    `UPDATE refresh_tokens SET revoked = 1 WHERE token = ?`,
+    `UPDATE refresh_tokens SET revoked = true WHERE token = ?`,
     [token]
   );
 }

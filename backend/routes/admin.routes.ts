@@ -224,22 +224,22 @@ router.get(
       const totalBookings = (totalBookingsRows as any[])[0]?.count || 0;
 
       const [todayBookingsRows] = await db.query(
-        "SELECT COUNT(*) as count FROM reservations WHERE DATE(start_datetime) = CURDATE()"
+        "SELECT COUNT(*) as count FROM reservations WHERE start_datetime::date = CURRENT_DATE"
       );
       const todayBookings = (todayBookingsRows as any[])[0]?.count || 0;
 
       const [totalRevenueRows] = await db.query(
-        "SELECT IFNULL(SUM(price), 0) as total FROM reservations WHERE status IN ('confirmed', 'completed')"
+        "SELECT COALESCE(SUM(price), 0) as total FROM reservations WHERE status IN ('confirmed', 'completed')"
       );
       const totalRevenue = Number((totalRevenueRows as any[])[0]?.total || 0);
 
       const [monthRevenueRows] = await db.query(
-        "SELECT IFNULL(SUM(price), 0) as total FROM reservations WHERE status IN ('confirmed', 'completed') AND YEAR(start_datetime) = YEAR(CURDATE()) AND MONTH(start_datetime) = MONTH(CURDATE())"
+        "SELECT COALESCE(SUM(price), 0) as total FROM reservations WHERE status IN ('confirmed', 'completed') AND EXTRACT(YEAR FROM start_datetime) = EXTRACT(YEAR FROM CURRENT_DATE) AND EXTRACT(MONTH FROM start_datetime) = EXTRACT(MONTH FROM CURRENT_DATE)"
       );
       const monthRevenue = Number((monthRevenueRows as any[])[0]?.total || 0);
 
       const [activeUsersRows] = await db.query(
-        "SELECT COUNT(DISTINCT user_id) as count FROM refresh_tokens WHERE expires_at > NOW() AND revoked = 0 AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)"
+        "SELECT COUNT(DISTINCT user_id) as count FROM refresh_tokens WHERE expires_at > NOW() AND revoked = false AND created_at >= NOW() - INTERVAL '7 days'"
       );
       const activeUsers = (activeUsersRows as any[])[0]?.count || 0;
 
@@ -248,12 +248,12 @@ router.get(
           'booking' as type,
           CONCAT('Nouvelle réservation de ', c.first_name, ' ', c.last_name) as title,
           CONCAT('Chez ', p.first_name, ' ', p.last_name) as description,
-          DATE_FORMAT(r.created_at, '%H:%i') as time,
+          TO_CHAR(r.created_at, 'HH24:MI') as time,
           r.created_at as timestamp
         FROM reservations r
         JOIN users c ON c.id = r.client_id
         JOIN users p ON p.id = r.pro_id
-        WHERE r.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        WHERE r.created_at >= NOW() - INTERVAL '24 hours'
         ORDER BY r.created_at DESC
         LIMIT 5)
 
@@ -262,11 +262,11 @@ router.get(
         (SELECT
           'user' as type,
           CONCAT('Nouvel utilisateur : ', u.first_name, ' ', u.last_name) as title,
-          CONCAT('Rôle : ', IF(u.role = 'pro', 'Professionnel', 'Client')) as description,
-          DATE_FORMAT(u.created_at, '%H:%i') as time,
+          CONCAT('Rôle : ', CASE WHEN u.role = 'pro' THEN 'Professionnel' ELSE 'Client' END) as description,
+          TO_CHAR(u.created_at, 'HH24:MI') as time,
           u.created_at as timestamp
         FROM users u
-        WHERE u.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        WHERE u.created_at >= NOW() - INTERVAL '24 hours'
         ORDER BY u.created_at DESC
         LIMIT 5)
 

@@ -246,7 +246,7 @@ router.get(
         avg_rating = (ratingRows as any[])[0]?.avg || null;
 
         const [durationRows] = await db.query(
-          `SELECT TIMESTAMPDIFF(YEAR, created_at, NOW()) as years FROM users WHERE id = ?`,
+          `SELECT EXTRACT(YEAR FROM AGE(NOW(), created_at))::int AS years FROM users WHERE id = ?`,
           [userId]
         );
         years_on_blyss = (durationRows as any[])[0]?.years || 0;
