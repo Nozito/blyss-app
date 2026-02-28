@@ -10,16 +10,12 @@ import {
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { stripePaymentsApi } from "@/services/api";
+import { toast } from "sonner";
+import { getImageUrl } from "@/utils/imageUrl";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
 const stripePromise = STRIPE_PK ? loadStripe(STRIPE_PK) : null;
-
-const getImageUrl = (imagePath: string | null): string | null => {
-  if (!imagePath) return null;
-  if (imagePath.startsWith('http')) return imagePath;
-  return `${API_BASE_URL}/${imagePath}`;
-};
 
 interface BookingDetailData {
   id: number;
@@ -276,10 +272,10 @@ const BookingDetail = () => {
         setShowReviewModal(false);
         setRating(0);
         setComment("");
-        alert('Merci pour ton avis ! 🌟');
+        toast.success('Merci pour ton avis ! 🌟');
       }
     } catch (error) {
-      alert('Impossible d\'envoyer ton avis. Réessaie plus tard.');
+      toast.error('Impossible d\'envoyer ton avis. Réessaie plus tard.');
     } finally {
       setIsSubmittingReview(false);
     }
@@ -341,11 +337,11 @@ const BookingDetail = () => {
         setBalanceAmount(res.data.amount);
         setShowPayBalanceModal(true);
       } else {
-        alert(res.message || "Erreur lors de la création du paiement");
+        toast.error(res.message || "Erreur lors de la création du paiement");
       }
     } catch (error) {
       console.error("Error creating balance payment:", error);
-      alert("Erreur de connexion");
+      toast.error("Erreur de connexion");
     } finally {
       setLoadingBalance(false);
     }

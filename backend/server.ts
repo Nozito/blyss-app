@@ -1,4 +1,28 @@
 // ==========================================
+// 0. SENTRY — must be imported before everything else
+// ==========================================
+import * as Sentry from "@sentry/node";
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.SENTRY_ENVIRONMENT ?? "development",
+    beforeSend(event) {
+      // Strip request body (may contain PII)
+      if (event.request) {
+        delete event.request.data;
+        if (event.request.headers) {
+          delete event.request.headers["authorization"];
+          delete event.request.headers["cookie"];
+          delete event.request.headers["Authorization"];
+          delete event.request.headers["Cookie"];
+        }
+      }
+      return event;
+    },
+  });
+}
+
+// ==========================================
 // 1. IMPORTS
 // ==========================================
 import express, { Request, Response, NextFunction, Router } from "express";
@@ -7,7 +31,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
 import bcrypt from "bcrypt";
-import { getDb } from "./lib/db";
+import { getDb, DbTimeoutError } from "./lib/db";
 import dotenv from "dotenv";
 import multer, { FileFilterCallback } from "multer";
 import path from "path";
@@ -19,6 +43,10 @@ import { isValidIBAN, electronicFormatIBAN } from "ibantools";
 import crypto from "crypto";
 import ExcelJS from "exceljs";
 import Stripe from "stripe";
+
+// ── Observability ─────────────────────────────────────────────────────────
+import { log } from "./lib/logger";
+import { sendAlert, track5xx } from "./lib/alerts";
 
 // ── Modules extraits (PR #3) ───────────────────────────────────────────────
 import {
@@ -151,7 +179,8 @@ app.post(
     try {
       event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
     } catch (err: any) {
-      console.error("[STRIPE_WEBHOOK] Signature verification failed:", err.message);
+      log.warn("/api/webhooks/stripe", "Signature verification failed", { ip: req.ip });
+      sendAlert("warn", "Stripe invalid signature", { ip: req.ip }).catch(() => {});
       return res.status(400).json({ error: "Invalid signature" });
     }
 
@@ -221,6 +250,16 @@ app.use("/api/auth", authRouter);
 app.use("/api/admin", adminLimiter, adminRouter);
 app.use("/api/pro", router);
 
+// ── Health check (no auth) ──────────────────────────────────────────────────
+app.get("/api/health", async (_req: Request, res: Response) => {
+  try {
+    await getDb().query("SELECT 1");
+    res.json({ status: "ok", db: "ok", timestamp: new Date().toISOString() });
+  } catch {
+    res.status(503).json({ status: "degraded", db: "error", timestamp: new Date().toISOString() });
+  }
+});
+
 // ==========================================
 // 9. WEBSOCKET SERVER
 // ==========================================
@@ -266,7 +305,7 @@ async function wsAuthenticate(ws: AuthenticatedWebSocket, token: string): Promis
       ws.authTimeout = undefined;
     }
     connectedClients.set(ws.userId, ws);
-    console.log(`✅ User ${ws.userId} authenticated via WebSocket`);
+    log.info("/ws/auth", 200, 0, ws.userId);
     ws.send(JSON.stringify({ type: "auth_success", data: { userId: ws.userId } }));
     await sendUnreadNotifications(ws, ws.userId);
     return true;
@@ -398,7 +437,7 @@ wss.on("connection", async (ws: AuthenticatedWebSocket, req) => {
 
     if (ws.userId) {
       connectedClients.delete(ws.userId);
-      console.log(`🔌 User ${ws.userId} disconnected from WebSocket`);
+      log.info("/ws/disconnect", 0, 0, ws.userId);
     } else {
       console.log("🔌 Unauthenticated client disconnected");
     }
@@ -414,7 +453,7 @@ const heartbeatInterval = setInterval(() => {
   wss.clients.forEach((ws: AuthenticatedWebSocket) => {
     // ✅ Terminer les connexions mortes
     if (ws.isAlive === false) {
-      console.log(`💀 Terminating dead connection for user ${ws.userId || 'unknown'}`);
+      log.warn("/ws/heartbeat", "Terminating dead WS connection", { uid: ws.userId ?? "unknown" });
 
       if (ws.userId) {
         connectedClients.delete(ws.userId);
@@ -477,7 +516,7 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
     // Determine billing type
     const billingType = productId.includes("annual") ? "one_time" : "monthly";
 
-    console.log(`[RC_WEBHOOK] Event: ${eventType}, userId: ${userId}, product: ${productId}, plan: ${plan}`);
+    log.info("/api/webhooks/revenuecat", 200, 0, userId);
 
     const activateEvents = ["INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "PRODUCT_CHANGE"];
     const deactivateEvents = ["CANCELLATION", "EXPIRATION"];
@@ -507,7 +546,7 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
         [userId]
       );
 
-      console.log(`[RC_WEBHOOK] Activated plan=${plan} for userId=${userId}`);
+      log.info("/api/webhooks/revenuecat/activate", 200, 0, userId);
     } else if (deactivateEvents.includes(eventType)) {
       await db.execute(
         `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
@@ -519,7 +558,7 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
         [userId]
       );
 
-      console.log(`[RC_WEBHOOK] Deactivated subscription for userId=${userId}`);
+      log.info("/api/webhooks/revenuecat/deactivate", 200, 0, userId);
     } else {
       console.log(`[RC_WEBHOOK] Unhandled event type: ${eventType}`);
     }
@@ -1180,7 +1219,7 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
   try {
     const userId = req.user.id;
 
-    console.log(`[FINANCE_STATS][${rid}] userId=`, userId);
+    log.info("/api/pro/finance/stats", 200, 0, userId);
 
     // === 1. Vérifier pro actif ===
     const [userRows]: any = await db.query(
@@ -1306,7 +1345,7 @@ app.put("/api/pro/finance/objective", authenticateToken, validate(financeObjecti
     const userId = req.user.id;
     const { objective } = req.body;
 
-    console.log(`[FINANCE_OBJECTIVE][${rid}] userId=`, userId, "objective=", objective);
+    log.info("/api/pro/finance/objective", 200, 0, userId);
 
     // 1) Vérifier pro actif
     const [userRows]: any = await db.query(
@@ -5508,10 +5547,23 @@ setTimeout(() => {
 // GLOBAL ERROR HANDLER
 // ==========================================
 
+// Sentry error handler — must be before custom error handler
+if (process.env.SENTRY_DSN) {
+  app.use(Sentry.expressErrorHandler());
+}
+
 // Must be registered after all routes (Express uses arity to detect error middleware)
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-  console.error("❌ Unhandled Express error:", err.stack ?? err.message);
+  log.error(req.path, err.message, err.stack);
+
   if (res.headersSent) return;
+
+  if (err instanceof DbTimeoutError) {
+    res.set("Retry-After", "30");
+    return res.status(503).json({ success: false, message: "Service temporarily unavailable" });
+  }
+
+  track5xx();
   res.status(500).json({
     success: false,
     message: "Erreur serveur interne",
@@ -5535,12 +5587,15 @@ if (process.env.NODE_ENV !== "test") {
 
 // Process-level crash guards (log + graceful exit on unrecoverable errors)
 process.on("uncaughtException", (err) => {
-  console.error("❌ UNCAUGHT EXCEPTION — shutting down:", err);
+  log.error("process", "UNCAUGHT EXCEPTION — shutting down", err.stack);
+  if (process.env.SENTRY_DSN) Sentry.captureException(err);
+  sendAlert("critical", "UNCAUGHT EXCEPTION — server shutting down", { message: err.message }).catch(() => {});
   process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => {
-  console.error("❌ UNHANDLED REJECTION:", reason);
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  log.warn("process", "UNHANDLED REJECTION", { reason: msg });
   // Don't exit — let individual route errors surface via error handler
 });
 

@@ -18,6 +18,8 @@ import getCroppedImg from "@/utils/cropImage";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+
 const ClientProfile = () => {
   const navigate = useNavigate();
   const { user, logout, isAuthenticated } = useAuth();
@@ -27,7 +29,7 @@ const ClientProfile = () => {
     user?.profile_photo && user.profile_photo.startsWith("http")
       ? user.profile_photo
       : user?.profile_photo
-      ? `http://localhost:3001${user.profile_photo}`
+      ? `${API_URL}${user.profile_photo}`
       : logo;
 
   const [profileImage, setProfileImage] = useState(initialPhoto);
@@ -48,7 +50,7 @@ const ClientProfile = () => {
     if (user?.profile_photo) {
       const url = user.profile_photo.startsWith("http")
         ? user.profile_photo
-        : `http://localhost:3001${user.profile_photo}`;
+        : `${API_URL}${user.profile_photo}`;
       setProfileImage(`${url}?t=${Date.now()}`);
     }
   }, [user?.profile_photo]);
@@ -88,7 +90,7 @@ const ClientProfile = () => {
       formData.append("userId", String(user.id));
 
       const response = await fetch(
-        "http://localhost:3001/api/users/upload-photo",
+        `${API_URL}/api/users/upload-photo`,
         {
           method: "POST",
           body: formData,
@@ -102,7 +104,7 @@ const ClientProfile = () => {
       const data = await response.json();
 
       if (data?.photo) {
-        const url = `http://localhost:3001${data.photo}`;
+        const url = `${API_URL}${data.photo}`;
         setProfileImage(`${url}?t=${Date.now()}`);
         setShowCropModal(false);
         setTempProfileImage(null);
@@ -203,7 +205,7 @@ const ClientProfile = () => {
             exit={{ opacity: 0 }}
           >
             <motion.div
-              className="bg-white rounded-3xl p-6 w-[90%] max-w-sm flex flex-col items-center shadow-2xl"
+              className="bg-card rounded-3xl p-6 w-[90%] max-w-sm flex flex-col items-center shadow-2xl"
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ type: "spring", damping: 25, stiffness: 300 }}

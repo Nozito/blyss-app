@@ -147,12 +147,14 @@ const ProProfile = () => {
     if (!file) return;
     const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
     if (!validTypes.includes(file.type)) {
-      toast.error("Format non supporté. Utilise JPG, PNG ou WebP");
+      toast.error("Format non supporté. Utilise JPG, PNG ou WebP uniquement.");
+      e.target.value = "";
       return;
     }
-    const maxSize = 5 * 1024 * 1024;
+    const maxSize = 10 * 1024 * 1024; // 10MB (server limit)
     if (file.size > maxSize) {
-      toast.error("L'image ne doit pas dépasser 5MB");
+      toast.error("L'image est trop volumineuse (max 10 Mo). Compresse-la avant de l'envoyer.");
+      e.target.value = "";
       return;
     }
     const reader = new FileReader();
@@ -189,11 +191,23 @@ const ProProfile = () => {
         credentials: 'include',
         body: formData,
       });
-      if (!response.ok) throw new Error("Upload failed");
+      if (!response.ok) {
+        if (response.status === 413) {
+          toast.error("L'image est trop volumineuse. Compresse-la à moins de 10 Mo.");
+        } else if (response.status === 400) {
+          const errData = await response.json().catch(() => ({}));
+          toast.error(errData?.message || "Format non accepté. Utilise JPG ou PNG.");
+        } else {
+          toast.error("Erreur lors de l'upload. Réessaie dans un instant.");
+        }
+        return;
+      }
       const result = await response.json();
       if (result.success) {
         toast.success("Photo de profil mise à jour !");
-        setProfileImage(result.photo);
+        // Immediate preview without page reload
+        const previewUrl = URL.createObjectURL(blob);
+        setProfileImage(previewUrl);
         setShowCropModal(false);
         setTempProfileImage(null);
       } else {
@@ -201,7 +215,7 @@ const ProProfile = () => {
       }
     } catch (error) {
       console.error("Error uploading photo:", error);
-      toast.error("Erreur lors de l'upload de la photo");
+      toast.error("Erreur lors de l'upload de la photo. Vérifiez votre connexion.");
     } finally {
       setIsUploadingPhoto(false);
     }

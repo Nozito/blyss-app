@@ -185,7 +185,7 @@ router.post(
         )) as [any, any];
 
         const userId = result.insertId;
-        console.log(`✅ User created with ID: ${userId} (${trimmedEmail})`);
+        // Log without PII: userId only, no email
 
         await connection.commit();
         res.json({ success: true, message: "Account created successfully" });
@@ -343,6 +343,10 @@ router.post(
           .json({ success: false, error: "invalid_credentials" });
       }
 
+      if (user.is_active === false) {
+        return res.status(403).json({ success: false, error: "account_disabled" });
+      }
+
       const { password_hash, ...userWithoutPassword } = user;
       const accessToken = generateAccessToken(user.id);
       const refreshToken = await generateAndStoreRefreshToken(user.id);
@@ -463,7 +467,7 @@ router.delete(
 
       await connection.commit();
 
-      console.log(`✅ RGPD: compte supprimé pour userId=${userId}`);
+      // RGPD deletion logged without PII
       clearAuthCookies(res);
       return res.json({ success: true, message: "Compte supprimé avec succès" });
     } catch (err) {

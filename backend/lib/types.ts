@@ -25,6 +25,7 @@ export interface User {
   bankaccountname?: string | null;
   bio?: string | null;
   is_admin?: boolean;
+  is_active?: boolean;
 }
 
 export interface SignupRequestBody {

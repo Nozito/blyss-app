@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import MobileLayout from "@/components/MobileLayout";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion, PanInfo, useMotionValue, useTransform } from "framer-motion";
@@ -12,30 +12,15 @@ import {
   Eye,
   Sparkles,
   EyeOff,
-  Info,
   ChevronRight,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
   Share2,
   MoreVertical,
-  Clock,
   Zap,
 } from "lucide-react";
 import { proApi } from "@/services/api";
+import { toast } from "sonner";
 
 // ===== TYPES =====
-type NotificationType = "success" | "error" | "warning" | "info";
-
-interface Notification {
-  id: string;
-  type: NotificationType;
-  title: string;
-  message: string;
-  action?: { label: string; onClick: () => void };
-  duration?: number;
-}
-
 export interface Prestation {
   id: number;
   name: string;
@@ -45,111 +30,6 @@ export interface Prestation {
   active: boolean;
   created_at: string;
 }
-
-// ===== NOTIFICATIONS =====
-const showNotification = (notification: Omit<Notification, "id">) => {
-  window.dispatchEvent(new CustomEvent("showNotification", { detail: notification }));
-};
-
-const NotificationItem: React.FC<{
-  notif: Notification;
-  iconMap: Record<NotificationType, React.ReactNode>;
-  bgMap: Record<NotificationType, string>;
-  removeNotification: (id: string) => void;
-}> = ({ notif, iconMap, bgMap, removeNotification }) => {
-  const x = useMotionValue(0);
-  const opacity = useTransform(x, [-200, 0, 200], [0, 1, 0]);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: -20, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, x: 240, scale: 0.9 }}
-      drag="x"
-      dragConstraints={{ left: 0, right: 0 }}
-      dragElastic={0.7}
-      onDragEnd={(_, info: PanInfo) => {
-        if (Math.abs(info.offset.x) > 100) removeNotification(notif.id);
-      }}
-      style={{ x, opacity }}
-      className="pointer-events-auto"
-    >
-      <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${bgMap[notif.type]} backdrop-blur-xl border shadow-lg`}>
-        <motion.div
-          initial={{ width: "100%" }}
-          animate={{ width: "0%" }}
-          transition={{ duration: (notif.duration || 4000) / 1000, ease: "linear" }}
-          className={`absolute top-0 left-0 h-0.5 ${
-            notif.type === "success" ? "bg-green-500" : notif.type === "error" ? "bg-red-500" : notif.type === "warning" ? "bg-orange-500" : "bg-blue-500"
-          }`}
-        />
-
-        <div className="p-4">
-          <div className="flex items-start gap-3">
-            <motion.div initial={{ scale: 0, rotate: -120 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", delay: 0.05 }}>
-              {iconMap[notif.type]}
-            </motion.div>
-
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-foreground mb-0.5">{notif.title}</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">{notif.message}</p>
-
-              {notif.action && (
-                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={notif.action.onClick} className="mt-2 text-xs font-bold text-primary hover:text-primary/80 transition-colors">
-                  {notif.action.label} →
-                </motion.button>
-              )}
-            </div>
-
-            <motion.button whileHover={{ scale: 1.08, rotate: 90 }} whileTap={{ scale: 0.92 }} onClick={() => removeNotification(notif.id)} className="w-7 h-7 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 flex items-center justify-center transition-colors">
-              <X size={14} className="text-muted-foreground" />
-            </motion.button>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
-const NotificationSystem = () => {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-
-  useEffect(() => {
-    const handler = (e: any) => {
-      const detail = e.detail as Omit<Notification, "id">;
-      const notif: Notification = { ...detail, id: Math.random().toString(36).slice(2) };
-      setNotifications((prev) => [...prev, notif]);
-
-      const duration = notif.duration || 4000;
-      window.setTimeout(() => setNotifications((prev) => prev.filter((n) => n.id !== notif.id)), duration);
-    };
-
-    window.addEventListener("showNotification" as any, handler);
-    return () => window.removeEventListener("showNotification" as any, handler);
-  }, []);
-
-  const removeNotification = (id: string) => setNotifications((prev) => prev.filter((n) => n.id !== id));
-
-  const iconMap: Record<NotificationType, React.ReactNode> = {
-    success: <CheckCircle2 size={20} className="text-green-600" />,
-    error: <XCircle size={20} className="text-red-600" />,
-    warning: <AlertTriangle size={20} className="text-orange-600" />,
-    info: <Info size={20} className="text-blue-600" />,
-  };
-
-  const bgMap: Record<NotificationType, string> = {
-    success: "from-green-50 to-emerald-50 dark:from-green-950/50 dark:to-emerald-950/30 border-green-200/50 dark:border-green-800/50",
-    error: "from-red-50 to-rose-50 dark:from-red-950/50 dark:to-rose-950/30 border-red-200/50 dark:border-red-800/50",
-    warning: "from-orange-50 to-amber-50 dark:from-orange-950/50 dark:to-amber-950/30 border-orange-200/50 dark:border-orange-800/50",
-    info: "from-blue-50 to-cyan-50 dark:from-blue-950/50 dark:to-cyan-950/30 border-blue-200/50 dark:border-blue-800/50",
-  };
-
-  return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 w-[92%] pointer-events-none">
-      <AnimatePresence>{notifications.map((notif) => <NotificationItem key={notif.id} notif={notif} iconMap={iconMap} bgMap={bgMap} removeNotification={removeNotification} />)}</AnimatePresence>
-    </div>
-  );
-};
 
 // ===== PRESTATION CARD =====
 interface PrestationCardProps {
@@ -335,7 +215,7 @@ const ProServices = () => {
       if (!res?.success) throw new Error(res?.error || "Erreur serveur");
       setPrestations(res.data || []);
     } catch {
-      showNotification({ type: "error", title: "Erreur", message: "Impossible de charger les prestations" });
+      toast.error("Impossible de charger les prestations");
     } finally {
       setIsLoading(false);
     }
@@ -389,15 +269,11 @@ const ProServices = () => {
         )
       );
 
-      showNotification({
-        type: "success",
-        title: "✅ Modifié",
-        message: "Prix et durée mis à jour",
-      });
+      toast.success("Prix et durée mis à jour");
 
       closeModals();
     } catch {
-      showNotification({ type: "error", title: "Erreur", message: "Impossible de modifier" });
+      toast.error("Impossible de modifier");
     } finally {
       setIsSavingQuickEdit(false);
     }
@@ -425,21 +301,16 @@ const ProServices = () => {
       const created = res.data as Prestation;
       setPrestations((prev) => [created, ...prev]);
 
-      showNotification({
-        type: "success",
-        title: "Prestation dupliquée",
-        message: "Tu peux maintenant la modifier avant de la rendre réservable",
-        action: { label: "Modifier", onClick: () => onEdit(created) },
-      });
+      toast.success("Prestation dupliquée — modifie-la avant de la rendre réservable");
     } catch {
-      showNotification({ type: "error", title: "Erreur", message: "Impossible de dupliquer la prestation" });
+      toast.error("Impossible de dupliquer la prestation");
     }
   };
 
   const onShare = (service: Prestation) => {
     navigator.clipboard.writeText(`${service.name} - ${service.price}€`);
     setQuickActionsOpen(null);
-    showNotification({ type: "info", title: "Copié", message: "Tu peux maintenant partager cette prestation" });
+    toast.info("Prestation copiée dans le presse-papier");
   };
 
   const onToggleActive = async (id: number) => {
@@ -461,14 +332,14 @@ const ProServices = () => {
         if (confettiTimeoutRef.current) window.clearTimeout(confettiTimeoutRef.current);
         confettiTimeoutRef.current = window.setTimeout(() => setConfetti(false), 2500);
 
-        showNotification({ type: "success", title: "Prestation activée", message: "Elle est visible côté clientes" });
+        toast.success("Prestation activée — visible côté clientes");
       } else {
-        showNotification({ type: "warning", title: "Prestation masquée", message: "Elle est cachée côté clientes" });
+        toast("Prestation masquée — cachée côté clientes");
       }
     } catch {
       // rollback
       setPrestations((prev) => prev.map((p) => (p.id === id ? { ...p, active: current.active } : p)));
-      showNotification({ type: "error", title: "Erreur", message: "Impossible de modifier la visibilité" });
+      toast.error("Impossible de modifier la visibilité");
     }
   };
 
@@ -481,15 +352,11 @@ const ProServices = () => {
 
       setPrestations((prev) => prev.filter((s) => s.id !== selectedService.id));
 
-      showNotification({
-        type: "success",
-        title: "Prestation supprimée",
-        message: "Les rendez-vous existants sont conservés",
-      });
+      toast.success("Prestation supprimée — les rendez-vous existants sont conservés");
 
       closeModals();
     } catch {
-      showNotification({ type: "error", title: "Erreur", message: "Impossible de supprimer cette prestation" });
+      toast.error("Impossible de supprimer cette prestation");
     }
   };
 
@@ -521,8 +388,6 @@ const ProServices = () => {
 
   return (
     <MobileLayout>
-      <NotificationSystem />
-
       <AnimatePresence>
         {confetti && (
           <div className="fixed inset-0 pointer-events-none z-50">

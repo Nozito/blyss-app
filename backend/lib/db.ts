@@ -2,6 +2,16 @@ import { Pool, PoolClient } from "pg";
 
 let _pool: Pool | undefined;
 
+/** Custom error thrown when a DB query exceeds the timeout. */
+export class DbTimeoutError extends Error {
+  constructor(message = "Database query timed out") {
+    super(message);
+    this.name = "DbTimeoutError";
+  }
+}
+
+const QUERY_TIMEOUT_MS = 5000;
+
 function getPool(): Pool {
   if (!_pool) {
     const url = process.env.DATABASE_URL;
@@ -9,6 +19,15 @@ function getPool(): Pool {
     _pool = new Pool({
       connectionString: url,
       ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
+    });
+
+    // Alert on pool-level errors (connection failures, etc.)
+    _pool.on("error", (err) => {
+      console.error("[DB POOL] Unexpected error:", err.message);
+      // Dynamic import to avoid circular dependency
+      import("./alerts").then(({ sendAlert }) => {
+        sendAlert("critical", "DB connection pool error", { message: err.message }).catch(() => {});
+      }).catch(() => {});
     });
   }
   return _pool;
@@ -28,8 +47,16 @@ async function runQuery(
   params?: any[]
 ): Promise<QueryResult> {
   const text = convertPlaceholders(sql);
-  const result = await runner(text, params);
-  return [result.rows, result.fields ?? []];
+
+  const queryPromise = runner(text, params).then((result) => {
+    return [result.rows, result.fields ?? []] as QueryResult;
+  });
+
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new DbTimeoutError()), QUERY_TIMEOUT_MS)
+  );
+
+  return Promise.race([queryPromise, timeoutPromise]);
 }
 
 /**

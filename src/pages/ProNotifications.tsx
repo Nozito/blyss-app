@@ -118,8 +118,6 @@ const ProNotifications = () => {
         activity_summary: preferences.activitySummary ? 1 : 0,
       };
 
-      console.log("Envoi des préférences:", payload);
-
       const response = await fetch(getApiEndpoint('/api/pro/notification-settings'), {
         method: "PUT",
         headers: {
@@ -134,8 +132,6 @@ const ProNotifications = () => {
       if (!response.ok) {
         throw new Error(data.message || "Une erreur est survenue");
       }
-
-      console.log("Réponse du serveur:", data);
 
       toast.success("Préférences enregistrées avec succès !");
       setHasChanges(false);

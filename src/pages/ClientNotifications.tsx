@@ -55,9 +55,7 @@ const ClientNotifications = () => {
   };
 
   const goToSystemSettings = () => {
-    if (window.confirm("Ouvrir les réglages système de ton téléphone ?")) {
-      console.log("Redirection vers les paramètres système");
-    }
+    window.confirm("Ouvrir les réglages système de ton téléphone ?");
   };
 
   if (isLoading) {

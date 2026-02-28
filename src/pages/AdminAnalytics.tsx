@@ -40,30 +40,22 @@ const AdminAnalytics = () => {
     }
   };
 
-  // Données factices pour la démo
   const stats = {
-    totalUsers: 1234,
-    userGrowth: "+12.5%",
-    totalBookings: 5678,
-    bookingGrowth: "+8.2%",
-    totalRevenue: 45678,
-    revenueGrowth: "+15.3%",
-    avgBookingValue: 45,
-    avgGrowth: "+3.1%",
+    totalUsers: analyticsData?.stats?.totalUsers ?? analyticsData?.totalUsers ?? 0,
+    userGrowth: analyticsData?.stats?.userGrowth ?? analyticsData?.userGrowth ?? "—",
+    totalBookings: analyticsData?.stats?.totalBookings ?? analyticsData?.totalBookings ?? 0,
+    bookingGrowth: analyticsData?.stats?.bookingGrowth ?? analyticsData?.bookingGrowth ?? "—",
+    totalRevenue: analyticsData?.stats?.totalRevenue ?? analyticsData?.totalRevenue ?? 0,
+    revenueGrowth: analyticsData?.stats?.revenueGrowth ?? analyticsData?.revenueGrowth ?? "—",
+    avgBookingValue: analyticsData?.stats?.avgBookingValue ?? analyticsData?.avgBookingValue ?? 0,
+    avgGrowth: analyticsData?.stats?.avgGrowth ?? analyticsData?.avgGrowth ?? "—",
   };
 
-  const topServices = [
-    { name: "Pose complète", bookings: 234, revenue: 10530 },
-    { name: "Remplissage", bookings: 189, revenue: 7560 },
-    { name: "Dépose", bookings: 145, revenue: 2900 },
-    { name: "Nail art", bookings: 98, revenue: 2940 },
-  ];
+  const topServices: { name: string; bookings: number; revenue: number }[] =
+    analyticsData?.topServices ?? analyticsData?.stats?.topServices ?? [];
 
-  const topPros = [
-    { name: "Marie Dubois", bookings: 156, revenue: 7020, rating: 4.9 },
-    { name: "Sophie Martin", bookings: 142, revenue: 6390, rating: 4.8 },
-    { name: "Laura Bernard", bookings: 128, revenue: 5760, rating: 4.7 },
-  ];
+  const topPros: { name: string; bookings: number; revenue: number; rating: number }[] =
+    analyticsData?.topPros ?? analyticsData?.stats?.topPros ?? [];
 
   if (loading) {
     return (
@@ -165,23 +157,27 @@ const AdminAnalytics = () => {
           </div>
 
           <div className="space-y-4">
-            {topServices.map((service, index) => (
-              <div key={index} className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-semibold text-gray-900">{service.name}</span>
-                  <span className="text-gray-600">{service.bookings} réservations</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-primary to-pink-500 rounded-full"
-                      style={{ width: `${(service.bookings / topServices[0].bookings) * 100}%` }}
-                    />
+            {topServices.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-4">Aucune donnée disponible</p>
+            ) : (
+              topServices.map((service, index) => (
+                <div key={index} className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-semibold text-gray-900">{service.name}</span>
+                    <span className="text-gray-600">{service.bookings} réservations</span>
                   </div>
-                  <span className="font-bold text-gray-900 text-sm">{service.revenue}€</span>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-primary to-pink-500 rounded-full"
+                        style={{ width: `${(service.bookings / (topServices[0]?.bookings || 1)) * 100}%` }}
+                      />
+                    </div>
+                    <span className="font-bold text-gray-900 text-sm">{service.revenue}€</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
@@ -193,24 +189,28 @@ const AdminAnalytics = () => {
           </div>
 
           <div className="space-y-4">
-            {topPros.map((pro, index) => (
-              <div
-                key={index}
-                className="flex items-center gap-4 p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors"
-              >
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-pink-500 flex items-center justify-center text-white font-bold text-lg">
-                  {index + 1}
+            {topPros.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-4">Aucune donnée disponible</p>
+            ) : (
+              topPros.map((pro, index) => (
+                <div
+                  key={index}
+                  className="flex items-center gap-4 p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-pink-500 flex items-center justify-center text-white font-bold text-lg">
+                    {index + 1}
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-gray-900">{pro.name}</p>
+                    <p className="text-sm text-gray-600">{pro.bookings} réservations</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold text-gray-900">{pro.revenue}€</p>
+                    <p className="text-sm text-yellow-600">★ {pro.rating}</p>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <p className="font-semibold text-gray-900">{pro.name}</p>
-                  <p className="text-sm text-gray-600">{pro.bookings} réservations</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold text-gray-900">{pro.revenue}€</p>
-                  <p className="text-sm text-yellow-600">★ {pro.rating}</p>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>

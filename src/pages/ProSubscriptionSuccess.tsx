@@ -207,21 +207,21 @@ const ProSubscriptionSuccess = () => {
 
             {/* Stats cards */}
             <div className="grid grid-cols-3 gap-3 mb-8">
-              <div className="blyss-card p-4 text-center bg-white">
+              <div className="blyss-card p-4 text-center bg-card">
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-2">
                   <Calendar size={20} className="text-primary" />
                 </div>
                 <p className="text-xs font-semibold text-foreground">Agenda illimité</p>
               </div>
 
-              <div className="blyss-card p-4 text-center bg-white">
+              <div className="blyss-card p-4 text-center bg-card">
                 <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center mx-auto mb-2">
                   <TrendingUp size={20} className="text-purple-600" />
                 </div>
                 <p className="text-xs font-semibold text-foreground">Analytics pro</p>
               </div>
 
-              <div className="blyss-card p-4 text-center bg-white">
+              <div className="blyss-card p-4 text-center bg-card">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-2">
                   <Zap size={20} className="text-emerald-600" />
                 </div>
@@ -230,7 +230,7 @@ const ProSubscriptionSuccess = () => {
             </div>
 
             {/* Récapitulatif */}
-            <div className="blyss-card bg-white border-2 border-primary/10 mb-8">
+            <div className="blyss-card bg-card border-2 border-primary/10 mb-8">
               <div className="flex items-center gap-3 mb-4 pb-4 border-b border-border">
                 <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
                   <Sparkles size={24} className="text-primary" />

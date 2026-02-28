@@ -489,6 +489,54 @@ router.delete(
   }
 );
 
+/* PATCH /users/:id/deactivate */
+router.patch(
+  "/users/:id/deactivate",
+  authenticateToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!(await requireAdmin(req, res))) return;
+
+      const userId = req.params.id;
+      const [result] = await getDb().query(
+        "UPDATE users SET is_active = FALSE WHERE id = ?",
+        [userId]
+      );
+      if ((result as any).rowCount === 0) {
+        return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+      }
+      res.json({ success: true, message: "Compte désactivé" });
+    } catch (error) {
+      console.error("Error deactivating user:", error);
+      res.status(500).json({ success: false, message: "Erreur serveur" });
+    }
+  }
+);
+
+/* PATCH /users/:id/reactivate */
+router.patch(
+  "/users/:id/reactivate",
+  authenticateToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!(await requireAdmin(req, res))) return;
+
+      const userId = req.params.id;
+      const [result] = await getDb().query(
+        "UPDATE users SET is_active = TRUE WHERE id = ?",
+        [userId]
+      );
+      if ((result as any).rowCount === 0) {
+        return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+      }
+      res.json({ success: true, message: "Compte réactivé" });
+    } catch (error) {
+      console.error("Error reactivating user:", error);
+      res.status(500).json({ success: false, message: "Erreur serveur" });
+    }
+  }
+);
+
 /* GET /bookings */
 router.get(
   "/bookings",

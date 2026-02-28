@@ -4,13 +4,8 @@ import { ArrowLeft, MapPin, Star, Clock, Heart, Loader2, Instagram, Sparkles, Ch
 import { motion, AnimatePresence } from "framer-motion";
 import { favoritesApi, instagramApi, InstagramPhoto, API_URL } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
-
-const getImageUrl = (imagePath: string | null): string | null => {
-  if (!imagePath) return null;
-  if (imagePath.startsWith('http')) return imagePath;
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-  return `${API_BASE_URL}/${imagePath}`;
-};
+import { toast } from "sonner";
+import { getImageUrl } from "@/utils/imageUrl";
 
 const getInstagramUrl = (username: string): string => {
   const cleanUsername = username.replace('@', '').trim();
@@ -161,19 +156,12 @@ const SpecialistProfile = () => {
         const reviewsRes = await fetch(`${API_URL}/api/reviews/pro/${id}`);
         const reviewsData = await reviewsRes.json();
 
-        // Tolérance aux différentes structures de l'API
-        const reviewsArray = Array.isArray(reviewsData)
-          ? reviewsData
-          : Array.isArray(reviewsData?.data)
-            ? reviewsData.data
+        const reviewsArray = Array.isArray(reviewsData?.data)
+          ? reviewsData.data
+          : Array.isArray(reviewsData)
+            ? reviewsData
             : [];
-
-        console.log("reviewsArray:", reviewsArray); // Vérification en prod
         setReviews(reviewsArray);
-
-        if (reviewsData.success && reviewsData.data) {
-          setReviews(reviewsData.data);
-        }
 
         // Favoris — uniquement si l'utilisateur est connecté
         if (isAuthenticated) {
@@ -363,7 +351,7 @@ const SpecialistProfile = () => {
       }
     } catch (error) {
       console.error("Error submitting review:", error);
-      alert("Erreur lors de l'envoi de l'avis");
+      toast.error("Erreur lors de l'envoi de l'avis");
     } finally {
       setIsSubmitting(false);
     }

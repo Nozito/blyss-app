@@ -30,3 +30,7 @@ backend/.env.dev
 backend/.env.prod
 .env.dev
 .env.development
+.env.example
+.gitignore
+.env.test
+backend/uploads/

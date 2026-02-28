@@ -6,14 +6,10 @@ import {
   Calendar, Clock, XCircle, ChevronRight,
   Sparkles, CheckCircle2, AlertCircle
 } from "lucide-react";
+import { toast } from "sonner";
+import { getImageUrl } from "@/utils/imageUrl";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-
-const getImageUrl = (imagePath: string | null): string | null => {
-  if (!imagePath) return null;
-  if (imagePath.startsWith('http')) return imagePath;
-  return `${API_BASE_URL}/${imagePath}`;
-};
 
 // ✅ Fonction helper pour faire des requêtes avec credentials (HttpOnly cookie)
 const fetchWithCredentials = async (
@@ -138,7 +134,7 @@ const ClientMyBooking = () => {
         ));
         setConfirmId(null);
       } else {
-        alert(data?.message || 'Erreur lors de l\'annulation');
+        toast.error(data?.message || 'Erreur lors de l\'annulation');
       }
 
     } catch (err) {
@@ -149,7 +145,7 @@ const ClientMyBooking = () => {
         return;
       }
 
-      alert('Erreur lors de l\'annulation');
+      toast.error('Erreur lors de l\'annulation');
     }
   }, [navigate]);
 
@@ -186,20 +182,6 @@ const ClientMyBooking = () => {
     });
 
     // Debug (à supprimer en production)
-    if (process.env.NODE_ENV === 'development') {
-      console.log('📊 Répartition des réservations:', {
-        total: bookings.length,
-        upcoming: upcoming.length,
-        past: past.length,
-        details: bookings.map(b => ({
-          id: b.id,
-          status: b.status,
-          date: b.start_datetime,
-          isPast: new Date(b.start_datetime) <= now,
-          pro: b.activity_name || `${b.pro_first_name} ${b.pro_last_name}`
-        }))
-      });
-    }
 
     return {
       upcomingBookings: upcoming,

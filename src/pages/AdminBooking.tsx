@@ -13,11 +13,9 @@ import {
   Loader2,
   CalendarRange,
   RefreshCw,
-  CheckCircle,
-  AlertCircle,
-  Info,
   DollarSign,
 } from "lucide-react";
+import { toast } from "sonner";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -33,12 +31,6 @@ interface Booking {
   client_name?: string;
   pro_name?: string;
   created_at: string;
-}
-
-interface Notification {
-  id: number;
-  type: 'success' | 'error' | 'info';
-  message: string;
 }
 
 const AdminBookings = () => {
@@ -60,18 +52,6 @@ const AdminBookings = () => {
     price: '',
   });
   const [submitting, setSubmitting] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [nextNotifId, setNextNotifId] = useState(1);
-
-  const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
-    const id = nextNotifId;
-    setNextNotifId(id + 1);
-    setNotifications(prev => [...prev, { id, type, message }]);
-    
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
-    }, 3000);
-  };
 
   const formatDateTime = (datetimeString: string | undefined) => {
     if (!datetimeString) return { date: '', time: '' };
@@ -136,10 +116,10 @@ const AdminBookings = () => {
       if (response.ok) {
         const data = await response.json();
         setBookings(data.data || []);
-        if (showRefresh) showNotification('success', 'Liste actualisée');
+        if (showRefresh) toast.success('Liste actualisée');
       }
     } catch (error) {
-      showNotification('error', 'Erreur lors du chargement');
+      toast.error('Erreur lors du chargement');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -194,15 +174,15 @@ const AdminBookings = () => {
       });
 
       if (response.ok) {
-        showNotification('success', modalMode === 'create' ? 'Réservation créée avec succès' : 'Modifications enregistrées');
+        toast.success(modalMode === 'create' ? 'Réservation créée avec succès' : 'Modifications enregistrées');
         setIsModalOpen(false);
         fetchBookings();
       } else {
         const data = await response.json();
-        showNotification('error', data.message || 'Une erreur est survenue');
+        toast.error(data.message || 'Une erreur est survenue');
       }
     } catch (error) {
-      showNotification('error', 'Erreur de connexion au serveur');
+      toast.error('Erreur de connexion au serveur');
     } finally {
       setSubmitting(false);
     }
@@ -218,13 +198,13 @@ const AdminBookings = () => {
       });
 
       if (response.ok) {
-        showNotification('success', 'Réservation supprimée');
+        toast.success('Réservation supprimée');
         fetchBookings();
       } else {
-        showNotification('error', 'Impossible de supprimer cette réservation');
+        toast.error('Impossible de supprimer cette réservation');
       }
     } catch (error) {
-      showNotification('error', 'Erreur serveur');
+      toast.error('Erreur serveur');
     }
   };
 
@@ -252,49 +232,6 @@ const AdminBookings = () => {
 
   return (
     <div className="space-y-6">
-      {/* Notifications flottantes */}
-      <div className="fixed top-24 right-6 z-50 space-y-2 w-80 max-w-[calc(100vw-3rem)]">
-        <AnimatePresence>
-          {notifications.map((notif) => {
-            const icons = { success: CheckCircle, error: AlertCircle, info: Info };
-            const colors = {
-              success: 'bg-green-50 border-green-200 text-green-800',
-              error: 'bg-red-50 border-red-200 text-red-800',
-              info: 'bg-blue-50 border-blue-200 text-blue-800',
-            };
-            const iconColors = {
-              success: 'text-green-600',
-              error: 'text-red-600',
-              info: 'text-blue-600',
-            };
-            
-            const Icon = icons[notif.type];
-            
-            return (
-              <motion.div
-                key={notif.id}
-                initial={{ opacity: 0, y: -20, x: 100, scale: 0.9 }}
-                animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 100, scale: 0.8 }}
-                transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                className={`flex items-center gap-3 px-4 py-3 rounded-2xl border-2 shadow-lg backdrop-blur-sm ${colors[notif.type]}`}
-              >
-                <Icon size={20} className={iconColors[notif.type]} strokeWidth={2.5} />
-                <p className="flex-1 font-bold text-sm">{notif.message}</p>
-                <motion.button
-                  whileHover={{ scale: 1.1, rotate: 90 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => setNotifications(prev => prev.filter(n => n.id !== notif.id))}
-                  className="w-6 h-6 rounded-lg hover:bg-black/5 flex items-center justify-center transition-colors"
-                >
-                  <X size={14} />
-                </motion.button>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
-      </div>
-
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

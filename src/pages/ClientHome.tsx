@@ -4,6 +4,8 @@ import { MapPin, Star, ChevronRight, Search, Sparkles, Calendar, Clock, Heart, A
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
+import { getImageUrl } from "@/utils/imageUrl";
 
 interface Pro {
   id: number;
@@ -70,13 +72,6 @@ const ClientHome = () => {
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
   const greeting = user?.first_name ? `Salut ${user.first_name}` : "Bienvenue sur Blyss";
-
-  // ✅ Fonction utilitaire pour construire les URLs d'images
-  const getImageUrl = (imagePath: string | null): string | null => {
-    if (!imagePath) return null;
-    if (imagePath.startsWith('http')) return imagePath;
-    return `${API_BASE_URL}/${imagePath}`;
-  };
 
   // ✅ Formater les données pour affichage avec useMemo
   const specialists = useMemo<Specialist[]>(() => {
@@ -200,8 +195,7 @@ const ClientHome = () => {
               }
             }
           } catch (error) {
-            console.log('Erreur favoris (non bloquante):', error);
-          }
+            }
         }
 
       } catch (error) {
@@ -320,7 +314,6 @@ useEffect(() => {
           throw new Error('Erreur lors de la suppression');
         }
 
-        console.log(`✅ Favori retiré: Pro ${proId}`);
       } else {
         const response = await fetch(`${API_BASE_URL}/api/favorites`, {
           method: 'POST',
@@ -337,7 +330,6 @@ useEffect(() => {
           throw new Error('Erreur lors de l\'ajout');
         }
 
-        console.log(`✅ Favori ajouté: Pro ${proId}`);
       }
     } catch (error) {
       console.error('Erreur favoris:', error);
@@ -347,7 +339,7 @@ useEffect(() => {
 
       // Message utilisateur plus doux
       const action = wasFavorite ? 'retirer ce favori' : 'ajouter aux favoris';
-      alert(`Impossible de ${action}. Vérifie ta connexion et réessaie.`);
+      toast.error(`Impossible de ${action}. Vérifie ta connexion et réessaie.`);
     }
   };
 
@@ -590,7 +582,7 @@ useEffect(() => {
 
                           {/* Avatar & Name */}
                           <div className="absolute bottom-4 left-4 right-4 flex items-center gap-3 text-white z-10">
-                            <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-white/90 shadow-2xl flex-shrink-0 bg-white">
+                            <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-white/90 shadow-2xl flex-shrink-0 bg-card">
                               {s.profile_image_url ? (
                                 <img
                                   src={s.profile_image_url}

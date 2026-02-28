@@ -169,22 +169,30 @@ async function rawApiCall<T>(
   return { response, json };
 }
 
-async function tryRefreshToken(): Promise<boolean> {
-  try {
-    // The refresh_token cookie is sent automatically by the browser
-    const { response } = await rawApiCall("/api/auth/refresh", { method: "POST" });
+// Mutex: at most one refresh in flight across all concurrent requests
+let _refreshInFlight: Promise<boolean> | null = null;
 
-    if (!response.ok) {
+async function tryRefreshToken(): Promise<boolean> {
+  if (_refreshInFlight) return _refreshInFlight;
+
+  _refreshInFlight = (async () => {
+    try {
+      // The refresh_token cookie is sent automatically by the browser
+      const { response } = await rawApiCall("/api/auth/refresh", { method: "POST" });
+      if (!response.ok) {
+        clearSession();
+        return false;
+      }
+      return true;
+    } catch {
       clearSession();
       return false;
+    } finally {
+      _refreshInFlight = null;
     }
+  })();
 
-    return true;
-  } catch (e) {
-    console.error("Refresh token error:", e);
-    clearSession();
-    return false;
-  }
+  return _refreshInFlight;
 }
 
 async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>>;

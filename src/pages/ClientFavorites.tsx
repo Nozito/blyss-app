@@ -3,8 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
 import { MapPin, Star, ChevronRight, Heart, Loader2, Sparkles, AlertCircle } from "lucide-react";
-import { favoritesApi, API_URL } from "@/services/api";
+import { favoritesApi } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
+import { getImageUrl } from "@/utils/imageUrl";
 
 interface FavoriteFromApi {
   id: number;
@@ -28,12 +30,6 @@ interface FavoriteWithDetails {
   reviews: number;
   profile_image_url: string | null;
 }
-
-const getImageUrl = (imagePath: string | null): string | null => {
-  if (!imagePath) return null;
-  if (imagePath.startsWith('http')) return imagePath;
-  return `${API_URL}/${imagePath}`;
-};
 
 const ClientFavorites = () => {
   const navigate = useNavigate();
@@ -117,7 +113,7 @@ const ClientFavorites = () => {
       }
     } catch {
       setFavorites(previousFavorites);
-      alert('Impossible de retirer ce favori. Vérifie ta connexion et réessaie.');
+      toast.error('Impossible de retirer ce favori. Vérifie ta connexion et réessaie.');
     }
   }, [favorites, checkAuth]);
 

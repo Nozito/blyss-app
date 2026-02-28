@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { stripePaymentsApi } from "@/services/api";
+import { toast } from "sonner";
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
@@ -345,7 +346,6 @@ const ClientBooking = () => {
     if (authLoading) return;
 
     if (!isAuthenticated || !token) {
-      console.log("❌ Pas authentifié, redirection vers login");
       const returnUrl = `/client/booking/${id}`;
       localStorage.setItem('returnUrl', returnUrl);
 
@@ -362,13 +362,11 @@ const ClientBooking = () => {
   useEffect(() => {
     const fetchData = async () => {
       if (!id || authLoading || !isAuthenticated) {
-        console.log("⏸️ En attente de l'authentification ou ID manquant");
         return;
       }
 
       try {
         setIsLoading(true);
-        console.log("🔄 Chargement des données pour le pro ID:", id);
 
         const [proRes, prestationsRes] = await Promise.all([
           fetch(`${API_URL}/api/users/pros/${id}`),
@@ -386,9 +384,7 @@ const ClientBooking = () => {
 
         if (proData.success && proData.data) {
           setPro(proData.data);
-          console.log("✅ Pro chargé:", proData.data.activity_name);
         } else {
-          console.error("❌ Pro non trouvé");
           navigate('/client');
           return;
         }
@@ -406,15 +402,10 @@ const ClientBooking = () => {
             }));
 
           setPrestations(activePrestations);
-          console.log("✅ Prestations chargées:", activePrestations.length);
-
-          if (activePrestations.length === 0) {
-            console.warn("⚠️ Aucune prestation active");
-          }
         }
       } catch (error) {
         console.error("❌ Erreur lors du chargement:", error);
-        alert("Impossible de charger les informations. Veuillez réessayer.");
+        toast.error("Impossible de charger les informations. Veuillez réessayer.");
         navigate('/client');
       } finally {
         setIsLoading(false);
@@ -457,45 +448,6 @@ const ClientBooking = () => {
     fetchAvailableDates();
   }, [id, currentMonth, step]);
 
-  // ✅ NOUVEAU : Charger les jours avec disponibilités pour le mois (avec logs)
-useEffect(() => {
-  const fetchAvailableDates = async () => {
-    if (!id || step !== 2) {
-      console.log("⏸️ Pas de chargement dates:", { id, step });
-      return;
-    }
-
-    try {
-      const year = currentMonth.getFullYear();
-      const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
-      const url = `${API_URL}/api/slots/available-dates/${id}/${year}-${month}`;
-      
-      console.log("🔄 Chargement des dates disponibles:", url);
-      
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        console.error("❌ Erreur HTTP:", response.status);
-        throw new Error(`Erreur HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log("📥 Données reçues:", data);
-
-      if (data.success && data.data) {
-        const datesArray: string[] = Array.isArray(data.data) ? data.data.map(String) : [];
-        const datesSet = new Set<string>(datesArray);
-        setAvailableDates(datesSet);
-      } else {
-        setAvailableDates(new Set());
-      }
-    } catch (error) {
-      setAvailableDates(new Set());
-    }
-  };
-
-  fetchAvailableDates();
-}, [id, currentMonth, step]);
 
 
   useEffect(() => {
@@ -590,14 +542,14 @@ useEffect(() => {
 
   const handleConfirmBooking = async () => {
     if (!selectedPrestation || !selectedDate || !selectedTime || !id || !selectedPrestationData) {
-      alert("Veuillez remplir tous les champs.");
+      toast.error("Veuillez remplir tous les champs.");
       return;
     }
 
     setIsSubmitting(true);
     try {
       if (!token) {
-        alert("Votre session a expiré. Veuillez vous reconnecter.");
+        toast.error("Votre session a expiré. Veuillez vous reconnecter.");
         navigate('/login');
         return;
       }
@@ -655,7 +607,7 @@ useEffect(() => {
       setStep(4);
     } catch (error: any) {
       console.error("Error creating booking:", error);
-      alert(error.message || "Erreur lors de la réservation. Veuillez réessayer.");
+      toast.error(error.message || "Erreur lors de la réservation. Veuillez réessayer.");
     } finally {
       setIsSubmitting(false);
     }

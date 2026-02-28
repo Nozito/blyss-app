@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import * as Sentry from "@sentry/react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -154,7 +155,9 @@ const App = () => {
                   element={
                     <RequireAuth role="client">
                       <MobileLayout showNav={!showSplash}>
-                        <ClientMyBooking />
+                        <Sentry.ErrorBoundary fallback={<p className="p-4 text-red-600">Erreur lors du chargement de vos réservations.</p>}>
+                          <ClientMyBooking />
+                        </Sentry.ErrorBoundary>
                       </MobileLayout>
                     </RequireAuth>
                   }
@@ -206,7 +209,9 @@ const App = () => {
                   element={
                     <RequireAuth role="pro">
                       <MobileLayout showNav={!showSplash}>
-                        <ProCalendar />
+                        <Sentry.ErrorBoundary fallback={<p className="p-4 text-red-600">Erreur lors du chargement du calendrier.</p>}>
+                          <ProCalendar />
+                        </Sentry.ErrorBoundary>
                       </MobileLayout>
                     </RequireAuth>
                   }

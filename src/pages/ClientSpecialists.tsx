@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { 
-  Search, X, Star, MapPin, Sparkles, ChevronLeft, Heart
+import {
+  Search, X, Star, MapPin, Sparkles, ChevronLeft, Heart, Loader2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import MobileLayout from "@/components/MobileLayout";
+import { getImageUrl } from "@/utils/imageUrl";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -22,20 +24,20 @@ interface Specialist {
   };
 }
 
-// Helper pour construire les URLs d'images
-const getImageUrl = (imagePath: string | null): string | null => {
-  if (!imagePath) return null;
-  if (imagePath.startsWith('http')) return imagePath;
-  return `${API_BASE_URL}/${imagePath}`;
-};
-
 const ClientSpecialists = () => {
   const navigate = useNavigate();
 
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
-  const [favorites, setFavorites] = useState<Set<number>>(new Set());
+  const [favorites, setFavorites] = useState<Set<number>>(() => {
+    try {
+      const stored = localStorage.getItem('blyss_favorites');
+      return stored ? new Set<number>(JSON.parse(stored)) : new Set<number>();
+    } catch {
+      return new Set<number>();
+    }
+  });
 
   const filteredSpecialists = useMemo(
     () =>
@@ -99,27 +101,33 @@ const ClientSpecialists = () => {
       } else {
         newFavs.add(id);
       }
+      try {
+        localStorage.setItem('blyss_favorites', JSON.stringify([...newFavs]));
+      } catch {}
       return newFavs;
     });
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="text-center"
-        >
-          <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">Chargement...</p>
-        </motion.div>
-      </div>
+      <MobileLayout>
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center"
+          >
+            <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">Chargement...</p>
+          </motion.div>
+        </div>
+      </MobileLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <MobileLayout>
+    <div className="pb-24">
       {/* HEADER SIMPLE */}
       <div className="bg-background pb-6">
         {/* Navigation + Titre */}
@@ -229,7 +237,7 @@ const ClientSpecialists = () => {
                   </div>
 
                   {/* White Card - Avatar passe devant */}
-                  <div className="relative bg-white rounded-b-2xl shadow-sm border-2 border-white">
+                  <div className="relative bg-card rounded-b-2xl shadow-sm border-2 border-card">
                     {/* Avatar circulaire qui chevauche */}
                     <div className="absolute -top-6 left-1/2 -translate-x-1/2 w-12 h-12 rounded-full border-3 border-white overflow-hidden shadow-lg z-10">
                       {specialist.profile_image_url ? (
@@ -313,6 +321,7 @@ const ClientSpecialists = () => {
         </AnimatePresence>
       </div>
     </div>
+    </MobileLayout>
   );
 };
 

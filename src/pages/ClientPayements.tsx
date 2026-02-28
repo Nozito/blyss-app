@@ -1,12 +1,13 @@
 import { CreditCard, ChevronLeft, Shield } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import MobileLayout from "@/components/MobileLayout";
 
 const ClientPaymentMethods = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-lg mx-auto p-4 pb-8">
+    <MobileLayout>
+      <div className="pb-8">
         <div className="flex items-center mb-4">
           <button onClick={() => navigate("/client/profile")} className="p-2 -ml-2">
             <ChevronLeft size={24} className="text-foreground" />
@@ -67,7 +68,7 @@ const ClientPaymentMethods = () => {
           </div>
         </div>
       </div>
-    </div>
+    </MobileLayout>
   );
 };
 
