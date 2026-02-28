@@ -86,7 +86,12 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
 
       - name: Install backend dependencies
         working-directory: backend
