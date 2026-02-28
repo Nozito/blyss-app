@@ -90,6 +90,7 @@ const REQUIRED_ENV_VARS = [
   "STRIPE_SECRET_KEY",
   "STRIPE_WEBHOOK_SECRET",
   "REVENUECAT_WEBHOOK_SECRET",
+  "IBAN_ENC_KEY",
 ] as const;
 
 const missingVars = REQUIRED_ENV_VARS.filter((v) => !process.env[v]);
@@ -123,9 +124,14 @@ const app = express();
 const router = Router();
 const server = http.createServer(app);
 
+if (!process.env.CORS_ORIGINS && process.env.NODE_ENV === "production") {
+  console.warn(
+    "⚠️  CORS_ORIGINS non défini en production — seul localhost est autorisé. Définir CORS_ORIGINS avec les domaines prod."
+  );
+}
 const allowedOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
-  : ["http://localhost:5173", "http://localhost:8080", "https://app.blyssapp.fr"];
+  : ["http://localhost:5173", "http://localhost:8080"];
 
 // ==========================================
 // 5. CONNEXION DATABASE (Supabase via pg)

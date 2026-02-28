@@ -105,7 +105,7 @@ const ProProfile = () => {
   const navigate = useNavigate();
 
   // STATE
-  const baseUrl = import.meta.env.VITE_SERVER_BASE || "http://localhost:3001";
+  const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
   const initialPhoto =
     user?.profile_photo && user.profile_photo.startsWith("http")
       ? user.profile_photo

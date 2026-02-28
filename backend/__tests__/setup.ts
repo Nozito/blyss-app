@@ -27,6 +27,3 @@ process.env.FRONTEND_URL = "http://localhost:5173";
 process.env.INSTAGRAM_APP_ID = "test_ig_app_id";
 process.env.INSTAGRAM_APP_SECRET = "test_ig_app_secret";
 process.env.INSTAGRAM_REDIRECT_URI = "http://localhost:3001/api/instagram/callback";
-process.env.INSTAGRAM_ENC_KEY =
-  "0202020202020202020202020202020202020202020202020202020202020202";
-process.env.INSTAGRAM_ENC_IV = "020202020202020202020202";

@@ -3,11 +3,7 @@ import { useAuth } from "./AuthContext";
 import { Bell, X, CheckCircle, AlertCircle, AlertTriangle, Clock, MessageSquare, CreditCard, Gift, Mail, CheckCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-const WS_URL =
-    import.meta.env.VITE_WS_URL ??
-    (location.protocol === "https:"
-        ? "wss://app.blyssapp.fr/ws"
-        : "ws://localhost:3001");
+const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:3001";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
