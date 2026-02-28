@@ -150,12 +150,12 @@ describe("POST /api/auth/login", () => {
 describe("POST /api/auth/refresh", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("400 si refreshToken absent du body", async () => {
+  it("401 si refreshToken absent du body et pas de cookie", async () => {
     const res = await request(app)
       .post("/api/auth/refresh")
       .send({});
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
   });
 
   it("401 si le token n'existe pas en DB", async () => {

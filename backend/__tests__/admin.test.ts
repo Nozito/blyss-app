@@ -117,7 +117,9 @@ describe("GET /api/admin/users — RBAC", () => {
     const token = makeToken(1);
     // Première query : is_admin check
     mockQuery.mockResolvedValueOnce([[{ is_admin: 1 }]]);
-    // Deuxième query : SELECT users list
+    // Deuxième query : COUNT(*) pour la pagination
+    mockQuery.mockResolvedValueOnce([[{ total: 1 }]]);
+    // Troisième query : SELECT users list (avec LIMIT/OFFSET)
     mockQuery.mockResolvedValueOnce([[
       { id: 2, first_name: "Bob", email: "bob@blyss.fr", role: "pro" },
     ]]);
