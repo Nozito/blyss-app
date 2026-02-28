@@ -145,16 +145,25 @@ router.get(
     try {
       if (!(await requireAdmin(req, res))) return;
 
-      const [users] = await getDb().query(`
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+      const offset = (page - 1) * limit;
+
+      const db = getDb();
+      const [countRows] = await db.query(`SELECT COUNT(*) as total FROM users`);
+      const total = (countRows as { total: number }[])[0]?.total ?? 0;
+
+      const [users] = await db.query(`
         SELECT
           id, first_name, last_name, email, phone_number, birth_date, role,
           is_admin, is_verified, created_at, activity_name, city,
           instagram_account, profile_photo, banner_photo, pro_status, bio
         FROM users
         ORDER BY created_at DESC
-      `);
+        LIMIT ? OFFSET ?
+      `, [limit, offset]);
 
-      res.json({ success: true, data: users });
+      res.json({ success: true, data: users, meta: { page, limit, total } });
     } catch (error) {
       console.error("❌ Error fetching users:", error);
       res.status(500).json({ success: false, message: "Erreur serveur" });
@@ -488,7 +497,15 @@ router.get(
     try {
       if (!(await requireAdmin(req, res))) return;
 
-      const [bookings] = await getDb().query(`
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+      const offset = (page - 1) * limit;
+
+      const db = getDb();
+      const [countRows] = await db.query(`SELECT COUNT(*) as total FROM reservations`);
+      const total = (countRows as { total: number }[])[0]?.total ?? 0;
+
+      const [bookings] = await db.query(`
         SELECT
           r.*,
           CONCAT(c.first_name, ' ', c.last_name) as client_name,
@@ -497,9 +514,10 @@ router.get(
         LEFT JOIN users c ON r.client_id = c.id
         LEFT JOIN users p ON r.pro_id = p.id
         ORDER BY r.start_datetime DESC
-      `);
+        LIMIT ? OFFSET ?
+      `, [limit, offset]);
 
-      res.json({ success: true, data: bookings });
+      res.json({ success: true, data: bookings, meta: { page, limit, total } });
     } catch (error) {
       console.error("Error fetching bookings:", error);
       res.status(500).json({ success: false, message: "Erreur serveur" });
