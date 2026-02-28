@@ -177,13 +177,10 @@ const ClientHome = () => {
         }
 
         // 3. Charger les favoris si connecté
-        const token = localStorage.getItem('auth_token');
-        if (token) {
+        if (user) {
           try {
             const favoritesRes = await fetch(`${API_BASE_URL}/api/favorites`, {
-              headers: {
-                'Authorization': `Bearer ${token}`
-              }
+              credentials: 'include',
             });
 
             if (favoritesRes.ok) {
@@ -220,23 +217,19 @@ const ClientHome = () => {
 
 useEffect(() => {
   const fetchUpcomingBookings = async () => {
-    const token = localStorage.getItem('auth_token');
-    if (!token) return; // Pas connecté, pas de réservations
-    
+    if (!user) return; // Pas connecté, pas de réservations
+
     try {
       setIsLoadingBookings(true);
-      
+
       const response = await fetch(`${API_BASE_URL}/api/client/my-booking`, {
+        credentials: 'include',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
 
       if (!response.ok) {
-        if (response.status === 401) {
-          localStorage.removeItem('auth_token');
-        }
         return;
       }
 
@@ -293,9 +286,7 @@ useEffect(() => {
   const toggleFavorite = async (proId: number, e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
 
-    const token = localStorage.getItem('auth_token');
-
-    if (!token) {
+    if (!user) {
       localStorage.setItem('returnUrl', '/client');
       navigate('/login', {
         state: {
@@ -322,9 +313,7 @@ useEffect(() => {
       if (wasFavorite) {
         const response = await fetch(`${API_BASE_URL}/api/favorites/${proId}`, {
           method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
+          credentials: 'include',
         });
 
         if (!response.ok && response.status !== 404) {
@@ -335,8 +324,8 @@ useEffect(() => {
       } else {
         const response = await fetch(`${API_BASE_URL}/api/favorites`, {
           method: 'POST',
+          credentials: 'include',
           headers: {
-            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({ pro_id: proId })

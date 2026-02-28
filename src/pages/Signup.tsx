@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, forwardRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,6 +20,7 @@ interface FormData {
   activityName: string;
   city: string;
   instagramAccount: string;
+  acceptedTerms: boolean;
 }
 
 // ✅ Constantes de validation
@@ -46,6 +47,7 @@ const ERROR_MESSAGES = {
   AGE_RESTRICTION: "Tu dois avoir au moins 16 ans pour utiliser Blyss",
   PHONE_INVALID: "Numéro de téléphone invalide",
   NAME_TOO_LONG: "Nom trop long",
+  TERMS_REQUIRED: "Tu dois accepter les CGU et la politique de confidentialité pour continuer",
   SIGNUP_FAILED: "Erreur lors de la création du compte",
   NETWORK_ERROR: "Erreur de connexion. Vérifie ta connexion internet.",
 } as const;
@@ -67,6 +69,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
     activityName: "",
     city: "",
     instagramAccount: "",
+    acceptedTerms: false,
   });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -185,10 +188,17 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
           getAgeFromBirthDate(formData.birthDate) >= VALIDATION.MIN_AGE
         );
       case 6:
+        // Client : dernière étape (mot de passe + CGU)
+        if (formData.role === "client") return formData.acceptedTerms;
+        // Pro : étape optionnelle activité
+        return true;
       case 7:
       case 8:
-      case 9:
+        // Pro : étapes optionnelles ville / instagram
         return true;
+      case 9:
+        // Pro : dernière étape (mot de passe + CGU)
+        return formData.acceptedTerms;
       default:
         return false;
     }
@@ -231,6 +241,11 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
         return;
       }
 
+      if (!formData.acceptedTerms) {
+        setError(ERROR_MESSAGES.TERMS_REQUIRED);
+        return;
+      }
+
       try {
         const payload = {
           first_name: sanitizeInput(formData.firstName, VALIDATION.NAME_MAX_LENGTH),
@@ -240,6 +255,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
           phone_number: formData.phone.replace(/\s/g, ""),
           birth_date: formData.birthDate,
           role: formData.role,
+          accepted_terms: true,
           activity_name:
             formData.role === "pro" && formData.activityName.trim()
               ? sanitizeInput(formData.activityName, VALIDATION.TEXT_MAX_LENGTH)

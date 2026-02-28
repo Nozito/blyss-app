@@ -18,14 +18,105 @@ import {
   Upload // Import manquant ajouté
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRevenueCat } from "@/contexts/RevenueCatContext";
+import { instagramApi, InstagramStatus } from "@/services/api";
 import { set } from "date-fns";
 
 const ProPublicProfile = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { activePlan } = useRevenueCat();
+
+  // ── Instagram OAuth ──
+  const [igStatus, setIgStatus] = useState<InstagramStatus | null>(null);
+  const [igLoading, setIgLoading] = useState(false);
+  const isSignature = activePlan === "signature";
+
+  const fetchIgStatus = useCallback(async () => {
+    if (!isSignature) return;
+    try {
+      const res = await instagramApi.getStatus();
+      if (res.success && res.data) setIgStatus(res.data);
+    } catch {
+      // Silencieux — statut non critique
+    }
+  }, [isSignature]);
+
+  useEffect(() => {
+    fetchIgStatus();
+  }, [fetchIgStatus]);
+
+  // Lire le résultat du callback OAuth depuis l'URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const igConnected = params.get("ig_connected");
+    const igError = params.get("ig_error");
+
+    if (igConnected === "true") {
+      toast.success("Instagram connecté avec succès !");
+      window.history.replaceState({}, "", window.location.pathname);
+      fetchIgStatus();
+    } else if (igError) {
+      const messages: Record<string, string> = {
+        denied: "Connexion Instagram annulée.",
+        invalid_state: "Lien expiré, réessaie.",
+        plan_required: "Abonnement Signature requis.",
+        server_error: "Erreur serveur, réessaie plus tard.",
+      };
+      toast.error(messages[igError] ?? "Erreur de connexion Instagram.");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [fetchIgStatus]);
+
+  const handleIgConnect = async () => {
+    setIgLoading(true);
+    try {
+      const res = await instagramApi.getConnectUrl();
+      if (res.success && res.data?.authUrl) {
+        window.location.href = res.data.authUrl;
+      } else {
+        toast.error("Impossible d'initier la connexion Instagram.");
+      }
+    } catch {
+      toast.error("Erreur réseau, réessaie.");
+    } finally {
+      setIgLoading(false);
+    }
+  };
+
+  const handleIgDisconnect = async () => {
+    setIgLoading(true);
+    try {
+      await instagramApi.disconnect();
+      setIgStatus({ connected: false });
+      toast.success("Instagram déconnecté.");
+    } catch {
+      toast.error("Erreur lors de la déconnexion.");
+    } finally {
+      setIgLoading(false);
+    }
+  };
+
+  const handleIgSync = async () => {
+    setIgLoading(true);
+    try {
+      const res = await instagramApi.sync();
+      if (res.success) {
+        toast.success("Photos synchronisées !");
+      } else if ((res as any).retryAfterSeconds) {
+        toast.error(`Réessaie dans ${(res as any).retryAfterSeconds}s.`);
+      } else {
+        toast.error("Synchronisation échouée.");
+      }
+    } catch {
+      toast.error("Erreur réseau.");
+    } finally {
+      setIgLoading(false);
+    }
+  };
 
   // États pour la gestion de la photo de bannière
   const [bannerPhoto, setBannerPhoto] = useState<string>("");
@@ -66,12 +157,9 @@ const ProPublicProfile = () => {
     const fetchUserData = async () => {
       setIsLoading(true);
       try {
-        const token = localStorage.getItem("auth_token");
-        if (!token) return;
-
         const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
         const response = await fetch(`${BASE_URL}/api/users`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
 
         const data = await response.json();
@@ -221,9 +309,7 @@ const ProPublicProfile = () => {
       const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
       const response = await fetch(`${BASE_URL}/api/users/upload-banner`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
-        },
+        credentials: "include",
         body: formData,
       });
 
@@ -291,10 +377,8 @@ const ProPublicProfile = () => {
       const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
       const response = await fetch(`${BASE_URL}/api/users/update`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
 
@@ -1065,6 +1149,89 @@ const ProPublicProfile = () => {
               maxLength={50}
             />
           </div>
+
+          {/* ── Instagram Photos (Signature only) ── */}
+          {isSignature ? (
+            <div className="blyss-card hover:shadow-lg transition-shadow duration-300">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                  <Instagram size={18} className="text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground">
+                    Photos Instagram
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {igStatus?.connected
+                      ? `Connecté en tant que @${igStatus.username}`
+                      : "Affiche tes 6 dernières photos sur ton profil"}
+                  </p>
+                </div>
+                {igStatus?.connected && (
+                  <span className="text-xs font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 flex-shrink-0">
+                    Actif
+                  </span>
+                )}
+              </div>
+
+              {igStatus?.connected ? (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleIgSync}
+                    disabled={igLoading}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-medium border-2 border-primary text-primary active:scale-95 transition-all disabled:opacity-50"
+                  >
+                    {igLoading ? "..." : "Synchroniser"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleIgDisconnect}
+                    disabled={igLoading}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-medium border-2 border-destructive/30 text-destructive active:scale-95 transition-all disabled:opacity-50"
+                  >
+                    Déconnecter
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleIgConnect}
+                  disabled={igLoading}
+                  className="w-full py-3 rounded-xl text-sm font-semibold bg-gradient-to-r from-pink-500 to-purple-600 text-white active:scale-95 transition-all shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {igLoading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                  ) : (
+                    <Instagram size={16} />
+                  )}
+                  {igLoading ? "Connexion..." : "Connecter Instagram"}
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="blyss-card border-2 border-dashed border-muted bg-muted/20">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
+                  <Instagram size={18} className="text-muted-foreground" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-muted-foreground">
+                    Photos Instagram
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Disponible avec le plan{" "}
+                    <span
+                      className="font-semibold text-foreground cursor-pointer underline underline-offset-2"
+                      onClick={() => navigate("/pro/subscription")}
+                    >
+                      Signature
+                    </span>
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* SECTION : Visibilité */}

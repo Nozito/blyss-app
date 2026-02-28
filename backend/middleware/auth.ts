@@ -7,14 +7,19 @@ export function authMiddleware(
   res: Response,
   next: NextFunction
 ) {
+  // Cookie first (browser clients), then Authorization header (API clients / tests)
+  const cookieToken: string | undefined = req.cookies?.access_token;
   const authHeader = req.headers.authorization;
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  let token: string | undefined = cookieToken;
+  if (!token && authHeader?.startsWith("Bearer ")) {
+    token = authHeader.split(" ")[1];
+  }
+
+  if (!token) {
     console.log("❌ Auth: No token provided");
     return res.status(401).json({ success: false, message: "Unauthorized" });
   }
-
-  const token = authHeader.split(" ")[1];
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number };

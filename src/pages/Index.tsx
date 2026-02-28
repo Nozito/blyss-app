@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Sparkles, ArrowRight, Shield, Zap, Heart } from "lucide-react";
 import logo from "@/assets/logo.png";
 import MobileLayout from "@/components/MobileLayout";
@@ -122,24 +122,27 @@ const Index = () => {
           </button>
         </div>
 
-        {/* Footer Text [web:66] */}
+        {/* Footer Text */}
         <p className="text-center text-[10px] text-muted-foreground/70 leading-relaxed animate-in fade-in duration-700 delay-1400 relative z-10 px-8">
           En continuant, tu acceptes nos{" "}
-          <button 
-            type="button"
+          <Link
+            to="/legal#cgu"
             className="underline hover:text-foreground transition-colors font-medium"
-            onClick={() => window.open("/terms", "_blank")}
           >
             Conditions générales
-          </button>{" "}
+          </Link>{" "}
           et notre{" "}
-          <button 
-            type="button"
+          <Link
+            to="/legal#confidentialite"
             className="underline hover:text-foreground transition-colors font-medium"
-            onClick={() => window.open("/privacy", "_blank")}
           >
             Politique de confidentialité
-          </button>
+          </Link>
+        </p>
+        <p className="text-center text-[10px] text-muted-foreground/50 mt-2 animate-in fade-in duration-700 delay-1400 relative z-10">
+          <Link to="/legal" className="hover:text-muted-foreground transition-colors">
+            Mentions légales
+          </Link>
         </p>
       </div>
 

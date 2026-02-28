@@ -11,34 +11,24 @@ const WS_URL =
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-const refreshAuthToken = async (): Promise<string | null> => {
+const refreshAuthToken = async (): Promise<boolean> => {
     try {
-        const currentToken = localStorage.getItem('auth_token');
-        if (!currentToken) return null;
-
+        // The refresh_token cookie is sent automatically by the browser
         const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${currentToken}`,
-                'Content-Type': 'application/json'
-            }
+            credentials: 'include',
         });
 
         if (response.ok) {
-            const data = await response.json();
-            const newToken = data.token;
-
-            localStorage.setItem('auth_token', newToken);
             console.log('✅ Token rafraîchi pour WebSocket');
-
-            return newToken;
+            return true;
         }
 
         console.log('❌ Refresh token échoué');
-        return null;
+        return false;
     } catch (error) {
         console.error('❌ Erreur refresh token:', error);
-        return null;
+        return false;
     }
 };
 
@@ -109,50 +99,36 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         let isUnmounted = false;
 
         const connectWebSocket = async () => {
-            const token = localStorage.getItem('auth_token');
-
-            if (!token) {
-                console.log('❌ Pas de token');
-                return;
-            }
-
+            // Cookie is sent automatically with the WebSocket upgrade request
             const ws = new WebSocket(WS_URL);
             wsRef.current = ws;
 
             ws.onopen = () => {
                 console.log("✅ WebSocket connecté");
                 setIsConnected(true);
-
-                ws.send(JSON.stringify({
-                    type: "auth",
-                    data: { token }
-                }));
+                // Backend authenticates via the access_token cookie from the upgrade headers.
+                // No need to send token in a message.
             };
 
             ws.onmessage = async (event) => {
                 try {
                     const message = JSON.parse(event.data);
 
-                    if (message.type === "auth_error" &&
-                        (message.data?.code === "TOKEN_EXPIRED" ||
-                            message.data?.message?.includes("expired") ||
-                            message.data?.message?.includes("Token expired"))) {
-
-                        console.log("🔄 Token expiré, refresh unique...");
+                    if (message.type === "auth_error") {
+                        console.log("🔄 Auth WebSocket échouée, tentative de refresh...");
                         ws.close();
 
                         await new Promise(resolve => setTimeout(resolve, 500));
 
-                        const newToken = await refreshAuthToken();
+                        const refreshed = await refreshAuthToken();
 
-                        if (newToken) {
+                        if (refreshed) {
                             console.log('✅ Token rafraîchi, reconnexion...');
                             if (!isUnmounted) {
                                 connectWebSocket();
                             }
                         } else {
                             console.log('❌ Refresh échoué, redirection login');
-                            localStorage.removeItem('auth_token');
                             window.location.href = '/login';
                         }
                         return;

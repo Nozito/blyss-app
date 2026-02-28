@@ -17,6 +17,30 @@ import {
 
 const router = express.Router();
 
+// ── Helpers cookies ───────────────────────────────────────────────────────────
+const IS_PROD = process.env.NODE_ENV === "production";
+const BASE_COOKIE = {
+  httpOnly: true,
+  secure: IS_PROD,
+  sameSite: "strict" as const,
+};
+
+function setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
+  res.cookie("access_token", accessToken, {
+    ...BASE_COOKIE,
+    maxAge: 15 * 60 * 1000, // 15 min
+  });
+  res.cookie("refresh_token", refreshToken, {
+    ...BASE_COOKIE,
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+  });
+}
+
+function clearAuthCookies(res: Response) {
+  res.clearCookie("access_token", BASE_COOKIE);
+  res.clearCookie("refresh_token", BASE_COOKIE);
+}
+
 /* POST /signup */
 router.post(
   "/signup",
@@ -215,7 +239,8 @@ router.get(
         `SELECT
           id, first_name, last_name, email, phone_number, birth_date, role,
           activity_name, city, instagram_account, profile_photo, banner_photo,
-          bio, profile_visibility, pro_status, bankaccountname, IBAN,
+          bio, profile_visibility, pro_status, bankaccountname, "IBAN",
+          iban_iv, iban_tag, iban_last4,
           accept_online_payment, created_at
         FROM users WHERE id = ?`,
         [userId]
@@ -322,6 +347,8 @@ router.post(
       const accessToken = generateAccessToken(user.id);
       const refreshToken = await generateAndStoreRefreshToken(user.id);
 
+      setAuthCookies(res, accessToken, refreshToken);
+
       res.json({
         success: true,
         data: { accessToken, refreshToken, user: userWithoutPassword },
@@ -339,10 +366,12 @@ router.post(
   authRefreshLimiter,
   async (req: Request, res: Response) => {
     try {
-      const { refreshToken } = req.body as { refreshToken?: string };
+      // Cookie-based clients send nothing in body; legacy clients send refreshToken in body
+      const refreshToken: string | undefined =
+        req.cookies?.refresh_token || (req.body as { refreshToken?: string })?.refreshToken;
 
       if (!refreshToken) {
-        return res.status(400).json({ success: false, message: "Missing refresh token" });
+        return res.status(401).json({ success: false, message: "Missing refresh token" });
       }
 
       const [rows] = await getDb().execute(
@@ -370,6 +399,8 @@ router.post(
       const newRefreshToken = await generateAndStoreRefreshToken(record.user_id);
       await revokeRefreshToken(refreshToken);
 
+      setAuthCookies(res, newAccessToken, newRefreshToken);
+
       return res.json({
         success: true,
         data: { accessToken: newAccessToken, refreshToken: newRefreshToken },
@@ -384,18 +415,120 @@ router.post(
 /* POST /logout */
 router.post("/logout", async (req: Request, res: Response) => {
   try {
-    const { refreshToken } = req.body as { refreshToken?: string };
+    const refreshToken: string | undefined =
+      req.cookies?.refresh_token || (req.body as { refreshToken?: string })?.refreshToken;
 
-    if (!refreshToken) {
-      return res.status(400).json({ success: false, message: "Missing refresh token" });
+    if (refreshToken) {
+      await revokeRefreshToken(refreshToken);
     }
 
-    await revokeRefreshToken(refreshToken);
+    clearAuthCookies(res);
     return res.json({ success: true });
   } catch (err) {
     console.error("Logout error:", err);
     res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
+
+/* DELETE /delete-account — RGPD Art. 17 (droit à l'effacement) */
+router.delete(
+  "/delete-account",
+  authenticateToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Non authentifié" });
+    }
+
+    const db = getDb();
+    let connection;
+    try {
+      connection = await db.getConnection();
+      await connection.beginTransaction();
+
+      // Anonymise les réservations (obligation légale de conservation comptable)
+      await connection.execute(
+        `UPDATE reservations SET client_id = NULL, pro_id = NULL WHERE client_id = ? OR pro_id = ?`,
+        [userId, userId]
+      );
+
+      // Anonymise les paiements (conservation comptable)
+      await connection.execute(
+        `UPDATE payments SET client_id = NULL, pro_id = NULL WHERE client_id = ? OR pro_id = ?`,
+        [userId, userId]
+      );
+
+      // Supprime l'utilisateur (les autres tables cascadent via FK ON DELETE CASCADE)
+      await connection.execute(`DELETE FROM users WHERE id = ?`, [userId]);
+
+      await connection.commit();
+
+      console.log(`✅ RGPD: compte supprimé pour userId=${userId}`);
+      clearAuthCookies(res);
+      return res.json({ success: true, message: "Compte supprimé avec succès" });
+    } catch (err) {
+      if (connection) await connection.rollback();
+      console.error("❌ Delete account error:", err);
+      return res.status(500).json({ success: false, message: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+/* GET /export-data — RGPD Art. 20 (portabilité des données) */
+router.get(
+  "/export-data",
+  authenticateToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Non authentifié" });
+    }
+
+    const db = getDb();
+    try {
+      const [[users], [reservations], [reviews], [notifications]] = await Promise.all([
+        db.query(
+          `SELECT id, first_name, last_name, email, phone_number, birth_date, role,
+            activity_name, city, bio, profile_visibility, created_at
+           FROM users WHERE id = ?`,
+          [userId]
+        ) as Promise<[any[], any]>,
+        db.query(
+          `SELECT id, pro_id, prestation_id, start_datetime, end_datetime,
+            status, price, notes, created_at
+           FROM reservations WHERE client_id = ? OR pro_id = ?`,
+          [userId, userId]
+        ) as Promise<[any[], any]>,
+        db.query(
+          `SELECT id, pro_id, client_id, rating, comment, created_at
+           FROM reviews WHERE client_id = ? OR pro_id = ?`,
+          [userId, userId]
+        ) as Promise<[any[], any]>,
+        db.query(
+          `SELECT id, type, title, message, is_read, created_at
+           FROM notifications WHERE user_id = ?`,
+          [userId]
+        ) as Promise<[any[], any]>,
+      ]);
+
+      const profile = (users as any[])[0] ?? null;
+
+      res.setHeader("Content-Disposition", `attachment; filename="blyss-data-${userId}.json"`);
+      res.setHeader("Content-Type", "application/json");
+      return res.json({
+        exported_at: new Date().toISOString(),
+        profile,
+        reservations,
+        reviews,
+        notifications,
+      });
+    } catch (err) {
+      console.error("❌ Export data error:", err);
+      return res.status(500).json({ success: false, message: "Erreur serveur" });
+    }
+  }
+);
 
 export default router;

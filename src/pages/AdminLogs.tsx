@@ -42,9 +42,8 @@ const AdminLogs = () => {
 
   const fetchLogs = async () => {
     try {
-      const token = localStorage.getItem("auth_token");
       const response = await fetch(`${API_URL}/api/admin/logs?date=${dateFilter}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
 
       if (response.ok) {

@@ -86,9 +86,8 @@ const AdminUsers = () => {
   const fetchUsers = async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
     try {
-      const token = localStorage.getItem("auth_token");
       const response = await fetch(`${API_URL}/api/admin/users`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
 
       if (response.ok) {
@@ -174,7 +173,6 @@ const AdminUsers = () => {
     console.log("📤 SUBMITTING FORM DATA:", formData);
 
     try {
-      const token = localStorage.getItem("auth_token");
       const url = modalMode === 'create'
         ? `${API_URL}/api/admin/users/create`
         : `${API_URL}/api/admin/users/${selectedUser?.id}`;
@@ -183,8 +181,8 @@ const AdminUsers = () => {
         method: modalMode === 'create' ? 'POST' : 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
+        credentials: 'include',
         body: JSON.stringify(formData),
       });
 
@@ -211,10 +209,9 @@ const AdminUsers = () => {
     if (!confirm(`Supprimer ${userName} ?`)) return;
 
     try {
-      const token = localStorage.getItem("auth_token");
       const response = await fetch(`${API_URL}/api/admin/users/${userId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
 
       if (response.ok) {

@@ -3,9 +3,11 @@ import { ChevronLeft, Check, AlertCircle, Eye, EyeOff, Save } from "lucide-react
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 
 const ProSettings = () => {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
 
   // Infos pro
   const [firstName, setFirstName] = useState("");
@@ -40,12 +42,11 @@ const ProSettings = () => {
     const fetchUserData = async () => {
       setIsLoading(true);
       try {
-        const token = localStorage.getItem("auth_token");
-        if (!token) return;
+        if (!isAuthenticated) return;
 
         const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
         const response = await fetch(`${BASE_URL}/api/users`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',
         });
 
         const data = await response.json();
@@ -213,8 +214,8 @@ const ProSettings = () => {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
         },
+        credentials: 'include',
         body: JSON.stringify(payload),
       });
 

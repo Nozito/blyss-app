@@ -5,6 +5,7 @@ import express, { Request, Response, NextFunction, Router } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import cookieParser from "cookie-parser";
 import bcrypt from "bcrypt";
 import { getDb } from "./lib/db";
 import dotenv from "dotenv";
@@ -27,8 +28,23 @@ import {
   broadcastNotification,
 } from "./lib/notifications";
 import { authMiddleware, authenticateToken } from "./middleware/auth";
+import {
+  bookingLimiter,
+  paymentIntentLimiter,
+  ibanUpdateLimiter,
+  publicListingLimiter,
+  adminLimiter,
+  instagramLimiter,
+} from "./middleware/rate-limits";
+import { validate, userUpdateSchema, financeObjectiveSchema, prestationSchema, prestationPatchSchema, slotCreateSchema, reservationSchema, reviewSchema, depositSchema, paymentIntentSchema, favoriteSchema } from "./middleware/validate";
 import authRouter from "./routes/auth.routes";
 import adminRouter from "./routes/admin.routes";
+import {
+  encryptSensitiveData,
+  decryptSensitiveData,
+  encryptIban,
+  decryptIban,
+} from "./lib/encryption";
 
 // ==========================================
 // 2. CONFIGURATION ENV
@@ -39,17 +55,27 @@ console.log("Loading env from:", envPath);
 
 dotenv.config({ path: envPath });
 
-if (!process.env.JWT_SECRET) {
-  console.error("JWT_SECRET is not defined. Exiting.");
+// ── Startup env var validation ─────────────────────────────────────────────
+const REQUIRED_ENV_VARS = [
+  "DATABASE_URL",
+  "JWT_SECRET",
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET",
+  "REVENUECAT_WEBHOOK_SECRET",
+] as const;
+
+const missingVars = REQUIRED_ENV_VARS.filter((v) => !process.env[v]);
+if (missingVars.length > 0) {
+  console.error(
+    `❌ Variables d'environnement manquantes : ${missingVars.join(", ")}`
+  );
   process.exit(1);
 }
 
 // ==========================================
 // 2b. STRIPE INIT
 // ==========================================
-const key = process.env.STRIPE_SECRET_KEY;
-if (!key) throw new Error("STRIPE_SECRET_KEY manquante dans .env.dev");
-const stripe = new Stripe(key);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 
 // ==========================================
@@ -69,11 +95,9 @@ const app = express();
 const router = Router();
 const server = http.createServer(app);
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:8080",
-  "https://app.blyssapp.fr",
-];
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
+  : ["http://localhost:5173", "http://localhost:8080", "https://app.blyssapp.fr"];
 
 // ==========================================
 // 5. CONNEXION DATABASE (Supabase via pg)
@@ -188,12 +212,14 @@ app.post(
 );
 
 app.use(express.json());
+app.use(cookieParser());
 
 // authMiddleware / authenticateToken → middleware/auth.ts (importé en haut)
 
 // ── Routeurs extraits ──────────────────────────────────────────────────────
 app.use("/api/auth", authRouter);
-app.use("/api/admin", adminRouter);
+app.use("/api/admin", adminLimiter, adminRouter);
+app.use("/api/pro", router);
 
 // ==========================================
 // 9. WEBSOCKET SERVER
@@ -218,12 +244,50 @@ interface AuthenticatedWebSocket extends WebSocket {
   authTimeout?: NodeJS.Timeout;
 }
 
-wss.on("connection", (ws: AuthenticatedWebSocket, req) => {
+// Helper: parse a raw Cookie header string into a key/value map
+function parseCookies(cookieHeader: string): Record<string, string> {
+  return Object.fromEntries(
+    cookieHeader
+      .split(";")
+      .map((pair) => pair.trim().split("="))
+      .filter((parts) => parts.length === 2)
+      .map(([k, v]) => [k.trim(), decodeURIComponent(v.trim())])
+  );
+}
+
+// Helper: authenticate a WS client and flush unread notifications
+async function wsAuthenticate(ws: AuthenticatedWebSocket, token: string): Promise<boolean> {
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number };
+    ws.userId = decoded.id;
+    ws.isAuthenticated = true;
+    if (ws.authTimeout) {
+      clearTimeout(ws.authTimeout);
+      ws.authTimeout = undefined;
+    }
+    connectedClients.set(ws.userId, ws);
+    console.log(`✅ User ${ws.userId} authenticated via WebSocket`);
+    ws.send(JSON.stringify({ type: "auth_success", data: { userId: ws.userId } }));
+    await sendUnreadNotifications(ws, ws.userId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+wss.on("connection", async (ws: AuthenticatedWebSocket, req) => {
   console.log("🔌 New WebSocket connection");
 
   ws.userId = undefined;
   ws.isAuthenticated = false;
   ws.isAlive = true;
+
+  // Try cookie-based auth from the HTTP upgrade request headers
+  const cookieHeader = req.headers.cookie ?? "";
+  const cookies = parseCookies(cookieHeader);
+  if (cookies.access_token) {
+    await wsAuthenticate(ws, cookies.access_token);
+  }
 
   // ✅ Timeout d'authentification : ferme la connexion si pas d'auth dans 10s
   ws.authTimeout = setTimeout(() => {
@@ -248,58 +312,17 @@ wss.on("connection", (ws: AuthenticatedWebSocket, req) => {
     try {
       const data = JSON.parse(message.toString()) as WebSocketMessage;
 
-      // ✅ Authentification
+      // ✅ Authentification (message-based fallback for non-cookie clients)
       if (data.type === "auth" && data.data?.token) {
-        try {
-          const decoded = jwt.verify(
-            data.data.token,
-            process.env.JWT_SECRET!
-          ) as { id: number };
-
-          ws.userId = decoded.id;
-          ws.isAuthenticated = true;
-
-          // ✅ Annuler le timeout d'auth
-          if (ws.authTimeout) {
-            clearTimeout(ws.authTimeout);
-            ws.authTimeout = undefined;
-          }
-
-          connectedClients.set(ws.userId, ws);
-
-          console.log(`✅ User ${ws.userId} authenticated via WebSocket`);
-
-          ws.send(
-            JSON.stringify({
-              type: "auth_success",
-              data: { userId: ws.userId },
-            })
-          );
-
-          await sendUnreadNotifications(ws, ws.userId);
-
-        } catch (err) {
-          console.error("❌ WebSocket auth failed:", err);
-
-          // ✅ Différencier token expiré vs invalide
-          const errorMessage = err instanceof jwt.TokenExpiredError
-            ? "Token expired - please refresh"
-            : "Invalid token";
-
-          const errorCode = err instanceof jwt.TokenExpiredError
-            ? "TOKEN_EXPIRED"
-            : "INVALID_TOKEN";
-
+        const ok = await wsAuthenticate(ws, data.data.token);
+        if (!ok) {
           ws.send(
             JSON.stringify({
               type: "auth_error",
-              data: {
-                message: errorMessage,
-                code: errorCode
-              },
+              data: { message: "Invalid or expired token", code: "INVALID_TOKEN" },
             })
           );
-          ws.close(4001, errorMessage);
+          ws.close(4001, "Authentication failed");
         }
         return;
       }
@@ -516,61 +539,14 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
 
 // ==========================================
 // CONFIGURATION CHIFFREMENT IBAN
+// encryptIban/decryptIban/encryptSensitiveData/decryptSensitiveData
+// importés depuis lib/encryption.ts (random IV par enregistrement)
 // ==========================================
-
-const IBAN_KEY = process.env.IBAN_ENC_KEY
-  ? Buffer.from(process.env.IBAN_ENC_KEY, "hex")
-  : null;
-
-const IBAN_IV = process.env.IBAN_ENC_IV
-  ? Buffer.from(process.env.IBAN_ENC_IV, "hex")
-  : null;
-
-if (!IBAN_KEY || IBAN_KEY.length !== 32) {
+if (!process.env.IBAN_ENC_KEY) {
+  console.error("❌ IBAN_ENC_KEY manquante");
   process.exit(1);
 }
-
-if (!IBAN_IV || ![12, 16].includes(IBAN_IV.length)) {
-  process.exit(1);
-}
-
 console.log("✅ Clés de chiffrement IBAN chargées");
-
-function encryptSensitiveData(plain: string): string {
-  if (!plain || plain.trim() === '') {
-    return '';
-  }
-  if (!IBAN_KEY || !IBAN_IV) {
-    throw new Error("Clés de chiffrement IBAN non configurées");
-  }
-  const cipher = crypto.createCipheriv("aes-256-gcm", IBAN_KEY, IBAN_IV);
-  const encrypted = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-  return `${encrypted.toString("base64")}:${authTag.toString("base64")}`;
-}
-
-function decryptSensitiveData(stored: string): string {
-  if (!stored || stored.trim() === '') {
-    return '';
-  }
-  if (!IBAN_KEY || !IBAN_IV) {
-    throw new Error("Clés de chiffrement IBAN non configurées");
-  }
-  const [cipherTextB64, tagB64] = stored.split(":");
-  if (!cipherTextB64 || !tagB64) {
-    throw new Error("Invalid encrypted data format");
-  }
-  const encrypted = Buffer.from(cipherTextB64, "base64");
-  const authTag = Buffer.from(tagB64, "base64");
-
-  const decipher = crypto.createDecipheriv("aes-256-gcm", IBAN_KEY, IBAN_IV);
-  decipher.setAuthTag(authTag);
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return decrypted.toString("utf8");
-}
-
-const encryptIban = encryptSensitiveData;
-const decryptIban = decryptSensitiveData;
 
 // ==========================================
 // INTERFACES
@@ -702,6 +678,7 @@ function getProId(req: AuthenticatedRequest): number {
 /* GET SINGLE PRO (PUBLIC) */
 app.get(
   "/api/users/pros/:proId",
+  publicListingLimiter,
   async (req: Request, res: Response) => {
     try {
       const proId = parseParamToInt(req.params.proId);
@@ -856,29 +833,23 @@ app.get(
 app.post(
   "/api/slots/create",
   authenticateToken,
+  validate(slotCreateSchema),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const proId = req.user?.id;
       const { start_datetime, end_datetime, duration } = req.body;
 
-      if (!start_datetime || !end_datetime) {
-        return res.status(400).json({
-          success: false,
-          message: "Dates de début et fin requises"
-        });
-      }
-
       // Insérer le slot
       const [result] = await db.query(
         `INSERT INTO slots (pro_id, start_datetime, end_datetime, duration, status)
          VALUES (?, ?, ?, ?, 'available')`,
-        [proId, start_datetime, end_datetime, duration || 60]
+        [proId, start_datetime, end_datetime, duration ?? 60]
       );
 
       res.json({
         success: true,
         message: "Créneau créé",
-        data: { id: (result as any).insertId }
+        data: { id: (result as unknown as { insertId: number }).insertId }
       });
     } catch (error) {
       console.error("Error creating slot:", error);
@@ -1063,16 +1034,13 @@ router.get('/prestations', authMiddleware, async (req: any, res: any) => {
 });
 
 // ===== POST /api/pro/prestations =====
-router.post('/prestations', authMiddleware, async (req: any, res: any) => {
+router.post('/prestations', authMiddleware, validate(prestationSchema), async (req: any, res: any) => {
   try {
-    const { name, description, price, duration_minutes, active = true } = req.body;
-    if (!name || !price || !duration_minutes) {
-      return res.status(400).json({ success: false, error: 'Champs requis manquants' });
-    }
+    const { name, description, price, duration_minutes, active } = req.body;
     const [result] = await db.query(
       `INSERT INTO prestations (pro_id, name, description, price, duration_minutes, active)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [req.user!.id, name, description || '', parseFloat(price), parseInt(duration_minutes), active]
+      [req.user!.id, name, description, price, duration_minutes, active]
     );
     // Get the inserted row
     const [rows] = await db.query(
@@ -1087,7 +1055,7 @@ router.post('/prestations', authMiddleware, async (req: any, res: any) => {
 });
 
 // ===== PATCH /api/pro/prestations/:id =====
-router.patch('/prestations/:id', authMiddleware, async (req: any, res: any) => {
+router.patch('/prestations/:id', authMiddleware, validate(prestationPatchSchema), async (req: any, res: any) => {
   try {
     const { id } = req.params;
     const { name, description, price, duration_minutes, active } = req.body;
@@ -1099,8 +1067,8 @@ router.patch('/prestations/:id', authMiddleware, async (req: any, res: any) => {
     if ((check as any[]).length === 0) {
       return res.status(404).json({ success: false, error: 'Prestation introuvable' });
     }
-    const updates = [];
-    const values = [];
+    const updates: string[] = [];
+    const values: unknown[] = [];
     if (name !== undefined) {
       updates.push(`name = ?`);
       values.push(name);
@@ -1111,11 +1079,11 @@ router.patch('/prestations/:id', authMiddleware, async (req: any, res: any) => {
     }
     if (price !== undefined) {
       updates.push(`price = ?`);
-      values.push(parseFloat(price));
+      values.push(price);
     }
     if (duration_minutes !== undefined) {
       updates.push(`duration_minutes = ?`);
-      values.push(parseInt(duration_minutes));
+      values.push(duration_minutes);
     }
     if (active !== undefined) {
       updates.push(`active = ?`);
@@ -1331,24 +1299,14 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
 });
 
 // PUT /api/pro/finance/objective - Update monthly objective
-app.put("/api/pro/finance/objective", authenticateToken, async (req: any, res) => {
+app.put("/api/pro/finance/objective", authenticateToken, validate(financeObjectiveSchema), async (req: any, res) => {
   const rid = req.requestId;
 
   try {
     const userId = req.user.id;
-    const rawObjective = req.body?.objective;
+    const { objective } = req.body;
 
-    console.log(`[FINANCE_OBJECTIVE][${rid}] userId=`, userId, "rawObjective=", rawObjective);
-
-    // Validation
-    const objective = Number(rawObjective);
-    if (!Number.isFinite(objective) || objective < 0 || objective > 1_000_000) {
-      console.log(`[FINANCE_OBJECTIVE][${rid}] BLOCK: invalid objective`);
-      return res.status(400).json({
-        success: false,
-        error: "Objectif invalide (0 à 1 000 000)",
-      });
-    }
+    console.log(`[FINANCE_OBJECTIVE][${rid}] userId=`, userId, "objective=", objective);
 
     // 1) Vérifier pro actif
     const [userRows]: any = await db.query(
@@ -1601,9 +1559,9 @@ app.get(
       }
 
       let decryptedBankData: any = {};
-      if (user.IBAN) {
+      if (user.IBAN && (user as any).iban_iv && (user as any).iban_tag) {
         try {
-          const plainIban = decryptSensitiveData(user.IBAN as string);
+          const plainIban = decryptIban(user.IBAN as string, (user as any).iban_iv, (user as any).iban_tag);
           decryptedBankData.IBAN = plainIban.replace(/.(?=.{4})/g, "•");
         } catch (err) {
           console.error("Error decrypting IBAN:", err);
@@ -1749,7 +1707,13 @@ const fileFilter = (
   }
 };
 
-const upload = multer({ storage, fileFilter });
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max
+  },
+});
 
 const uploadBanner = multer({
   storage: storageBanner,
@@ -1844,6 +1808,7 @@ app.post(
 app.put(
   "/api/users/update",
   authMiddleware,
+  validate(userUpdateSchema),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const {
@@ -1950,6 +1915,7 @@ app.put(
 app.put(
   "/api/users/payments",
   authMiddleware,
+  ibanUpdateLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const userId = req.user!.id;
@@ -1982,27 +1948,22 @@ app.put(
         }
 
         const formattedIban = electronicFormatIBAN(IBAN);
-        if (!isValidIBAN(formattedIban)) {
+        if (!formattedIban || !isValidIBAN(formattedIban)) {
           return res
             .status(400)
             .json({ success: false, message: "IBAN invalide." });
         }
 
-        const encryptedIban = encryptSensitiveData(formattedIban);
+        const { ciphertext: ibanCiphertext, iv: ibanIv, tag: ibanTag } = encryptIban(formattedIban);
         const encryptedAccountName = encryptSensitiveData(bankaccountname.trim());
         const ibanLast4 = formattedIban.slice(-4);
-
-        const ibanHash = crypto
-          .createHash('sha256')
-          .update(formattedIban)
-          .digest('hex');
+        const ibanHash = crypto.createHash("sha256").update(formattedIban).digest("hex");
 
         const [existing] = await db.execute(
-          `SELECT id FROM users 
-           WHERE id != ? 
-           AND iban_last4 = ?
-           AND SHA2(IBAN, 256) = ?`,
-          [userId, ibanLast4, ibanHash]
+          `SELECT id FROM users
+           WHERE id != ?
+           AND iban_hash = ?`,
+          [userId, ibanHash]
         );
 
         if ((existing as any[]).length > 0) {
@@ -2013,17 +1974,18 @@ app.put(
         }
 
         await db.execute(
-          `
-          UPDATE users
-          SET 
-            bankaccountname = ?, 
-            IBAN = ?, 
-            iban_last4 = ?,
-            accept_online_payment = true,
-            bank_info_updated_at = NOW()
-          WHERE id = ?
-        `,
-          [encryptedAccountName, encryptedIban, ibanLast4, userId]
+          `UPDATE users
+           SET
+             bankaccountname = ?,
+             "IBAN" = ?,
+             iban_iv = ?,
+             iban_tag = ?,
+             iban_last4 = ?,
+             iban_hash = ?,
+             accept_online_payment = true,
+             bank_info_updated_at = NOW()
+           WHERE id = ?`,
+          [encryptedAccountName, ibanCiphertext, ibanIv, ibanTag, ibanLast4, ibanHash, userId]
         );
       } else {
         await db.execute(
@@ -2037,7 +1999,7 @@ app.put(
       }
 
       const [rows] = await db.execute(
-        `SELECT bankaccountname, IBAN, iban_last4, accept_online_payment 
+        `SELECT bankaccountname, "IBAN", iban_iv, iban_tag, iban_last4, accept_online_payment
          FROM users WHERE id = ?`,
         [userId]
       );
@@ -2046,9 +2008,9 @@ app.put(
       let maskedIban: string | null = null;
       let accountHolderName: string | null = null;
 
-      if (record.IBAN) {
+      if (record.IBAN && record.iban_iv && record.iban_tag) {
         try {
-          const plainIban = decryptSensitiveData(record.IBAN as string);
+          const plainIban = decryptIban(record.IBAN as string, record.iban_iv, record.iban_tag);
           maskedIban = plainIban.replace(/.(?=.{4})/g, "•");
         } catch (err) {
           console.error("Error decrypting IBAN:", err);
@@ -2084,7 +2046,14 @@ app.put(
   }
 );
 
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "uploads"), {
+    dotfiles: "deny",
+    maxAge: "1h",
+    etag: false,
+  })
+);
 
 // ==========================================
 // PUBLIC ROUTES - SPECIALISTS
@@ -2093,14 +2062,24 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 /* GET ALL ACTIVE PROS (PUBLIC) */
 app.get(
   "/api/users/pros",
+  publicListingLimiter,
   async (req: Request, res: Response) => {
     let connection;
     try {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+      const offset = (page - 1) * limit;
+
       connection = await db.getConnection();
+
+      const [countRows] = await connection.query(
+        `SELECT COUNT(*) as total FROM users WHERE role = 'pro' AND pro_status = 'active'`
+      );
+      const total = (countRows as { total: number }[])[0]?.total ?? 0;
 
       const [rows] = await connection.query(
         `
-        SELECT 
+        SELECT
           u.id,
           u.first_name,
           u.last_name,
@@ -2118,12 +2097,15 @@ app.get(
         WHERE u.role = 'pro' AND u.pro_status = 'active'
         GROUP BY u.id
         ORDER BY avg_rating DESC, reviews_count DESC
-        `
+        LIMIT ? OFFSET ?
+        `,
+        [limit, offset]
       );
 
       res.json({
         success: true,
         data: rows,
+        meta: { page, limit, total },
       });
     } catch (error) {
       console.error("Error fetching pros:", error);
@@ -2140,6 +2122,7 @@ app.get(
 /* GET REVIEWS BY PRO (PUBLIC) */
 app.get(
   "/api/reviews/pro/:proId",
+  publicListingLimiter,
   async (req: Request, res: Response) => {
     let connection;
     try {
@@ -2153,10 +2136,20 @@ app.get(
         });
       }
 
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+      const offset = (page - 1) * limit;
+
       connection = await db.getConnection();
 
+      const [countRows] = await connection.query(
+        `SELECT COUNT(*) as total FROM reviews WHERE pro_id = ?`,
+        [proId]
+      );
+      const total = (countRows as { total: number }[])[0]?.total ?? 0;
+
       const [rows] = await connection.query(
-        `SELECT 
+        `SELECT
           id,
           pro_id,
           client_id,
@@ -2165,13 +2158,15 @@ app.get(
           created_at
          FROM reviews
          WHERE pro_id = ?
-         ORDER BY created_at DESC`,
-        [proId]
+         ORDER BY created_at DESC
+         LIMIT ? OFFSET ?`,
+        [proId, limit, offset]
       );
 
       res.json({
         success: true,
-        data: rows
+        data: rows,
+        meta: { page, limit, total },
       });
     } catch (error) {
       console.error("❌ Error fetching reviews:", error);
@@ -4151,25 +4146,11 @@ app.put(
 );
 
 /* CREATE REVIEW */
-app.post("/api/reviews", authenticateToken, async (req: Request, res: Response) => {
+app.post("/api/reviews", authenticateToken, validate(reviewSchema), async (req: Request, res: Response) => {
   let connection;
   try {
     const clientId = (req as AuthenticatedRequest).user?.id;
     const { pro_id, rating, comment } = req.body;
-
-    if (!clientId) {
-      return res.status(401).json({
-        success: false,
-        message: "Non authentifié"
-      });
-    }
-
-    if (!pro_id || !rating || rating < 1 || rating > 5) {
-      return res.status(400).json({
-        success: false,
-        message: "Données invalides"
-      });
-    }
 
     connection = await db.getConnection();
 
@@ -4593,27 +4574,17 @@ app.get("/api/favorites", authenticateToken, async (req: Request, res: Response)
 });
 
 /* ADD TO FAVORITES */
-app.post("/api/favorites", authenticateToken, async (req: Request, res: Response) => {
+app.post("/api/favorites", authenticateToken, validate(favoriteSchema), async (req: Request, res: Response) => {
   let connection;
   try {
     const user = (req as AuthenticatedRequest).user;
     const clientId = user?.id;
     const { pro_id } = req.body;
 
-    console.log("🔐 Add favorite - user:", user, "clientId:", clientId, "pro_id:", pro_id);
-
-    if (!clientId || clientId === undefined || clientId === null) {
-      console.log("❌ Client ID missing or invalid");
+    if (!clientId) {
       return res.status(401).json({
         success: false,
         message: "Non authentifié"
-      });
-    }
-
-    if (!pro_id) {
-      return res.status(400).json({
-        success: false,
-        message: "ID du professionnel requis"
       });
     }
 
@@ -4644,7 +4615,7 @@ app.post("/api/favorites", authenticateToken, async (req: Request, res: Response
       success: true,
       message: "Ajouté aux favoris",
       data: {
-        id: (result as { insertId: number }).insertId,
+        id: (result as unknown as { insertId: number }).insertId,
         pro_id: pro_id,
         isFavorite: true
       }
@@ -4687,7 +4658,7 @@ app.delete("/api/favorites/:proId", authenticateToken, async (req: Request, res:
       [clientId, proId]
     );
 
-    if ((result as { affectedRows: number }).affectedRows === 0) {
+    if ((result as unknown as { affectedRows: number }).affectedRows === 0) {
       return res.status(404).json({
         success: false,
         message: "Favori non trouvé",
@@ -4906,14 +4877,10 @@ app.get("/api/pro/stripe/account", authenticateToken, async (req: AuthenticatedR
 });
 
 // PUT /api/pro/stripe/deposit - Update deposit percentage
-app.put("/api/pro/stripe/deposit", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+app.put("/api/pro/stripe/deposit", authenticateToken, validate(depositSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.id;
     const { deposit_percentage } = req.body;
-
-    if (![0, 30, 50, 100].includes(deposit_percentage)) {
-      return res.status(400).json({ success: false, message: "Pourcentage invalide (0, 30, 50, 100)" });
-    }
 
     await db.execute(
       `UPDATE users SET deposit_percentage = ? WHERE id = ?`,
@@ -4932,13 +4899,39 @@ app.put("/api/pro/stripe/deposit", authenticateToken, async (req: AuthenticatedR
 // ==========================================
 
 // POST /api/reservations - Create a reservation
-app.post("/api/reservations", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reservationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user?.id;
-    const { pro_id, prestation_id, start_datetime, end_datetime, price, slot_id } = req.body;
+    const { pro_id, prestation_id, start_datetime, end_datetime, price: parsedPrice, slot_id } = req.body;
 
-    if (!pro_id || !prestation_id || !start_datetime || !end_datetime || !price) {
-      return res.status(400).json({ success: false, message: "Champs requis manquants" });
+    // Verify prestation belongs to the given pro
+    const [prestationRows] = await db.query(
+      `SELECT id FROM prestations WHERE id = ? AND pro_id = ?`,
+      [prestation_id, pro_id]
+    );
+    if ((prestationRows as any[]).length === 0) {
+      return res.status(403).json({ success: false, message: "Prestation invalide pour ce professionnel" });
+    }
+
+    // If a slot_id is provided, verify it is still available (owned by pro)
+    if (slot_id) {
+      const [slotRows] = await db.query(
+        `SELECT status FROM slots WHERE id = ? AND pro_id = ?`,
+        [slot_id, pro_id]
+      );
+      const slot = (slotRows as any[])[0];
+      if (!slot || slot.status !== "available") {
+        return res.status(409).json({ success: false, message: "Ce créneau n'est plus disponible" });
+      }
+    }
+
+    // Prevent overlapping reservations with the same pro
+    const [overlapRows] = await db.query(
+      `SELECT id FROM reservations WHERE pro_id = ? AND status NOT IN ('cancelled', 'rejected') AND start_datetime < ? AND end_datetime > ?`,
+      [pro_id, end_datetime, start_datetime]
+    );
+    if ((overlapRows as any[]).length > 0) {
+      return res.status(409).json({ success: false, message: "Ce créneau est déjà réservé" });
     }
 
     // Get pro's deposit percentage
@@ -4947,16 +4940,19 @@ app.post("/api/reservations", authenticateToken, async (req: AuthenticatedReques
       [pro_id]
     );
     const pro = (proRows as any[])[0];
-    const depositPct = pro?.deposit_percentage ?? 50;
-    const depositAmount = depositPct > 0 ? Math.round(price * depositPct) / 100 : null;
+    if (!pro) {
+      return res.status(404).json({ success: false, message: "Professionnel introuvable" });
+    }
+    const depositPct = pro.deposit_percentage ?? 50;
+    const depositAmount = depositPct > 0 ? Math.round(parsedPrice * depositPct) / 100 : null;
 
     const [result] = await db.execute(
       `INSERT INTO reservations (client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, payment_status, deposit_amount, slot_id, created_at)
        VALUES (?, ?, ?, ?, ?, 'confirmed', ?, 'unpaid', ?, ?, NOW())`,
-      [clientId, pro_id, prestation_id, start_datetime, end_datetime, price, depositAmount, slot_id || null]
+      [clientId, pro_id, prestation_id, start_datetime, end_datetime, parsedPrice, depositAmount, slot_id || null]
     );
 
-    const insertId = (result as any).insertId;
+    const insertId = (result as unknown as { insertId: number }).insertId;
 
     // If slot_id, mark the slot as booked
     if (slot_id) {
@@ -4972,7 +4968,7 @@ app.post("/api/reservations", authenticateToken, async (req: AuthenticatedReques
         id: insertId,
         deposit_percentage: depositPct,
         deposit_amount: depositAmount,
-        price,
+        price: parsedPrice,
       },
     });
   } catch (error) {
@@ -5064,14 +5060,10 @@ app.put("/api/reservations/:id/pay-on-site", authenticateToken, async (req: Auth
 // ==========================================
 
 // POST /api/payments/create-intent - Create a PaymentIntent
-app.post("/api/payments/create-intent", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+app.post("/api/payments/create-intent", authenticateToken, paymentIntentLimiter, validate(paymentIntentSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user?.id;
     const { reservation_id, type } = req.body;
-
-    if (!reservation_id || !type || !["deposit", "balance", "full"].includes(type)) {
-      return res.status(400).json({ success: false, message: "Paramètres invalides" });
-    }
 
     // Get reservation details
     const [resaRows] = await db.query(
@@ -5265,6 +5257,7 @@ try {
 // ── 1. Initier la connexion OAuth Instagram ──
 app.get(
   "/api/instagram/connect",
+  instagramLimiter,
   authenticateToken,
   requirePlan("signature"),
   (req: AuthenticatedRequest, res: Response) => {
@@ -5279,7 +5272,7 @@ app.get(
 );
 
 // ── 2. Callback OAuth (Instagram redirige ici après autorisation) ──
-app.get("/api/instagram/callback", async (req: Request, res: Response) => {
+app.get("/api/instagram/callback", instagramLimiter, async (req: Request, res: Response) => {
   const { code, state, error } = req.query as Record<string, string>;
   const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
@@ -5324,8 +5317,10 @@ app.get("/api/instagram/callback", async (req: Request, res: Response) => {
       await instagramService.exchangeCodeForLongLivedToken(code);
 
     // Récupérer le username Instagram
+    // Token in Authorization header (not query string) to avoid leaking in server logs
     const profileRes = await fetch(
-      `https://graph.instagram.com/me?fields=id,username&access_token=${accessToken}`
+      "https://graph.instagram.com/me?fields=id,username",
+      { headers: { Authorization: `Bearer ${accessToken}` } }
     );
 
     if (!profileRes.ok) {
@@ -5358,6 +5353,7 @@ app.get("/api/instagram/callback", async (req: Request, res: Response) => {
 // ── 3. Statut de la connexion Instagram du pro connecté ──
 app.get(
   "/api/instagram/status",
+  instagramLimiter,
   authenticateToken,
   requirePlan("signature"),
   async (req: AuthenticatedRequest, res: Response) => {
@@ -5374,6 +5370,7 @@ app.get(
 // ── 4. Déconnecter Instagram ──
 app.delete(
   "/api/instagram/disconnect",
+  instagramLimiter,
   authenticateToken,
   requirePlan("signature"),
   async (req: AuthenticatedRequest, res: Response) => {
@@ -5390,6 +5387,7 @@ app.delete(
 // ── 5. Sync manuelle (throttle 5min) ──
 app.post(
   "/api/instagram/sync",
+  instagramLimiter,
   authenticateToken,
   requirePlan("signature"),
   async (req: AuthenticatedRequest, res: Response) => {
@@ -5421,6 +5419,7 @@ app.post(
 // Pas d'auth requise — vérification plan + visibilité en DB
 app.get(
   "/api/public/pro/:proId/instagram",
+  publicListingLimiter,
   async (req: Request, res: Response) => {
     const proId = parseInt(req.params.proId as string, 10);
 
@@ -5506,6 +5505,21 @@ setTimeout(() => {
 }, 30 * 60 * 1000);
 
 // ==========================================
+// GLOBAL ERROR HANDLER
+// ==========================================
+
+// Must be registered after all routes (Express uses arity to detect error middleware)
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  console.error("❌ Unhandled Express error:", err.stack ?? err.message);
+  if (res.headersSent) return;
+  res.status(500).json({
+    success: false,
+    message: "Erreur serveur interne",
+    error: process.env.NODE_ENV === "production" ? undefined : err.message,
+  });
+});
+
+// ==========================================
 // START SERVER
 // ==========================================
 
@@ -5519,6 +5533,15 @@ if (process.env.NODE_ENV !== "test") {
   });
 }
 
+// Process-level crash guards (log + graceful exit on unrecoverable errors)
+process.on("uncaughtException", (err) => {
+  console.error("❌ UNCAUGHT EXCEPTION — shutting down:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("❌ UNHANDLED REJECTION:", reason);
+  // Don't exit — let individual route errors surface via error handler
+});
+
 export { app };
-// Mount the prestations router under /api/pro
-app.use('/api/pro', router);

@@ -113,9 +113,8 @@ const AdminNotifications = () => {
     useEffect(() => {
         const fetchUsers = async () => {
             try {
-                const token = localStorage.getItem("auth_token");
                 const response = await fetch(`${API_URL}/api/admin/users`, {
-                    headers: { Authorization: `Bearer ${token}` },
+                    credentials: 'include',
                 });
 
                 if (response.ok) {
@@ -141,11 +140,10 @@ const AdminNotifications = () => {
 
         const fetchUserSettings = async () => {
             try {
-                const token = localStorage.getItem("auth_token");
                 const response = await fetch(
                     `${API_URL}/api/admin/users/${selectedUserId}/notification-settings`,
                     {
-                        headers: { Authorization: `Bearer ${token}` },
+                        credentials: 'include',
                     }
                 );
 
@@ -199,13 +197,12 @@ const AdminNotifications = () => {
         setIsLoading(true);
 
         try {
-            const token = localStorage.getItem("auth_token");
             const response = await fetch(`${API_URL}/api/admin/notifications/create`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
                 },
+                credentials: 'include',
                 body: JSON.stringify({
                     user_id: selectedUserId,
                     type,

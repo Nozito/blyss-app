@@ -17,7 +17,7 @@ import {
 interface SignupResponse {
   success: boolean;
   message?: string;
-  error?: 
+  error?:
     | "email_exists"
     | "weak_password"
     | "age_restriction"
@@ -32,6 +32,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  /** @deprecated Tokens are now HttpOnly cookies — always null from JS */
   token: string | null;
   login: (
     credentials: LoginCredentials
@@ -42,7 +43,7 @@ interface AuthContextType {
       user: User;
     }>
   >;
-  signup: (data: SignupData) => Promise<SignupResponse>; // ✅ Changé ici
+  signup: (data: SignupData) => Promise<SignupResponse>;
   logout: () => Promise<void>;
   updateUser: (data: Partial<User>) => Promise<ApiResponse<User>>;
 }
@@ -53,61 +54,43 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+const USER_CACHE_KEY = "user";
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [token, setToken] = useState<string | null>(() => {
-    return localStorage.getItem("auth_token");
+  const [user, setUser] = useState<User | null>(() => {
+    // Use cached user info for initial render (avoids flash)
+    try {
+      const cached = localStorage.getItem(USER_CACHE_KEY);
+      return cached ? (JSON.parse(cached) as User) : null;
+    } catch {
+      return null;
+    }
   });
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const initAuth = async () => {
-    setIsLoading(true);
-    try {
-      const storedToken = localStorage.getItem("auth_token");
-      setToken(storedToken);
-      
-      let savedUser: User | null = null;
-
+      setIsLoading(true);
       try {
-        const storedUser = localStorage.getItem("user");
-        if (storedUser) {
-          savedUser = JSON.parse(storedUser) as User;
-        }
-      } catch {
-        localStorage.removeItem("user");
-      }
-
-      if (!storedToken) {
-        setUser(savedUser);
-        setIsLoading(false);
-        return;
-      }
-
-      try {
+        // Verify the HttpOnly cookie is still valid by calling /profile
         const response = await authApi.getProfile();
-        
         if (response.success && response.data) {
           setUser(response.data);
-          localStorage.setItem("user", JSON.stringify(response.data));
+          localStorage.setItem(USER_CACHE_KEY, JSON.stringify(response.data));
         } else {
-          console.warn("Profile fetch failed, using cached user");
-          setUser(savedUser);
+          // Cookie expired or invalid
+          setUser(null);
+          localStorage.removeItem(USER_CACHE_KEY);
         }
-      } catch (error) {
-        console.error("Profile fetch error:", error);
-        setUser(savedUser);
+      } catch {
+        // Network error — keep cached user so UI renders
+      } finally {
+        setIsLoading(false);
       }
+    };
 
-    } catch (error) {
-      console.error("Init auth error:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  initAuth();
-}, []);
+    initAuth();
+  }, []);
 
   const login = async (
     credentials: LoginCredentials
@@ -121,23 +104,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setIsLoading(true);
     try {
       const response = await authApi.login(credentials);
-      console.log("login response =", response);
 
       if (response.success && response.data) {
-        const { accessToken, refreshToken } = response.data;
-
-        console.log("storing token =", accessToken);
-        localStorage.setItem("auth_token", accessToken);
-        localStorage.setItem("refresh_token", refreshToken);
-        setToken(accessToken);
-
+        // Tokens are set as HttpOnly cookies by the server
         const profile = await authApi.getProfile();
         if (profile.success && profile.data) {
           setUser(profile.data);
-          localStorage.setItem("user", JSON.stringify(profile.data));
+          localStorage.setItem(USER_CACHE_KEY, JSON.stringify(profile.data));
         }
-      } else {
-        console.warn("login failed at API level:", response);
       }
 
       return response;
@@ -149,22 +123,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  // ✅ Fonction signup corrigée pour gérer le cas simple
   const signup = async (data: SignupData): Promise<SignupResponse> => {
     setIsLoading(true);
     try {
       const response = await authApi.signup(data);
 
-      // ✅ Si le backend retourne juste { success, message, error }
       if (response.success) {
-        // Le compte est créé mais pas de connexion auto
-        console.log("✅ Account created successfully");
         return {
           success: true,
           message: response.message || "Account created successfully",
         };
       } else {
-        // Erreur lors de la création
         return {
           success: false,
           message: response.message,
@@ -185,14 +154,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = async (): Promise<void> => {
     try {
-      await authApi.logout();
+      await authApi.logout(); // Server clears HttpOnly cookies
     } catch (e) {
       console.error("Logout error:", e);
     } finally {
-      localStorage.removeItem("auth_token");
-      localStorage.removeItem("refresh_token");
-      localStorage.removeItem("user");
-      setToken(null);
+      localStorage.removeItem(USER_CACHE_KEY);
       setUser(null);
     }
   };
@@ -208,7 +174,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     if (response.success && response.data) {
       setUser(response.data);
-      localStorage.setItem("user", JSON.stringify(response.data));
+      localStorage.setItem(USER_CACHE_KEY, JSON.stringify(response.data));
     }
 
     return response;
@@ -218,7 +184,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     user,
     isLoading,
     isAuthenticated: Boolean(user),
-    token,
+    token: null, // Tokens are HttpOnly cookies — not accessible from JS
     login,
     signup,
     logout,

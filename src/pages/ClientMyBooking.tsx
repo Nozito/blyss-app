@@ -15,73 +15,22 @@ const getImageUrl = (imagePath: string | null): string | null => {
   return `${API_BASE_URL}/${imagePath}`;
 };
 
-// ✅ Fonction utilitaire pour rafraîchir le token
-const refreshAuthToken = async (): Promise<string | null> => {
-  try {
-    const currentToken = localStorage.getItem('auth_token');
-    if (!currentToken) return null;
-
-    const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${currentToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      localStorage.setItem('auth_token', data.token);
-      console.log('✅ Token rafraîchi automatiquement');
-      return data.token;
-    }
-    
-    return null;
-  } catch (error) {
-    console.error('❌ Erreur refresh token:', error);
-    return null;
-  }
-};
-
-// ✅ Fonction helper pour faire des requêtes avec retry automatique si 401
-const fetchWithTokenRefresh = async (
+// ✅ Fonction helper pour faire des requêtes avec credentials (HttpOnly cookie)
+const fetchWithCredentials = async (
   url: string,
   options: RequestInit = {}
 ): Promise<Response> => {
-  const token = localStorage.getItem('auth_token');
-  
-  if (!token) {
-    throw new Error('NO_TOKEN');
-  }
-
-  // Premier essai avec le token actuel
-  let response = await fetch(url, {
+  const response = await fetch(url, {
     ...options,
+    credentials: 'include',
     headers: {
       ...options.headers,
-      'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json'
     }
   });
 
-  // Si 401, tenter de rafraîchir le token et réessayer
   if (response.status === 401) {
-    console.log('🔄 Token expiré, tentative de refresh...');
-    
-    const newToken = await refreshAuthToken();
-    
-    if (newToken) {
-      response = await fetch(url, {
-        ...options,
-        headers: {
-          ...options.headers,
-          'Authorization': `Bearer ${newToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-    } else {
-      throw new Error('REFRESH_FAILED');
-    }
+    throw new Error('REFRESH_FAILED');
   }
 
   return response;
@@ -110,22 +59,13 @@ const ClientMyBooking = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ Gestion des erreurs d'authentification
-  const handleAuthError = useCallback(() => {
-    localStorage.removeItem('auth_token');
-    navigate('/login', {
-      replace: true,
-      state: { message: 'Session expirée, veuillez vous reconnecter' }
-    });
-  }, [navigate]);
-
-  // ✅ Fonction de fetch avec gestion automatique du refresh
+  // ✅ Fonction de fetch avec credentials (HttpOnly cookie)
   const fetchBookings = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      const response = await fetchWithTokenRefresh(
+      const response = await fetchWithCredentials(
         `${API_BASE_URL}/api/client/my-booking`
       );
 
@@ -159,10 +99,10 @@ const ClientMyBooking = () => {
 
     } catch (err) {
       console.error('❌ Erreur lors du chargement:', err);
-      
+
       if (err instanceof Error) {
-        if (err.message === 'NO_TOKEN' || err.message === 'REFRESH_FAILED') {
-          handleAuthError();
+        if (err.message === 'REFRESH_FAILED') {
+          navigate('/login', { replace: true, state: { message: 'Session expirée, veuillez vous reconnecter' } });
           return;
         }
         setError(err.message);
@@ -172,16 +112,16 @@ const ClientMyBooking = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [handleAuthError]);
+  }, [navigate]);
 
   useEffect(() => {
     fetchBookings();
   }, [fetchBookings]);
 
-  // ✅ Gestion de l'annulation avec refresh automatique
+  // ✅ Gestion de l'annulation avec credentials (HttpOnly cookie)
   const handleCancelBooking = useCallback(async (bookingId: number) => {
     try {
-      const response = await fetchWithTokenRefresh(
+      const response = await fetchWithCredentials(
         `${API_BASE_URL}/api/client/my-booking/${bookingId}/cancel`,
         { method: 'PATCH' }
       );
@@ -203,15 +143,15 @@ const ClientMyBooking = () => {
 
     } catch (err) {
       console.error('❌ Erreur annulation:', err);
-      
-      if (err instanceof Error && (err.message === 'NO_TOKEN' || err.message === 'REFRESH_FAILED')) {
-        handleAuthError();
+
+      if (err instanceof Error && err.message === 'REFRESH_FAILED') {
+        navigate('/login', { replace: true, state: { message: 'Session expirée, veuillez vous reconnecter' } });
         return;
       }
-      
+
       alert('Erreur lors de l\'annulation');
     }
-  }, [handleAuthError]);
+  }, [navigate]);
 
   // ✅ Formatage des dates
   const formatDate = useCallback((dateString: string): string => {

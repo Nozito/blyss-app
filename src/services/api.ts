@@ -124,30 +124,19 @@ type UpdateServicePayload = Partial<{
 // =====================
 // SESSION MANAGEMENT
 // =====================
+// Tokens are stored in HttpOnly cookies (managed by the browser/server).
+// Only the user profile is kept in localStorage for display purposes.
 
-const ACCESS_TOKEN_KEY = "auth_token";
-const REFRESH_TOKEN_KEY = "refresh_token";
 const USER_KEY = "user";
 
-function getAccessToken() {
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
-}
-
-function getRefreshToken() {
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
-}
-
-function setSession(accessToken: string, refreshToken: string, user?: User) {
-  localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-  localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+function setSession(_accessToken: string, _refreshToken: string, user?: User) {
+  // Tokens are set as HttpOnly cookies by the server — not stored in JS
   if (user) {
     localStorage.setItem(USER_KEY, JSON.stringify(user));
   }
 }
 
 function clearSession() {
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
 }
 
@@ -157,18 +146,17 @@ function clearSession() {
 
 async function rawApiCall<T>(
   endpoint: string,
-  options: RequestInit = {},
-  token?: string | null
+  options: RequestInit = {}
 ): Promise<{ response: Response; json: any }> {
   const headers: HeadersInit = {
     "Content-Type": "application/json",
     ...(options.headers || {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers,
+    credentials: "include", // sends HttpOnly auth cookies automatically
   });
 
   let json: any = null;
@@ -182,25 +170,15 @@ async function rawApiCall<T>(
 }
 
 async function tryRefreshToken(): Promise<boolean> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return false;
-
   try {
-    const { response, json } = await rawApiCall<{
-      accessToken: string;
-      refreshToken: string;
-    }>("/api/auth/refresh", {
-      method: "POST",
-      body: JSON.stringify({ refreshToken }),
-    });
+    // The refresh_token cookie is sent automatically by the browser
+    const { response } = await rawApiCall("/api/auth/refresh", { method: "POST" });
 
-    if (!response.ok || !json?.success) {
+    if (!response.ok) {
       clearSession();
       return false;
     }
 
-    const { accessToken: newAccess, refreshToken: newRefresh } = json.data;
-    setSession(newAccess, newRefresh);
     return true;
   } catch (e) {
     console.error("Refresh token error:", e);
@@ -224,15 +202,13 @@ async function apiCall<T>(a: string, b?: any, c: any = {}): Promise<ApiResponse<
   }
 
   try {
-    const token = getAccessToken();
-
-    let { response, json } = await rawApiCall<T>(endpoint, options, token);
+    let { response, json } = await rawApiCall<T>(endpoint, options);
 
     if (response.status === 401) {
       const refreshed = await tryRefreshToken();
       if (refreshed) {
-        const newToken = getAccessToken();
-        ({ response, json } = await rawApiCall<T>(endpoint, options, newToken));
+        // Retry with the rotated cookie (automatically included by the browser)
+        ({ response, json } = await rawApiCall<T>(endpoint, options));
       } else {
         return {
           success: false,
@@ -312,6 +288,7 @@ export const authApi = {
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include",
         body: JSON.stringify(data),
       });
 
@@ -352,17 +329,8 @@ export const authApi = {
 
   logout: async (): Promise<void> => {
     try {
-      const refreshToken = localStorage.getItem("refresh_token");
-      
-      if (refreshToken) {
-        await fetch(`${API_URL}/api/auth/logout`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ refreshToken }),
-        });
-      }
+      // The refresh_token cookie is sent automatically; server clears both cookies
+      await rawApiCall("/api/auth/logout", { method: "POST" });
     } catch (error) {
       console.error("Logout API error:", error);
     } finally {
@@ -679,17 +647,13 @@ getFinanceStats: () =>
 
 exportFinanceData: async (period: "week" | "month" | "year"): Promise<ApiResponse<Blob>> => {
   try {
-    const token = getAccessToken();
-    
-    const response = await fetch(
-      `${API_BASE_URL}/api/pro/finance/export?period=${period}`,
-      {
+    const fetchExport = () =>
+      fetch(`${API_BASE_URL}/api/pro/finance/export?period=${period}`, {
         method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
+        credentials: "include",
+      });
+
+    let response = await fetchExport();
 
     if (response.status === 401) {
       const refreshed = await tryRefreshToken();
@@ -699,26 +663,16 @@ exportFinanceData: async (period: "week" | "month" | "year"): Promise<ApiRespons
           error: "Session expirée, veuillez vous reconnecter",
         };
       }
-      
-      const newToken = getAccessToken();
-      const retryResponse = await fetch(
-        `${API_BASE_URL}/api/pro/finance/export?period=${period}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${newToken}`,
-          },
-        }
-      );
-      
-      if (!retryResponse.ok) {
+      response = await fetchExport();
+
+      if (!response.ok) {
         return {
           success: false,
           error: "Erreur lors de l'export",
         };
       }
-      
-      const blob = await retryResponse.blob();
+
+      const blob = await response.blob();
       return {
         success: true,
         data: blob,
@@ -894,6 +848,62 @@ export const stripePaymentsApi = {
 };
 
 // =====================
+// INSTAGRAM API
+// =====================
+
+export interface InstagramPhoto {
+  media_id: string;
+  media_type: "IMAGE" | "VIDEO" | "CAROUSEL_ALBUM";
+  media_url: string;
+  thumbnail_url: string | null;
+  permalink: string;
+  caption: string | null;
+  ig_timestamp: string;
+  display_order: number;
+}
+
+export interface InstagramStatus {
+  connected: boolean;
+  username?: string;
+  expiresAt?: string;
+}
+
+export interface InstagramPublicData {
+  photos: InstagramPhoto[];
+  connected: boolean;
+  username?: string;
+}
+
+export const instagramApi = {
+  /** Récupère l'URL OAuth Instagram pour le Pro connecté (Signature requis). */
+  getConnectUrl: async (): Promise<ApiResponse<{ authUrl: string }>> => {
+    return apiCall("/api/instagram/connect");
+  },
+
+  /** Statut de la connexion Instagram du Pro connecté. */
+  getStatus: async (): Promise<ApiResponse<InstagramStatus>> => {
+    return apiCall("/api/instagram/status");
+  },
+
+  /** Déconnecte Instagram pour le Pro connecté. */
+  disconnect: async (): Promise<ApiResponse<void>> => {
+    return apiCall("/api/instagram/disconnect", { method: "DELETE" });
+  },
+
+  /** Déclenche une sync manuelle des photos (throttle 5min). */
+  sync: async (): Promise<ApiResponse<boolean>> => {
+    return apiCall("/api/instagram/sync", { method: "POST" });
+  },
+
+  /** Récupère les photos Instagram publiques d'un Pro (sans auth). */
+  getPublicPhotos: async (proId: number): Promise<ApiResponse<InstagramPublicData>> => {
+    const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+    const res = await fetch(`${BASE_URL}/api/public/pro/${proId}/instagram`);
+    return res.json();
+  },
+};
+
+// =====================
 // DEFAULT EXPORT
 // =====================
 
@@ -909,4 +919,5 @@ export default {
   pro: proApi,
   stripe: stripeApi,
   stripePayments: stripePaymentsApi,
+  instagram: instagramApi,
 };

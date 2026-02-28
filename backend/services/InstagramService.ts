@@ -396,7 +396,8 @@ export class InstagramService {
 
       const fields = "id,media_type,media_url,thumbnail_url,permalink,caption,timestamp";
       const mediaRes = await this.fetchWithTimeout(
-        `${IG_BASE_URL}/me/media?fields=${fields}&limit=6&access_token=${token}`
+        `${IG_BASE_URL}/me/media?fields=${fields}&limit=6`,
+        { headers: { Authorization: `Bearer ${token}` } }
       );
       apiCallCount++;
 

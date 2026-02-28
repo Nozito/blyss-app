@@ -178,8 +178,7 @@ const ProProfile = () => {
       const blob = await fetch(croppedBase64).then((res) => res.blob());
       const formData = new FormData();
       formData.append("photo", blob, "profile-photo.jpg");
-      const token = localStorage.getItem("auth_token");
-      if (!token) {
+      if (!isAuthenticated) {
         toast.error("Session expirée. Reconnectez-vous.");
         navigate("/login");
         return;
@@ -187,7 +186,7 @@ const ProProfile = () => {
       const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
       const response = await fetch(`${API_URL}/users/upload-photo`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
         body: formData,
       });
       if (!response.ok) throw new Error("Upload failed");

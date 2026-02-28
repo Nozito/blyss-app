@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, MapPin, Star, Clock, Heart, Loader2, Instagram, Sparkles, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { favoritesApi, API_URL } from "@/services/api";
+import { favoritesApi, instagramApi, InstagramPhoto, API_URL } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 const getImageUrl = (imagePath: string | null): string | null => {
   if (!imagePath) return null;
@@ -72,6 +73,7 @@ interface Review {
 const SpecialistProfile = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const { isAuthenticated } = useAuth();
 
   const [pro, setPro] = useState<Pro | null>(null);
   const [prestations, setPrestations] = useState<Prestation[]>([]);
@@ -84,6 +86,8 @@ const SpecialistProfile = () => {
   const [comment, setComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAllReviews, setShowAllReviews] = useState(false);
+  const [igPhotos, setIgPhotos] = useState<InstagramPhoto[]>([]);
+  const [igUsername, setIgUsername] = useState<string | null>(null);
 
   const avgRating = useMemo(() =>
     reviews.length > 0
@@ -171,9 +175,8 @@ const SpecialistProfile = () => {
           setReviews(reviewsData.data);
         }
 
-        // ✅ Favoris via api.ts (celui-là marche)
-        const token = localStorage.getItem('auth_token');
-        if (token) {
+        // Favoris — uniquement si l'utilisateur est connecté
+        if (isAuthenticated) {
           try {
             const favoritesResponse = await favoritesApi.getAll();
             if (favoritesResponse.success && favoritesResponse.data) {
@@ -194,23 +197,38 @@ const SpecialistProfile = () => {
     };
 
     fetchData();
+  }, [id, isAuthenticated]);
+
+  // Charger les photos Instagram du pro (sans auth, feature non critique)
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+
+    instagramApi.getPublicPhotos(Number(id))
+      .then((res) => {
+        if (cancelled) return;
+        if (res.success && res.data?.photos.length) {
+          setIgPhotos(res.data.photos);
+          setIgUsername(res.data.username ?? null);
+        }
+      })
+      .catch(() => { /* Silencieux */ });
+
+    return () => { cancelled = true; };
   }, [id]);
 
   useEffect(() => {
     const pendingAction = localStorage.getItem('pendingAction');
-    const token = localStorage.getItem('auth_token');
-
-    if (pendingAction === 'review' && token) {
+    if (pendingAction === 'review' && isAuthenticated) {
       localStorage.removeItem('pendingAction');
       setShowReviewModal(true);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   const handleToggleFavorite = useCallback(async () => {
     if (!id) return;
 
-    const token = localStorage.getItem('auth_token');
-    if (!token) {
+    if (!isAuthenticated) {
       const returnUrl = `/client/specialist/${id}`;
       localStorage.setItem('returnUrl', returnUrl);
       navigate('/login', {
@@ -247,9 +265,7 @@ const SpecialistProfile = () => {
   }, [id, isFavorite, navigate]);
 
   const handleReservationClick = useCallback(() => {
-    const token = localStorage.getItem('auth_token');
-
-    if (!token) {
+    if (!isAuthenticated) {
       localStorage.setItem('returnUrl', `/client/booking/${id}`);
       navigate('/login', {
         state: {
@@ -262,12 +278,10 @@ const SpecialistProfile = () => {
     }
 
     navigate(`/client/booking/${id}`, { replace: true });
-  }, [id, navigate]);
+  }, [id, isAuthenticated, navigate]);
 
   const handleReviewClick = useCallback(() => {
-    const token = localStorage.getItem('auth_token');
-
-    if (!token) {
+    if (!isAuthenticated) {
       localStorage.setItem('returnUrl', `/client/specialist/${id}`);
       localStorage.setItem('pendingAction', 'review');
 
@@ -281,14 +295,12 @@ const SpecialistProfile = () => {
     }
 
     setShowReviewModal(true);
-  }, [id, navigate]);
+  }, [id, isAuthenticated, navigate]);
 
-  // ✅ Soumettre avis avec route directe
   const handleSubmitReview = useCallback(async () => {
     if (rating === 0 || !id) return;
 
-    const token = localStorage.getItem('auth_token');
-    if (!token) {
+    if (!isAuthenticated) {
       localStorage.setItem('returnUrl', `/client/specialist/${id}`);
       localStorage.setItem('pendingAction', 'review');
 
@@ -303,13 +315,10 @@ const SpecialistProfile = () => {
 
     setIsSubmitting(true);
     try {
-      // ✅ Route: POST /api/reviews
       const response = await fetch(`${API_URL}/api/reviews`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           pro_id: Number(id),
           rating,
@@ -318,7 +327,6 @@ const SpecialistProfile = () => {
       });
 
       if (response.status === 401) {
-        localStorage.removeItem('auth_token');
         localStorage.setItem('returnUrl', `/client/specialist/${id}`);
         localStorage.setItem('pendingAction', 'review');
 
@@ -339,11 +347,16 @@ const SpecialistProfile = () => {
         setComment("");
 
         // Recharger les avis
-        const reviewsRes = await fetch(`${API_URL}/api/reviews/pro/${id}`);
-        const reviewsData = await reviewsRes.json();
-
-        if (reviewsData.success && reviewsData.data) {
-          setReviews(reviewsData.data);
+        try {
+          const reviewsRes = await fetch(`${API_URL}/api/reviews/pro/${id}`);
+          if (reviewsRes.ok) {
+            const reviewsData = await reviewsRes.json();
+            if (reviewsData.success && Array.isArray(reviewsData.data)) {
+              setReviews(reviewsData.data);
+            }
+          }
+        } catch {
+          // Non critique — les avis seront rechargés au prochain mount
         }
       } else {
         throw new Error(data.message || "Erreur");
@@ -354,7 +367,7 @@ const SpecialistProfile = () => {
     } finally {
       setIsSubmitting(false);
     }
-  }, [id, rating, comment, navigate]);
+  }, [id, rating, comment, isAuthenticated, navigate]);
 
   if (isLoading) {
     return (
@@ -493,6 +506,54 @@ const SpecialistProfile = () => {
               <p className="text-sm text-muted-foreground leading-relaxed">
                 {pro.bio}
               </p>
+            </section>
+          )}
+
+          {/* ── Instagram Photos (affichées si Plan Signature actif + connecté) ── */}
+          {igPhotos.length > 0 && (
+            <section className="bg-card rounded-2xl p-4 shadow-sm border-2 border-border">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center">
+                    <Instagram size={14} className="text-white" />
+                  </div>
+                  <h2 className="text-base font-bold text-foreground">Instagram</h2>
+                </div>
+                {igUsername && (
+                  <a
+                    href={`https://www.instagram.com/${igUsername}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-primary font-medium hover:underline active:scale-95 transition-transform"
+                  >
+                    @{igUsername}
+                  </a>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5">
+                {igPhotos.map((photo) => (
+                  <a
+                    key={photo.media_id}
+                    href={photo.permalink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="aspect-square rounded-xl overflow-hidden bg-muted block active:scale-95 transition-transform"
+                  >
+                    <img
+                      src={photo.media_type === "VIDEO" && photo.thumbnail_url
+                        ? photo.thumbnail_url
+                        : photo.media_url}
+                      alt={photo.caption ? photo.caption.substring(0, 60) : "Photo Instagram"}
+                      loading="lazy"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = "none";
+                      }}
+                    />
+                  </a>
+                ))}
+              </div>
             </section>
           )}
 

@@ -43,9 +43,8 @@ const AdminPayments = () => {
 
   const fetchTransactions = async () => {
     try {
-      const token = localStorage.getItem("auth_token");
       const response = await fetch(`${API_URL}/api/admin/payments`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
 
       if (response.ok) {

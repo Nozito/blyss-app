@@ -5,8 +5,8 @@
     "outDir": "dist",
     "rootDir": ".",
     "esModuleInterop": true,
-    "strict": false,
+    "strict": true,
     "skipLibCheck": true
   },
-  "include": ["server.ts", "lib/**/*.ts", "middleware/**/*.ts", "routes/**/*.ts", "__tests__/**/*.ts", "vitest.config.ts"]
+  "include": ["server.ts", "lib/**/*.ts", "middleware/**/*.ts", "routes/**/*.ts", "services/**/*.ts", "__tests__/**/*.ts", "vitest.config.ts"]
 }

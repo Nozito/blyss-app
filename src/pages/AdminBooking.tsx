@@ -129,9 +129,8 @@ const AdminBookings = () => {
   const fetchBookings = async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
     try {
-      const token = localStorage.getItem("auth_token");
       const response = await fetch(`${API_URL}/api/admin/bookings`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
 
       if (response.ok) {
@@ -181,8 +180,7 @@ const AdminBookings = () => {
     setSubmitting(true);
 
     try {
-      const token = localStorage.getItem("auth_token");
-      const url = modalMode === 'create' 
+      const url = modalMode === 'create'
         ? `${API_URL}/api/admin/bookings/create`
         : `${API_URL}/api/admin/bookings/${selectedBooking?.id}`;
 
@@ -190,8 +188,8 @@ const AdminBookings = () => {
         method: modalMode === 'create' ? 'POST' : 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
+        credentials: 'include',
         body: JSON.stringify(formData),
       });
 
@@ -214,10 +212,9 @@ const AdminBookings = () => {
     if (!confirm(`Supprimer cette réservation ?`)) return;
 
     try {
-      const token = localStorage.getItem("auth_token");
       const response = await fetch(`${API_URL}/api/admin/bookings/${bookingId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
 
       if (response.ok) {

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
 import { MapPin, Star, ChevronRight, Heart, Loader2, Sparkles, AlertCircle } from "lucide-react";
 import { favoritesApi, API_URL } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface FavoriteFromApi {
   id: number;
@@ -36,14 +37,13 @@ const getImageUrl = (imagePath: string | null): string | null => {
 
 const ClientFavorites = () => {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [favorites, setFavorites] = useState<FavoriteWithDetails[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const checkAuth = useCallback(() => {
-    const token = localStorage.getItem('auth_token');
-
-    if (!token) {
+    if (!isAuthenticated) {
       navigate('/login', {
         replace: true,
         state: {
@@ -55,7 +55,7 @@ const ClientFavorites = () => {
     }
 
     return true;
-  }, [navigate]);
+  }, [navigate, isAuthenticated]);
 
   useEffect(() => {
     const fetchFavorites = async () => {

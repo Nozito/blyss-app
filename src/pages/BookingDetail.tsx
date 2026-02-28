@@ -1,5 +1,6 @@
 import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
 import {
@@ -120,6 +121,7 @@ const BalancePaymentForm = ({
 const BookingDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const { isAuthenticated } = useAuth();
   const [booking, setBooking] = useState<BookingDetailData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -137,8 +139,7 @@ const BookingDetail = () => {
   const bookingId = id && !isNaN(Number(id)) ? Number(id) : null;
 
   const checkAuth = useCallback(() => {
-    const token = localStorage.getItem('auth_token');
-    if (!token) {
+    if (!isAuthenticated) {
       navigate('/login', {
         replace: true,
         state: {
@@ -146,10 +147,10 @@ const BookingDetail = () => {
           returnUrl: `/client/booking-detail/${id}`
         }
       });
-      return null;
+      return false;
     }
-    return token;
-  }, [navigate, id]);
+    return true;
+  }, [navigate, id, isAuthenticated]);
 
   useEffect(() => {
   let ignore = false;
@@ -164,9 +165,8 @@ const BookingDetail = () => {
       return;
     }
 
-    // Get token
-    const token = localStorage.getItem('auth_token');
-    if (!token) {
+    // Check auth
+    if (!isAuthenticated) {
       navigate('/login', {
         replace: true,
         state: {
@@ -180,11 +180,10 @@ const BookingDetail = () => {
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/client/booking-detail/${bookingId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        credentials: 'include',
       });
 
       if (response.status === 401) {
-        localStorage.removeItem('auth_token');
         navigate('/login', {
           replace: true,
           state: {
@@ -222,7 +221,7 @@ const BookingDetail = () => {
   };
   fetchBookingDetail();
   return () => { ignore = true; };
-}, [bookingId, navigate]);
+}, [bookingId, navigate, isAuthenticated]);
 
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
@@ -253,14 +252,13 @@ const BookingDetail = () => {
 
   const handleSubmitReview = async () => {
     if (rating === 0 || !booking) return;
-    const token = checkAuth();
-    if (!token) return;
+    if (!checkAuth()) return;
     setIsSubmittingReview(true);
     try {
       const response = await fetch(`${API_BASE_URL}/api/reviews`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
