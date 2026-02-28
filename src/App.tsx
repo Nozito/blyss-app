@@ -11,6 +11,7 @@ import SplashScreen from "@/components/SplashScreen";
 import MobileLayout from "@/components/MobileLayout";
 import ScrollToTop from "@/components/ScrollToTop";
 import { NotificationProvider } from "@/contexts/NotificationContext";
+import RequireAuth from "@/components/RequireAuth";
 
 
 import Index from "./pages/Index";
@@ -44,6 +45,7 @@ import ClientPayements from "./pages/ClientPayements";
 import ClientSpecialists from "./pages/ClientSpecialists";
 
 import NotFound from "./pages/NotFound";
+import Legal from "./pages/Legal";
 
 import "./index.css";
 import "./App.css";
@@ -97,34 +99,35 @@ const App = () => {
                 <Route path="/" element={<Index />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/signup" element={<Signup />} />
+                <Route path="/legal" element={<Legal />} />
 
                 {/* PRO */}
-                <Route path="/pro/subscription" element={<ProSubscription />} />
-                <Route path="/pro/subscription-settings" element={<ProSubscriptionSettings />} />
-                <Route path="/pro/subscription-success" element={<ProSubscriptionSuccess />} />
-                <Route path="/pro/help" element={<ProHelp />} />
-                <Route path="/pro/notifications" element={<ProNotifications />} />
-                <Route path="/pro/payments" element={<ProPayments />} />
-                <Route path="/pro/settings" element={<ProSettings />} />
-                <Route path="/pro/public-profile" element={<ProPublicProfile />} />
-                <Route path="/pro/prestations" element={<ProServices />} />
-                <Route path="/pro/prestations/create" element={<ProServiceForm />} />
-                <Route path="/pro/prestations/:id/edit" element={<ProServiceForm />} />
-                <Route path="/pro/finance" element={<ProFinance />} />
+                <Route path="/pro/subscription" element={<RequireAuth role="pro"><ProSubscription /></RequireAuth>} />
+                <Route path="/pro/subscription-settings" element={<RequireAuth role="pro"><ProSubscriptionSettings /></RequireAuth>} />
+                <Route path="/pro/subscription-success" element={<RequireAuth role="pro"><ProSubscriptionSuccess /></RequireAuth>} />
+                <Route path="/pro/help" element={<RequireAuth role="pro"><ProHelp /></RequireAuth>} />
+                <Route path="/pro/notifications" element={<RequireAuth role="pro"><ProNotifications /></RequireAuth>} />
+                <Route path="/pro/payments" element={<RequireAuth role="pro"><ProPayments /></RequireAuth>} />
+                <Route path="/pro/settings" element={<RequireAuth role="pro"><ProSettings /></RequireAuth>} />
+                <Route path="/pro/public-profile" element={<RequireAuth role="pro"><ProPublicProfile /></RequireAuth>} />
+                <Route path="/pro/prestations" element={<RequireAuth role="pro"><ProServices /></RequireAuth>} />
+                <Route path="/pro/prestations/create" element={<RequireAuth role="pro"><ProServiceForm /></RequireAuth>} />
+                <Route path="/pro/prestations/:id/edit" element={<RequireAuth role="pro"><ProServiceForm /></RequireAuth>} />
+                <Route path="/pro/finance" element={<RequireAuth role="pro"><ProFinance /></RequireAuth>} />
 
                 {/* CLIENT */}
-                <Route path="/client/help" element={<ClientHelp />} />
-                <Route path="/client/notifications" element={<ClientNotifications />} />
-                <Route path="/client/payments" element={<ClientPayements />} />
-                <Route path="/client/settings" element={<ClientSettings />} />
-                <Route path="/client/booking/:id" element={<ClientBooking />} />
-                <Route path="/client/specialists" element={<ClientSpecialists />} />
-                <Route path="/client/payment-methods" element={<ClientPayements />} />
-                <Route path="/client/specialist/:id" element={<SpecialistProfile />} />
-                <Route path="/client/booking-detail/:id" element={<BookingDetail />} />
+                <Route path="/client/help" element={<RequireAuth role="client"><ClientHelp /></RequireAuth>} />
+                <Route path="/client/notifications" element={<RequireAuth role="client"><ClientNotifications /></RequireAuth>} />
+                <Route path="/client/payments" element={<RequireAuth role="client"><ClientPayements /></RequireAuth>} />
+                <Route path="/client/settings" element={<RequireAuth role="client"><ClientSettings /></RequireAuth>} />
+                <Route path="/client/booking/:id" element={<RequireAuth role="client"><ClientBooking /></RequireAuth>} />
+                <Route path="/client/specialists" element={<RequireAuth role="client"><ClientSpecialists /></RequireAuth>} />
+                <Route path="/client/payment-methods" element={<RequireAuth role="client"><ClientPayements /></RequireAuth>} />
+                <Route path="/client/specialist/:id" element={<RequireAuth role="client"><SpecialistProfile /></RequireAuth>} />
+                <Route path="/client/booking-detail/:id" element={<RequireAuth role="client"><BookingDetail /></RequireAuth>} />
                 {/*ADMIN*/}
                 {/* Routes Admin */}
-                <Route path="/admin" element={<AdminLayout />}>
+                <Route path="/admin" element={<RequireAuth role="admin"><AdminLayout /></RequireAuth>}>
                   <Route index element={<Navigate to="/admin/dashboard" replace />} />
                   <Route path="dashboard" element={<AdminDashboard />} />
                   <Route path="users" element={<AdminUsers />} />
@@ -139,33 +142,41 @@ const App = () => {
                 <Route
                   path="/client"
                   element={
-                    <MobileLayout showNav={!showSplash}>
-                      <ClientHome />
-                    </MobileLayout>
+                    <RequireAuth role="client">
+                      <MobileLayout showNav={!showSplash}>
+                        <ClientHome />
+                      </MobileLayout>
+                    </RequireAuth>
                   }
                 />
                 <Route
                   path="/client/my-booking"
                   element={
-                    <MobileLayout showNav={!showSplash}>
-                      <ClientMyBooking />
-                    </MobileLayout>
+                    <RequireAuth role="client">
+                      <MobileLayout showNav={!showSplash}>
+                        <ClientMyBooking />
+                      </MobileLayout>
+                    </RequireAuth>
                   }
                 />
                 <Route
                   path="/client/profile"
                   element={
-                    <MobileLayout showNav={!showSplash}>
-                      <ClientProfile />
-                    </MobileLayout>
+                    <RequireAuth role="client">
+                      <MobileLayout showNav={!showSplash}>
+                        <ClientProfile />
+                      </MobileLayout>
+                    </RequireAuth>
                   }
                 />
                 <Route
                   path="/client/favorites"
                   element={
-                    <MobileLayout showNav={!showSplash}>
-                      <ClientFavorites />
-                    </MobileLayout>
+                    <RequireAuth role="client">
+                      <MobileLayout showNav={!showSplash}>
+                        <ClientFavorites />
+                      </MobileLayout>
+                    </RequireAuth>
                   }
                 />
 
@@ -173,73 +184,91 @@ const App = () => {
                 <Route
                   path="/pro/subscription"
                   element={
-                    <MobileLayout showNav={!showSplash}>
-                      <ProSubscription />
-                    </MobileLayout>
+                    <RequireAuth role="pro">
+                      <MobileLayout showNav={!showSplash}>
+                        <ProSubscription />
+                      </MobileLayout>
+                    </RequireAuth>
                   }
                 />
                 <Route
                   path="/pro/dashboard"
                   element={
-                    <MobileLayout showNav={!showSplash}>
-                      <ProDashboard />
-                    </MobileLayout>
+                    <RequireAuth role="pro">
+                      <MobileLayout showNav={!showSplash}>
+                        <ProDashboard />
+                      </MobileLayout>
+                    </RequireAuth>
                   }
                 />
                 <Route
                   path="/pro/calendar"
                   element={
-                    <MobileLayout showNav={!showSplash}>
-                      <ProCalendar />
-                    </MobileLayout>
+                    <RequireAuth role="pro">
+                      <MobileLayout showNav={!showSplash}>
+                        <ProCalendar />
+                      </MobileLayout>
+                    </RequireAuth>
                   }
                 />
                 <Route
                   path="/pro/clients"
                   element={
-                    <MobileLayout showNav={!showSplash}>
-                      <ProClients />
-                    </MobileLayout>
+                    <RequireAuth role="pro">
+                      <MobileLayout showNav={!showSplash}>
+                        <ProClients />
+                      </MobileLayout>
+                    </RequireAuth>
                   }
                 />
                 <Route
                   path="/pro/profile"
                   element={
-                    <MobileLayout showNav={!showSplash}>
-                      <ProProfile />
-                    </MobileLayout>
+                    <RequireAuth role="pro">
+                      <MobileLayout showNav={!showSplash}>
+                        <ProProfile />
+                      </MobileLayout>
+                    </RequireAuth>
                   }
                 />
                 <Route
                   path="/pro/settings"
                   element={
-                    <MobileLayout showNav={!showSplash}>
-                      <ProSettings />
-                    </MobileLayout>
+                    <RequireAuth role="pro">
+                      <MobileLayout showNav={!showSplash}>
+                        <ProSettings />
+                      </MobileLayout>
+                    </RequireAuth>
                   }
                 />
                 <Route
                   path="/pro/payment"
                   element={
-                    <MobileLayout showNav={!showSplash}>
-                      <ProPayments />
-                    </MobileLayout>
+                    <RequireAuth role="pro">
+                      <MobileLayout showNav={!showSplash}>
+                        <ProPayments />
+                      </MobileLayout>
+                    </RequireAuth>
                   }
                 />
                 <Route
                   path="/pro/notifications"
                   element={
-                    <MobileLayout showNav={!showSplash}>
-                      <ProNotifications />
-                    </MobileLayout>
+                    <RequireAuth role="pro">
+                      <MobileLayout showNav={!showSplash}>
+                        <ProNotifications />
+                      </MobileLayout>
+                    </RequireAuth>
                   }
                 />
                 <Route
                   path="/pro/help"
                   element={
-                    <MobileLayout showNav={!showSplash}>
-                      <ProHelp />
-                    </MobileLayout>
+                    <RequireAuth role="pro">
+                      <MobileLayout showNav={!showSplash}>
+                        <ProHelp />
+                      </MobileLayout>
+                    </RequireAuth>
                   }
                 />
 
