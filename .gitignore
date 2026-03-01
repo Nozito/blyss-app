@@ -29,8 +29,10 @@ backend/.env.dev
 .env.production
 backend/.env.prod
 .env.dev
+.env.prod
 .env.development
 .env.example
 .gitignore
 .env.test
 backend/uploads/
+supabase/.temp/
