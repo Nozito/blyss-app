@@ -22,17 +22,21 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment files — NEVER commit real secrets
+.env
+.env.local
+.env.dev
+.env.development
+.env.production
+.env.prod
+.env.test
 backend/.env
 backend/.env.dev
-.gitignore
-.env.devlopment
-.env.production
 backend/.env.prod
-.env.dev
-.env.prod
-.env.development
-.env.example
-.gitignore
-.env.test
+backend/.env.local
+
+# .env.example is intentionally tracked (template, no real secrets)
+
 backend/uploads/
 supabase/.temp/
