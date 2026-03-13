@@ -386,6 +386,15 @@ export const bookingsApi = {
 // =====================
 
 export const specialistsApi = {
+  /** Liste publique des pros (endpoint réel du backend) */
+  getPros: async (params?: { page?: number; limit?: number }): Promise<ApiResponse<any[]>> => {
+    const q = new URLSearchParams();
+    if (params?.page) q.set("page", String(params.page));
+    if (params?.limit) q.set("limit", String(params.limit));
+    const qs = q.toString() ? `?${q}` : "";
+    return apiCall(`/api/users/pros${qs}`);
+  },
+
   getAll: async (query?: string): Promise<ApiResponse<any[]>> => {
     const params = query ? `?q=${encodeURIComponent(query)}` : "";
     return apiCall(`/api/specialists${params}`);
@@ -912,6 +921,29 @@ export const instagramApi = {
 };
 
 // =====================
+// USERS API
+// =====================
+
+export const usersApi = {
+  getMe: (): Promise<ApiResponse<User>> => apiCall("/api/users"),
+  update: (data: Record<string, any>): Promise<ApiResponse<User>> =>
+    apiCall("/api/users/update", { method: "PUT", body: JSON.stringify(data) }),
+};
+
+// =====================
+// CLIENT API
+// =====================
+
+export const clientApi = {
+  getMyBookings: (): Promise<ApiResponse<any[]>> =>
+    apiCall("/api/client/my-booking"),
+  getBookingDetail: (id: number): Promise<ApiResponse<any>> =>
+    apiCall(`/api/client/booking-detail/${id}`),
+  cancelBooking: (id: number): Promise<ApiResponse<void>> =>
+    apiCall(`/api/client/my-booking/${id}/cancel`, { method: "PATCH" }),
+};
+
+// =====================
 // DEFAULT EXPORT
 // =====================
 
@@ -928,4 +960,6 @@ export default {
   stripe: stripeApi,
   stripePayments: stripePaymentsApi,
   instagram: instagramApi,
+  users: usersApi,
+  client: clientApi,
 };

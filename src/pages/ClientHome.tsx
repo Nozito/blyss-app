@@ -1,30 +1,13 @@
-import { useState, useMemo, useEffect, MouseEvent } from "react";
+import { useState, useMemo, MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapPin, Star, ChevronRight, Search, Sparkles, Calendar, Clock, Heart, ArrowRight, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/AuthContext";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { specialistsApi, favoritesApi, clientApi } from "@/services/api";
 import { toast } from "sonner";
 import { getImageUrl } from "@/utils/imageUrl";
-
-interface Pro {
-  id: number;
-  first_name: string;
-  last_name: string;
-  activity_name: string | null;
-  city: string | null;
-  instagram_account: string | null;
-  profile_photo: string | null;
-  banner_photo: string | null;
-  bio: string | null;
-  pro_status: 'active' | 'inactive';
-}
-
-interface Review {
-  id: number;
-  pro_id: number;
-  rating: number;
-}
 
 interface Specialist {
   id: number;
@@ -35,10 +18,7 @@ interface Specialist {
   reviews_count: number;
   profile_image_url: string | null;
   cover_image_url: string | null;
-  user: {
-    first_name: string;
-    last_name: string;
-  };
+  user: { first_name: string; last_name: string };
 }
 
 interface Booking {
@@ -54,296 +34,126 @@ interface Booking {
   profile_photo: string | null;
 }
 
-
 const ClientHome = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [pros, setPros] = useState<Pro[]>([]);
-  const [reviewsByPro, setReviewsByPro] = useState<Record<number, Review[]>>({});
-  const [favorites, setFavorites] = useState<Set<number>>(new Set());
-
-  const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([]);
-  const [isLoadingBookings, setIsLoadingBookings] = useState(false);
-
-
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
   const greeting = user?.first_name ? `Salut ${user.first_name}` : "Bienvenue sur Blyss";
 
-  // ✅ Formater les données pour affichage avec useMemo
-  const specialists = useMemo<Specialist[]>(() => {
-    return pros.map(pro => {
-      const proReviews = reviewsByPro[pro.id] || [];
-      const avgRating = proReviews.length > 0
-        ? proReviews.reduce((sum, r) => sum + r.rating, 0) / proReviews.length
-        : 0;
-
-      return {
+  // Specialists (shared cache with ClientSpecialists)
+  const { data: specialists = [], isLoading } = useQuery<Specialist[]>({
+    queryKey: ["specialists"],
+    queryFn: async () => {
+      const res = await specialistsApi.getPros();
+      if (!res.success || !res.data) return [];
+      return res.data.map((pro: any) => ({
         id: pro.id,
         business_name: pro.activity_name || `${pro.first_name} ${pro.last_name}`,
-        specialty: 'Prothésiste ongulaire',
-        city: pro.city || 'Paris',
-        rating: avgRating,
-        reviews_count: proReviews.length,
+        specialty: pro.specialty || "Prothésiste ongulaire",
+        city: pro.city || "Paris",
+        rating: Number(pro.avg_rating) || 0,
+        reviews_count: Number(pro.reviews_count) || 0,
         profile_image_url: getImageUrl(pro.profile_photo),
         cover_image_url: getImageUrl(pro.banner_photo),
-        user: {
-          first_name: pro.first_name,
-          last_name: pro.last_name
-        }
-      };
-    });
-  }, [pros, reviewsByPro, API_BASE_URL]);
+        user: { first_name: pro.first_name, last_name: pro.last_name },
+      }));
+    },
+    staleTime: 2 * 60_000,
+  });
 
-  // ✅ Filtrage optimisé avec useMemo
+  // Favorites (shared cache with ClientSpecialists and ClientFavorites)
+  const { data: favoriteIds = new Set<number>() } = useQuery<Set<number>>({
+    queryKey: ["favorites-ids"],
+    queryFn: async () => {
+      const res = await favoritesApi.getAll();
+      if (!res.success || !res.data) return new Set<number>();
+      return new Set<number>(res.data.map((f: any) => f.pro_id));
+    },
+    enabled: !!user,
+    staleTime: 60_000,
+  });
+
+  // Upcoming bookings (shared cache with ClientMyBooking)
+  const { data: allBookings = [], isLoading: isLoadingBookings } = useQuery<Booking[]>({
+    queryKey: ["client-bookings"],
+    queryFn: async () => {
+      const res = await clientApi.getMyBookings();
+      if (!res.success || !res.data) return [];
+      return res.data.map((b: any) => ({
+        id: b.id,
+        start_datetime: b.start_datetime,
+        end_datetime: b.end_datetime,
+        status: b.status,
+        price: b.price,
+        prestation_name: b.prestation?.name || "Prestation",
+        pro_first_name: b.pro?.first_name || "",
+        pro_last_name: b.pro?.last_name || "",
+        activity_name: b.pro?.activity_name || null,
+        profile_photo: b.pro?.profile_photo || null,
+      }));
+    },
+    enabled: !!user,
+    staleTime: 30_000,
+  });
+
+  const upcomingBookings = useMemo(() => {
+    const now = new Date();
+    return allBookings
+      .filter(b => (b.status === "confirmed" || b.status === "pending") && new Date(b.start_datetime) > now)
+      .sort((a, b) => new Date(a.start_datetime).getTime() - new Date(b.start_datetime).getTime());
+  }, [allBookings]);
+
+  // Toggle favorite with optimistic update
+  const toggleFavMutation = useMutation({
+    mutationFn: async (proId: number) => {
+      if (favoriteIds.has(proId)) {
+        await favoritesApi.remove(proId);
+      } else {
+        await favoritesApi.add(proId);
+      }
+    },
+    onMutate: async (proId: number) => {
+      await queryClient.cancelQueries({ queryKey: ["favorites-ids"] });
+      const prev = queryClient.getQueryData<Set<number>>(["favorites-ids"]);
+      queryClient.setQueryData<Set<number>>(["favorites-ids"], (old = new Set()) => {
+        const next = new Set(old);
+        if (next.has(proId)) next.delete(proId); else next.add(proId);
+        return next;
+      });
+      return { prev };
+    },
+    onError: (_err, _proId, ctx: any) => {
+      if (ctx?.prev) queryClient.setQueryData(["favorites-ids"], ctx.prev);
+      toast.error("Impossible de modifier le favori.");
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["favorites-ids"] });
+      queryClient.invalidateQueries({ queryKey: ["favorites"] });
+    },
+  });
+
   const filteredSpecialists = useMemo(() => {
     if (!searchQuery) return specialists;
-
     const q = searchQuery.toLowerCase().trim();
-
-    return specialists.filter(s => {
-      const searchableText = [
-        s.business_name,
-        s.specialty,
-        s.city,
-        s.user.first_name,
-        s.user.last_name
-      ].filter(Boolean).join(' ').toLowerCase();
-
-      return searchableText.includes(q);
-    });
+    return specialists.filter(s =>
+      [s.business_name, s.specialty, s.city, s.user.first_name, s.user.last_name]
+        .filter(Boolean).join(" ").toLowerCase().includes(q)
+    );
   }, [searchQuery, specialists]);
 
-  // ✅ Chargement des données avec gestion d'erreur améliorée
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setIsLoading(true);
+  const handleSpecialistClick = (proId: number) => navigate(`/client/specialist/${proId}`);
 
-        // 1. Charger les pros actifs
-        const usersRes = await fetch(`${API_BASE_URL}/api/users/pros`);
-
-        if (!usersRes.ok) {
-          throw new Error(`Erreur ${usersRes.status} lors du chargement des pros`);
-        }
-
-        const usersData = await usersRes.json();
-
-        if (usersData?.success && Array.isArray(usersData?.data)) {
-          const activePros = usersData.data.filter((p: Pro) => p.pro_status === 'active');
-          setPros(activePros);
-
-          // 2. Charger les avis en parallèle pour de meilleures performances
-          const reviewsPromises = activePros.map(async (pro: Pro) => {
-            try {
-              const reviewsRes = await fetch(`${API_BASE_URL}/api/reviews/pro/${pro.id}`);
-
-              if (!reviewsRes.ok) {
-                return { proId: pro.id, reviews: [] };
-              }
-
-              const reviewsJson = await reviewsRes.json();
-
-              return {
-                proId: pro.id,
-                reviews: reviewsJson?.success && Array.isArray(reviewsJson?.data)
-                  ? reviewsJson.data
-                  : []
-              };
-            } catch (error) {
-              console.error(`Erreur chargement avis pour pro ${pro.id}:`, error);
-              return { proId: pro.id, reviews: [] };
-            }
-          });
-
-          const reviewsResults = await Promise.all(reviewsPromises);
-
-          const reviewsData: Record<number, Review[]> = {};
-          reviewsResults.forEach(({ proId, reviews }) => {
-            reviewsData[proId] = reviews;
-          });
-
-          setReviewsByPro(reviewsData);
-        } else {
-          setPros([]);
-        }
-
-        // 3. Charger les favoris si connecté
-        if (user) {
-          try {
-            const favoritesRes = await fetch(`${API_BASE_URL}/api/favorites`, {
-              credentials: 'include',
-            });
-
-            if (favoritesRes.ok) {
-              const favoritesData = await favoritesRes.json();
-
-              if (favoritesData?.success && Array.isArray(favoritesData?.data)) {
-                const favoriteIds = new Set<number>(
-                  favoritesData.data
-                    .map((fav: any) => {
-                      const id = fav.pro_id ?? fav.proid;
-                      const num = typeof id === 'string' ? parseInt(id, 10) : id;
-                      return (typeof num === 'number' && !Number.isNaN(num)) ? num : null;
-                    })
-                    .filter((id): id is number => id !== null)
-                );
-                setFavorites(favoriteIds);
-              }
-            }
-          } catch (error) {
-            }
-        }
-
-      } catch (error) {
-        console.error('Erreur lors du chargement:', error);
-        setPros([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [API_BASE_URL]);
-
-useEffect(() => {
-  const fetchUpcomingBookings = async () => {
-    if (!user) return; // Pas connecté, pas de réservations
-
-    try {
-      setIsLoadingBookings(true);
-
-      const response = await fetch(`${API_BASE_URL}/api/client/my-booking`, {
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        return;
-      }
-
-      const data = await response.json();
-
-      if (data.success && Array.isArray(data.data)) {
-        // ✅ Mapper avec la bonne structure (comme vous l'avez corrigé)
-        const bookingsMapped: Booking[] = data.data.map((b: any) => ({
-          id: b.id,
-          start_datetime: b.start_datetime,
-          end_datetime: b.end_datetime,
-          status: b.status,
-          price: b.price,
-          paid_online: b.paid_online,
-          // ✅ Données imbriquées
-          prestation_name: b.prestation?.name || 'Prestation',
-          pro_first_name: b.pro?.first_name || '',
-          pro_last_name: b.pro?.last_name || '',
-          activity_name: b.pro?.name || null,
-          profile_photo: b.pro?.profile_photo || null
-        }));
-
-        // ✅ Filtrer uniquement les rendez-vous à venir
-        const now = new Date();
-        const upcoming = bookingsMapped.filter(b => {
-          const bookingDate = new Date(b.start_datetime);
-          return (b.status === 'confirmed' || b.status === 'pending') && bookingDate > now;
-        });
-
-        // ✅ Trier par date (les plus proches en premier)
-        upcoming.sort((a, b) => 
-          new Date(a.start_datetime).getTime() - new Date(b.start_datetime).getTime()
-        );
-
-        setUpcomingBookings(upcoming);
-      }
-    } catch (error) {
-      console.error('Erreur chargement réservations:', error);
-    } finally {
-      setIsLoadingBookings(false);
-    }
-  };
-
-  fetchUpcomingBookings();
-}, [API_BASE_URL]);
-
-
-  // ✅ Navigation vers la page spécialiste
-  const handleSpecialistClick = (proId: number) => {
-    navigate(`/client/specialist/${proId}`);
-  };
-
-  // ✅ Gestion des favoris optimisée avec debounce implicite
-  const toggleFavorite = async (proId: number, e: MouseEvent<HTMLButtonElement>) => {
+  const toggleFavorite = (proId: number, e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-
     if (!user) {
-      localStorage.setItem('returnUrl', '/client');
-      navigate('/login', {
-        state: {
-          message: 'Connectez-vous pour ajouter aux favoris',
-          returnUrl: '/client'
-        }
-      });
+      navigate("/login", { state: { message: "Connectez-vous pour ajouter aux favoris", returnUrl: "/client" } });
       return;
     }
-
-    const wasFavorite = favorites.has(proId);
-    const newFavorites = new Set(favorites);
-
-    // Optimistic update
-    if (wasFavorite) {
-      newFavorites.delete(proId);
-    } else {
-      newFavorites.add(proId);
-    }
-
-    setFavorites(newFavorites);
-
-    try {
-      if (wasFavorite) {
-        const response = await fetch(`${API_BASE_URL}/api/favorites/${proId}`, {
-          method: 'DELETE',
-          credentials: 'include',
-        });
-
-        if (!response.ok && response.status !== 404) {
-          throw new Error('Erreur lors de la suppression');
-        }
-
-      } else {
-        const response = await fetch(`${API_BASE_URL}/api/favorites`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ pro_id: proId })
-        });
-
-        if (!response.ok && response.status !== 409) {
-          const errorData = await response.json().catch(() => ({}));
-          console.error('Erreur API favoris:', errorData);
-          throw new Error('Erreur lors de l\'ajout');
-        }
-
-      }
-    } catch (error) {
-      console.error('Erreur favoris:', error);
-
-      // Rollback en cas d'erreur
-      setFavorites(favorites);
-
-      // Message utilisateur plus doux
-      const action = wasFavorite ? 'retirer ce favori' : 'ajouter aux favoris';
-      toast.error(`Impossible de ${action}. Vérifie ta connexion et réessaie.`);
-    }
+    toggleFavMutation.mutate(proId);
   };
 
-  // ✅ Loading state amélioré
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6">
@@ -525,7 +335,7 @@ useEffect(() => {
               >
                 <div className="flex gap-4 overflow-x-auto no-scrollbar px-6 py-2 snap-x snap-mandatory">
                   {filteredSpecialists.slice(0, 6).map((s, index) => {
-                    const isFavorite = favorites.has(s.id);
+                    const isFavorite = favoriteIds.has(s.id);
 
                     return (
                       <motion.div

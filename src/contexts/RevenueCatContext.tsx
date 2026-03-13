@@ -154,8 +154,12 @@ export const RevenueCatProvider: React.FC<RevenueCatProviderProps> = ({
     }
   }, [fetchBackendSubscription]);
 
-  // RC entitlements take priority, backend is fallback
-  const activePlan: PlanId | null = rcActivePlan ?? backendSubscription?.plan ?? null;
+  // RC entitlements take priority, backend is fallback (status must be active/trialing)
+  const activePlan: PlanId | null =
+    rcActivePlan ??
+    (backendSubscription?.status === "active" || backendSubscription?.status === "trialing"
+      ? backendSubscription.plan
+      : null);
 
   const value: RevenueCatContextType = {
     customerInfo,

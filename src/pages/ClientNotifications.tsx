@@ -55,7 +55,7 @@ const ClientNotifications = () => {
   };
 
   const goToSystemSettings = () => {
-    window.confirm("Ouvrir les réglages système de ton téléphone ?");
+    alert("Pour gérer les notifications, ouvre les Réglages de ton téléphone puis recherche Blyss.");
   };
 
   if (isLoading) {

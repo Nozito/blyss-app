@@ -3,6 +3,7 @@ import React, {
   useContext,
   useState,
   useEffect,
+  useRef,
   ReactNode,
 } from "react";
 import {
@@ -54,7 +55,11 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-const USER_CACHE_KEY = "user";
+const USER_CACHE_KEY = "blyss_user";
+
+// Champs non-sensibles stockés en localStorage pour l'affichage initial
+const SAFE_FIELDS = ["id", "first_name", "last_name", "role", "is_admin", "profile_photo", "avg_rating", "clients_count"] as const;
+const toSafeCache = (u: User) => Object.fromEntries(SAFE_FIELDS.filter(k => k in u).map(k => [k, (u as any)[k]])) as Partial<User>;
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => {
@@ -67,6 +72,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   });
   const [isLoading, setIsLoading] = useState(true);
+  // Prevents stale initAuth from overwriting a concurrent login()
+  const _loginSucceeded = useRef(false);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -74,9 +81,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       try {
         // Verify the HttpOnly cookie is still valid by calling /profile
         const response = await authApi.getProfile();
+        // If login() completed during this async call, don't overwrite its result
+        if (_loginSucceeded.current) return;
         if (response.success && response.data) {
           setUser(response.data);
-          localStorage.setItem(USER_CACHE_KEY, JSON.stringify(response.data));
+          localStorage.setItem(USER_CACHE_KEY, JSON.stringify(toSafeCache(response.data)));
         } else {
           // Cookie expired or invalid
           setUser(null);
@@ -109,8 +118,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // Tokens are set as HttpOnly cookies by the server
         const profile = await authApi.getProfile();
         if (profile.success && profile.data) {
+          _loginSucceeded.current = true; // prevents stale initAuth from overwriting
           setUser(profile.data);
-          localStorage.setItem(USER_CACHE_KEY, JSON.stringify(profile.data));
+          localStorage.setItem(USER_CACHE_KEY, JSON.stringify(toSafeCache(profile.data)));
         }
       }
 
@@ -174,7 +184,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     if (response.success && response.data) {
       setUser(response.data);
-      localStorage.setItem(USER_CACHE_KEY, JSON.stringify(response.data));
+      localStorage.setItem(USER_CACHE_KEY, JSON.stringify(toSafeCache(response.data)));
     }
 
     return response;

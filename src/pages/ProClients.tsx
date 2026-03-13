@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import MobileLayout from "@/components/MobileLayout";
 import ClientEditModal from "@/components/ClientEditModal";
 import { Search, Edit2, Users, X, TrendingUp, Calendar } from "lucide-react";
@@ -15,34 +16,21 @@ interface Client {
 }
 
 const ProClients = () => {
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-  const [clients, setClients] = useState<Client[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const fetchClients = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await api.pro.getClients();
-        if (!res.success) {
-          throw new Error(res.error || "Erreur serveur");
-        }
-
-        setClients(res.data || []);
-      } catch (e: any) {
-        setError(e.message ?? "Erreur inattendue");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchClients();
-  }, []);
+  const { data: clients = [], isLoading: loading, error: queryError } = useQuery<Client[]>({
+    queryKey: ["pro-clients"],
+    queryFn: async () => {
+      const res = await api.pro.getClients();
+      if (!res.success) throw new Error(res.error || "Erreur serveur");
+      return res.data || [];
+    },
+    staleTime: 2 * 60_000,
+  });
+  const error = queryError ? (queryError as Error).message : null;
 
   const filteredClients = useMemo(
     () =>
@@ -62,8 +50,7 @@ const ProClients = () => {
   const handleSaveClient = async (updatedClient: Client) => {
     try {
       await api.pro.updateClientNotes(updatedClient.id, updatedClient.notes);
-
-      setClients((prev) =>
+      queryClient.setQueryData<Client[]>(["pro-clients"], (prev = []) =>
         prev.map((c) =>
           c.id === updatedClient.id ? { ...c, notes: updatedClient.notes } : c
         )

@@ -9,7 +9,12 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:status": "node scripts/db.mjs status",
+    "db:push": "node scripts/db.mjs push",
+    "db:seed": "node scripts/db.mjs seed",
+    "db:reset": "node scripts/db.mjs reset",
+    "db:new": "node scripts/db.mjs new"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

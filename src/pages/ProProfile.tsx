@@ -17,6 +17,7 @@ import {
   TrendingUp,
   Calendar,
   Briefcase,
+  Lock,
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/AuthContext";
@@ -26,6 +27,7 @@ import Cropper, { Area } from "react-easy-crop";
 import getCroppedImg from "@/utils/cropImage";
 import { proApi } from "@/services/api";
 import { useRevenueCat } from "@/contexts/RevenueCatContext";
+import { canAccessFeature, PRO_PROFILE_MENU, type FeatureId } from "@/config/subscriptionConfig";
 
 type Subscription = {
   id: number;
@@ -53,25 +55,23 @@ const getDisplayInstagram = (user: any): string | null =>
   user?.instagram_account || "Non renseigné";
 const formatAvgRating = (rating: unknown): string => {
   const value = Number(rating);
-  if (!rating || isNaN(value) || value === 0) return "Nouveau";
+  if (!rating || isNaN(value) || value === 0) return "0";
   return value.toFixed(1).replace(".", ",");
 };
 
-const calculateYearsOnBlyss = (createdAt: string | undefined): string => {
-  if (!createdAt) return "0";
+const calculateYearsOnBlyss = (createdAt: string | undefined): { value: string; unit: string } | null => {
+  if (!createdAt) return null;
 
   const accountDate = new Date(createdAt);
   const now = new Date();
   const diffMs = now.getTime() - accountDate.getTime();
+  const months = Math.floor(diffMs / (30.44 * 24 * 60 * 60 * 1000));
+
+  if (months < 1) return null;
+
   const years = Math.floor(diffMs / (365.25 * 24 * 60 * 60 * 1000));
-
-  if (years === 0) {
-    const months = Math.floor(diffMs / (30.44 * 24 * 60 * 60 * 1000));
-    if (months === 0) return "<1";
-    return `${months}m`;
-  }
-
-  return `${years}`;
+  if (years >= 1) return { value: `${years}`, unit: years > 1 ? "ans" : "an" };
+  return { value: `${months}`, unit: months > 1 ? "mois" : "mois" };
 };
 
 const calculateProfileCompleteness = (user: any): number => {
@@ -233,6 +233,7 @@ const ProProfile = () => {
   const displayCity = getDisplayCity(user);
   const displayInstagram = getDisplayInstagram(user);
   const profileCompleteness = calculateProfileCompleteness(user);
+  const blyssAge = calculateYearsOnBlyss(user?.created_at);
   const hasActiveSubscription = activePlan !== null;
   const currentPlanLabel = activePlan
     ? activePlan === "serenite"
@@ -243,14 +244,21 @@ const ProProfile = () => {
     : "Aucune formule";
   const currentBillingLabel = "";
   const nextBillingDate = "";
-  const menuItems = [
-    { icon: Briefcase, label: "Mes prestations", path: "/pro/prestations" },
-    { icon: TrendingUp, label: "Finance", path: "/pro/finance" },
-    { icon: Settings, label: "Paramètres", path: "/pro/settings" },
-    { icon: CreditCard, label: "Encaissements", path: "/pro/payment" },
-    { icon: Bell, label: "Notifications", path: "/pro/notifications" },
-    { icon: HelpCircle, label: "Aide", path: "/pro/help" },
-  ];
+  const MENU_ICONS: Record<string, React.ElementType> = {
+    "/pro/prestations":  Briefcase,
+    "/pro/finance":      TrendingUp,
+    "/pro/settings":     Settings,
+    "/pro/payments":     CreditCard,
+    "/pro/notifications": Bell,
+    "/pro/help":         HelpCircle,
+  };
+
+  const menuItems = PRO_PROFILE_MENU.map((item) => ({
+    icon:    MENU_ICONS[item.path] ?? Settings,
+    label:   item.label,
+    path:    item.path,
+    locked:  !canAccessFeature(activePlan, item.feature as FeatureId),
+  }));
 
   return (
     <MobileLayout>
@@ -370,9 +378,7 @@ const ProProfile = () => {
                 <Calendar size={18} className="text-primary" />
               </div>
               <p className="text-2xl font-bold text-foreground mb-1">
-                {user?.clients_count !== undefined && user?.clients_count !== null
-                  ? user.clients_count
-                  : 0}
+                {user?.clients_count ? user.clients_count : "—"}
               </p>
               <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
                 Client{user?.clients_count > 1 ? 'es' : 'e'}
@@ -384,7 +390,7 @@ const ProProfile = () => {
                 <Star size={18} className="text-primary" />
               </div>
               <p className="text-2xl font-bold text-foreground mb-1">
-                {formatAvgRating(user?.avg_rating)}
+                {formatAvgRating(user?.avg_rating) === "0" ? "—" : formatAvgRating(user?.avg_rating)}
               </p>
               <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
                 Note moy.
@@ -396,15 +402,10 @@ const ProProfile = () => {
                 <TrendingUp size={18} className="text-primary" />
               </div>
               <p className="text-2xl font-bold text-foreground mb-1">
-              {calculateYearsOnBlyss(user?.created_at)}
-                {(() => {
-                  const years = calculateYearsOnBlyss(user?.created_at);
-                  if (years === "0" || years === "<1") return "Nouveau";
-                  if (years.endsWith("m")) return " Mois";
-                  return " ans";
-                })()}              </p>
+                {blyssAge ? blyssAge.value : "—"}
+              </p>
               <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
-                Sur Blyss
+                {blyssAge ? `${blyssAge.unit} sur Blyss` : "Sur Blyss"}
               </p>
             </div>
 
@@ -525,16 +526,25 @@ const ProProfile = () => {
           {menuItems.map((item, index) => (
             <button
               key={index}
-              onClick={() => navigate(item.path)}
-              className="w-full flex items-center gap-4 px-4 py-4 hover:bg-muted/50 active:bg-muted active:scale-[0.99] transition-all border-b border-border last:border-b-0 group"
+              onClick={() => navigate(item.locked ? "/pro/upgrade" : item.path)}
+              className={`w-full flex items-center gap-4 px-4 py-4 hover:bg-muted/50 active:bg-muted active:scale-[0.99] transition-all border-b border-border last:border-b-0 group ${item.locked ? "opacity-60" : ""}`}
             >
-              <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center group-hover:scale-110 transition-transform">
-                <item.icon size={20} className="text-primary" />
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform ${item.locked ? "bg-muted" : "bg-primary/10"}`}>
+                {item.locked
+                  ? <Lock size={18} className="text-muted-foreground" />
+                  : <item.icon size={20} className="text-primary" />
+                }
               </div>
               <span className="flex-1 text-left font-semibold text-foreground">
                 {item.label}
               </span>
-              <ChevronRight size={20} className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
+              {item.locked ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 uppercase tracking-wide">
+                  Upgrade
+                </span>
+              ) : (
+                <ChevronRight size={20} className="text-muted-foreground group-hover:translate-x-1 transition-transform" />
+              )}
             </button>
           ))}
         </div>

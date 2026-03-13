@@ -590,17 +590,17 @@ export class InstagramService {
        (pro_id, instagram_user_id, instagram_username,
         access_token_enc, token_iv, token_tag,
         token_expires_at, last_refreshed_at, scopes_granted, is_active, disconnect_reason)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, 1, NULL)
-       ON DUPLICATE KEY UPDATE
-         instagram_user_id   = VALUES(instagram_user_id),
-         instagram_username  = VALUES(instagram_username),
-         access_token_enc    = VALUES(access_token_enc),
-         token_iv            = VALUES(token_iv),
-         token_tag           = VALUES(token_tag),
-         token_expires_at    = VALUES(token_expires_at),
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, TRUE, NULL)
+       ON CONFLICT (pro_id) DO UPDATE SET
+         instagram_user_id   = EXCLUDED.instagram_user_id,
+         instagram_username  = EXCLUDED.instagram_username,
+         access_token_enc    = EXCLUDED.access_token_enc,
+         token_iv            = EXCLUDED.token_iv,
+         token_tag           = EXCLUDED.token_tag,
+         token_expires_at    = EXCLUDED.token_expires_at,
          last_refreshed_at   = NOW(),
-         scopes_granted      = VALUES(scopes_granted),
-         is_active           = 1,
+         scopes_granted      = EXCLUDED.scopes_granted,
+         is_active           = TRUE,
          disconnect_reason   = NULL`,
       [proId, instagramUserId, username, encrypted, iv, tag, expiresAt, scopes]
     );

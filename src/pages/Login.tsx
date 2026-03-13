@@ -1,4 +1,4 @@
-import { useState, useCallback, forwardRef, FormEvent } from "react";
+import { useState, useCallback, forwardRef, FormEvent, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Mail, Lock, Sparkles } from "lucide-react";
 import logo from "@/assets/logo.png";
@@ -31,7 +31,20 @@ interface FormErrors {
 
 const Login = forwardRef<HTMLDivElement>((_, ref) => {
   const navigate = useNavigate();
-  const { login, isLoading } = useAuth();
+  const { login, isLoading, isAuthenticated, user } = useAuth();
+
+  // Redirect already-authenticated users to their dashboard
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && user) {
+      const isAdmin = (user as any).is_admin;
+      if (isAdmin) {
+        // Admins choose their interface — don't auto-redirect, let them use the form
+        return;
+      }
+      const route = user.role === "pro" ? "/pro/dashboard" : "/client";
+      navigate(route, { replace: true });
+    }
+  }, [isLoading, isAuthenticated, user, navigate]);
 
   // ✅ État du formulaire
   const [email, setEmail] = useState("");
@@ -191,24 +204,33 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
 
         const user = response.data.user;
 
-        // ✅ Si Pro avec admin, afficher la modal de sélection
-        if (user.role === "pro" && user.is_admin) {
+        // ✅ Si admin (quel que soit le rôle), afficher la modal de sélection
+        if ((user as any).is_admin) {
           setLoggedUserName(user.first_name);
-          setLoggedUserRole("pro");
+          setLoggedUserRole(user.role === "pro" ? "pro" : "client");
           setShowRoleModal(true);
         } else {
           // ✅ Navigation normale selon le rôle
           setTimeout(() => {
-            const targetRoute = user.role === "pro"
-              ? "/pro/dashboard"
-              : "/client";
-            navigate(targetRoute, { replace: true });
+            // Utilise returnUrl stocké (depuis SpecialistProfile, ClientBooking, etc.)
+            const returnUrl = localStorage.getItem("returnUrl");
+            if (returnUrl) {
+              localStorage.removeItem("returnUrl");
+              navigate(returnUrl, { replace: true });
+            } else {
+              const targetRoute = user.role === "pro" ? "/pro/dashboard" : "/client";
+              navigate(targetRoute, { replace: true });
+            }
           }, 300);
         }
       } else {
         // Increment attempt count
         setAttemptCount(prev => prev + 1);
-        toast.error(ERROR_MESSAGES.LOGIN_FAILED);
+        if ((response as any).error === "account_disabled") {
+          toast.error("Ton compte a été désactivé. Contacte le support.");
+        } else {
+          toast.error(ERROR_MESSAGES.LOGIN_FAILED);
+        }
       }
     } catch (error) {
       console.error("Login error:", error);
@@ -476,7 +498,7 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
               <button
                 type="button"
                 className="underline hover:text-foreground transition-colors font-medium focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded"
-                onClick={() => window.open("/terms", "_blank", "noopener,noreferrer")}
+                onClick={() => window.open("/legal", "_blank", "noopener,noreferrer")}
                 aria-label="Lire les conditions générales (ouvre dans un nouvel onglet)"
               >
                 Conditions générales
@@ -485,7 +507,7 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
               <button
                 type="button"
                 className="underline hover:text-foreground transition-colors font-medium focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded"
-                onClick={() => window.open("/privacy", "_blank", "noopener,noreferrer")}
+                onClick={() => window.open("/legal", "_blank", "noopener,noreferrer")}
                 aria-label="Lire la politique de confidentialité (ouvre dans un nouvel onglet)"
               >
                 Politique de confidentialité

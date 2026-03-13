@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Users,
   Calendar,
@@ -12,7 +12,6 @@ import {
   Briefcase,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { toast } from "sonner";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -35,35 +34,23 @@ interface Activity {
 }
 
 const AdminDashboard = () => {
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [recentActivity, setRecentActivity] = useState<Activity[]>([]);
-
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  const fetchDashboardData = async () => {
-    try {
+  const { data, isLoading: loading } = useQuery({
+    queryKey: ["admin-dashboard"],
+    queryFn: async () => {
       const response = await fetch(`${API_URL}/api/admin/dashboard/stats`, {
         credentials: 'include',
       });
+      if (!response.ok) throw new Error("Erreur lors du chargement des données");
+      const data = await response.json();
+      if (!data.success) throw new Error("Erreur serveur");
+      return data;
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          setStats(data.stats);
-          setRecentActivity(data.recentActivity || []);
-        }
-      } else {
-        toast.error("Erreur lors du chargement des données");
-      }
-    } catch (error) {
-      toast.error("Erreur de connexion au serveur");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const stats: Stats | null = data?.stats ?? null;
+  const recentActivity: Activity[] = data?.recentActivity ?? [];
 
   // Calcul des variations (pour l'exemple, vous pouvez stocker les stats précédentes)
   const userChange = "+12.5%";

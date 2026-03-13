@@ -2,6 +2,7 @@ import express, { Response } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { authenticateToken } from "../middleware/auth";
+import { adminLimiter } from "../middleware/rate-limits";
 import { getDb } from "../lib/db";
 import { sendNotificationToUser } from "../lib/notifications";
 import { AuthenticatedRequest } from "../lib/types";
@@ -56,29 +57,21 @@ router.get(
 
       if ((settings as any[]).length === 0) {
         if (role === "pro") {
-          const defaultSettings = {
-            user_id: userId,
-            new_reservation: 1,
-            cancel_change: 1,
-            daily_reminder: 1,
-            client_message: 1,
-            payment_alert: 1,
-            activity_summary: 1,
-          };
-          await db.query("INSERT INTO pro_notification_settings SET ?", [defaultSettings]);
-          return res.json({ success: true, data: defaultSettings });
+          await db.query(
+            `INSERT INTO pro_notification_settings (user_id, new_reservation, cancel_change, daily_reminder, client_message, payment_alert, activity_summary)
+             VALUES (?, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE)
+             ON CONFLICT (user_id) DO NOTHING`,
+            [userId]
+          );
+          return res.json({ success: true, data: { user_id: userId, new_reservation: true, cancel_change: true, daily_reminder: true, client_message: true, payment_alert: true, activity_summary: true } });
         } else {
-          const defaultSettings = {
-            user_id: userId,
-            reminders: 1,
-            changes: 1,
-            messages: 1,
-            late: 1,
-            offers: 1,
-            email_summary: 0,
-          };
-          await db.query("INSERT INTO client_notification_settings SET ?", [defaultSettings]);
-          return res.json({ success: true, data: defaultSettings });
+          await db.query(
+            `INSERT INTO client_notification_settings (user_id, reminders, changes, messages, late, offers, email_summary)
+             VALUES (?, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE)
+             ON CONFLICT (user_id) DO NOTHING`,
+            [userId]
+          );
+          return res.json({ success: true, data: { user_id: userId, reminders: true, changes: true, messages: true, late: true, offers: true, email_summary: false } });
         }
       }
 
@@ -141,6 +134,7 @@ router.post(
 router.get(
   "/users",
   authenticateToken,
+  adminLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       if (!(await requireAdmin(req, res))) return;
@@ -191,7 +185,7 @@ router.get(
       let unreadNotifications = 0;
       try {
         const [unreadNotifRows] = await db.query(
-          "SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0",
+          "SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = FALSE",
           [adminId]
         );
         unreadNotifications = (unreadNotifRows as any[])[0]?.count || 0;
@@ -467,7 +461,7 @@ router.delete(
 
       const [userRows] = await db.query("SELECT is_admin FROM users WHERE id = ?", [userId]);
       if ((userRows as any[])[0]?.is_admin) {
-        const [adminsRows] = await db.query("SELECT COUNT(*) as count FROM users WHERE is_admin = 1");
+        const [adminsRows] = await db.query("SELECT COUNT(*) as count FROM users WHERE is_admin = TRUE");
         if ((adminsRows as any[])[0].count <= 1) {
           return res.status(400).json({
             success: false,

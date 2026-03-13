@@ -93,6 +93,7 @@ const ClientProfile = () => {
         `${API_URL}/api/users/upload-photo`,
         {
           method: "POST",
+          credentials: "include",
           body: formData,
         }
       );

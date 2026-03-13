@@ -1,5 +1,6 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import api from "@/services/api";
@@ -61,37 +62,25 @@ const ProDashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [data, setData] = useState<ProDashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, isLoading: loading, error: queryError } = useQuery<ProDashboardData>({
+    queryKey: ["pro-dashboard"],
+    queryFn: async () => {
+      const res = await api.pro.getDashboard();
+      if (!res.success) throw new Error(res.error || "Erreur serveur");
+      return res.data as ProDashboardData;
+    },
+    staleTime: 60_000,      // données fraîches 1 min → pas de refetch inutile
+    gcTime: 5 * 60_000,     // cache conservé 5 min en mémoire
+    retry: 1,
+  });
+
+  const error = queryError ? (queryError as Error).message ?? "Erreur inattendue" : null;
 
   const [showSlotsModal, setShowSlotsModal] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
 
-  useEffect(() => {
-    const fetchDashboard = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const res = await api.pro.getDashboard();
-
-        if (!res.success) {
-          throw new Error(res.error || "Erreur serveur");
-        }
-
-        setData(res.data);
-      } catch (e: any) {
-        setError(e.message ?? "Erreur inattendue");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchDashboard();
-  }, []);
 
   const weeklyStats = data?.weeklyStats ?? {
     services: 0,
@@ -488,7 +477,7 @@ const ProDashboard = () => {
               upcomingClients.map((client, index) => (
                 <button
                   key={client.id}
-                  onClick={() => navigate(`/pro/appointments/${client.id}`)}
+                  onClick={() => navigate(`/pro/calendar`)}
                   className="w-full rounded-xl p-4 bg-card border border-border hover:border-primary/40 active:scale-[0.98] transition-all shadow-sm hover:shadow-md group"
                   style={{ animationDelay: `${0.3 + index * 0.05}s` }}
                 >

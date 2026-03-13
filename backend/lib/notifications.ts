@@ -43,15 +43,25 @@ export async function checkNotificationPreference(
     const [settings] = await db.query(`SELECT ${column} FROM ${table} WHERE user_id = ?`, [userId]);
 
     if ((settings as any[]).length === 0) {
-      const defaultColumns =
-        role === "pro"
-          ? { user_id: userId, new_reservation: 1, cancel_change: 1, daily_reminder: 1, client_message: 1, payment_alert: 1, activity_summary: 1 }
-          : { user_id: userId, reminders: 1, changes: 1, messages: 1, late: 1, offers: 1, email_summary: 0 };
-      await db.query(`INSERT INTO ${table} SET ?`, [defaultColumns]);
+      if (role === "pro") {
+        await db.query(
+          `INSERT INTO pro_notification_settings (user_id, new_reservation, cancel_change, daily_reminder, client_message, payment_alert, activity_summary)
+           VALUES (?, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE)
+           ON CONFLICT (user_id) DO NOTHING`,
+          [userId]
+        );
+      } else {
+        await db.query(
+          `INSERT INTO client_notification_settings (user_id, reminders, changes, messages, late, offers, email_summary)
+           VALUES (?, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE)
+           ON CONFLICT (user_id) DO NOTHING`,
+          [userId]
+        );
+      }
       return true;
     }
 
-    return (settings as any[])[0][column] === 1;
+    return (settings as any[])[0][column] === true || (settings as any[])[0][column] === 1;
   } catch (error) {
     console.error("Error checking notification preference:", error);
     return true;
@@ -62,7 +72,7 @@ export async function sendUnreadNotifications(ws: WebSocket, userId: number): Pr
   try {
     const [rows] = await getDb().query(
       `SELECT id, user_id, type, title, message, data, is_read, created_at
-       FROM notifications WHERE user_id = ? AND is_read = 0 ORDER BY created_at DESC`,
+       FROM notifications WHERE user_id = ? AND is_read = FALSE ORDER BY created_at DESC`,
       [userId]
     );
     if ((rows as any[]).length > 0) {

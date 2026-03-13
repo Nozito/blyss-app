@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
 import {
@@ -50,69 +51,44 @@ interface Booking {
 
 const ClientMyBooking = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [confirmId, setConfirmId] = useState<number | null>(null);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  // ✅ Fonction de fetch avec credentials (HttpOnly cookie)
-  const fetchBookings = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      const response = await fetchWithCredentials(
-        `${API_BASE_URL}/api/client/my-booking`
-      );
-
+  const { data: bookings = [], isLoading, error: queryError, refetch } = useQuery<Booking[]>({
+    queryKey: ["client-bookings"],
+    queryFn: async () => {
+      const response = await fetchWithCredentials(`${API_BASE_URL}/api/client/my-booking`);
       if (!response.ok) {
+        if (response.status === 401) throw new Error("REFRESH_FAILED");
         throw new Error(`Erreur ${response.status}`);
       }
-
       const data = await response.json();
-
-      if (data.success && Array.isArray(data.data)) {
-        const bookingsMapped: Booking[] = data.data.map((b: any) => ({
-          id: b.id,
-          start_datetime: b.start_datetime,
-          end_datetime: b.end_datetime,
-          status: b.status,
-          price: b.price,
-          paid_online: b.paid_online,
-          prestation_name: b.prestation?.name || 'Prestation',
-          duration_minutes: b.prestation?.duration_minutes || 0,
-          pro_first_name: b.pro?.first_name || '',
-          pro_last_name: b.pro?.last_name || '',
-          activity_name: b.pro?.name || null,
-          profile_photo: b.pro?.profile_photo || null,
-          city: b.pro?.city || null
-        }));
-
-        setBookings(bookingsMapped);
-      } else {
-        setBookings([]);
+      if (!data.success || !Array.isArray(data.data)) return [];
+      return data.data.map((b: any) => ({
+        id: b.id,
+        start_datetime: b.start_datetime,
+        end_datetime: b.end_datetime,
+        status: b.status,
+        price: b.price,
+        paid_online: b.paid_online,
+        prestation_name: b.prestation?.name || "Prestation",
+        duration_minutes: b.prestation?.duration_minutes || 0,
+        pro_first_name: b.pro?.first_name || "",
+        pro_last_name: b.pro?.last_name || "",
+        activity_name: b.pro?.activity_name || null,
+        profile_photo: b.pro?.profile_photo || null,
+        city: b.pro?.city || null,
+      }));
+    },
+    staleTime: 30_000,
+    onError: (err: any) => {
+      if (err?.message === "REFRESH_FAILED") {
+        navigate("/login", { replace: true, state: { message: "Session expirée, veuillez vous reconnecter" } });
       }
+    },
+  } as any);
 
-    } catch (err) {
-      console.error('❌ Erreur lors du chargement:', err);
-
-      if (err instanceof Error) {
-        if (err.message === 'REFRESH_FAILED') {
-          navigate('/login', { replace: true, state: { message: 'Session expirée, veuillez vous reconnecter' } });
-          return;
-        }
-        setError(err.message);
-      } else {
-        setError('Erreur de chargement');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [navigate]);
-
-  useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
+  const error = queryError ? (queryError as Error).message : null;
 
   // ✅ Gestion de l'annulation avec credentials (HttpOnly cookie)
   const handleCancelBooking = useCallback(async (bookingId: number) => {
@@ -129,9 +105,9 @@ const ClientMyBooking = () => {
       const data = await response.json();
 
       if (data.success) {
-        setBookings(prev => prev.map(b =>
-          b.id === bookingId ? { ...b, status: 'cancelled' as const } : b
-        ));
+        queryClient.setQueryData<Booking[]>(["client-bookings"], (prev = []) =>
+          prev.map((b) => (b.id === bookingId ? { ...b, status: "cancelled" as const } : b))
+        );
         setConfirmId(null);
       } else {
         toast.error(data?.message || 'Erreur lors de l\'annulation');
@@ -230,7 +206,7 @@ const ClientMyBooking = () => {
             <p className="text-xl font-bold text-foreground">Oups !</p>
             <p className="text-sm text-muted-foreground max-w-sm">{error}</p>
             <button
-              onClick={fetchBookings}
+              onClick={() => refetch()}
               className="mt-6 px-8 py-3 rounded-2xl bg-primary text-white font-semibold shadow-lg hover:shadow-xl transition-all active:scale-95"
             >
               Réessayer

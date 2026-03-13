@@ -2,12 +2,12 @@ import MobileLayout from "@/components/MobileLayout";
 import { ChevronLeft, Check, AlertCircle, Eye, EyeOff, Save } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useAuth } from "@/contexts/AuthContext";
+import { usersApi } from "@/services/api";
 
 const ProSettings = () => {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
 
   // Infos pro
   const [firstName, setFirstName] = useState("");
@@ -33,43 +33,31 @@ const ProSettings = () => {
   // UX states
   const [fieldErrors, setFieldErrors] = useState<{ [key: string]: string }>({});
   const [touched, setTouched] = useState<{ [key: string]: boolean }>({});
-  const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState<"weak" | "medium" | "strong" | null>(null);
 
-  useEffect(() => {
-    const fetchUserData = async () => {
-      setIsLoading(true);
-      try {
-        if (!isAuthenticated) return;
-
-        const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const response = await fetch(`${BASE_URL}/api/users`, {
-          credentials: 'include',
-        });
-
-        const data = await response.json();
-
-        setActivityName(data.data.activity_name || "");
-        setFirstName(data.data.first_name || "");
-        setLastName(data.data.last_name || "");
-        setCity(data.data.city || "");
-        setInstagramAccount(data.data.instagram_account || "");
-
-        setInitialActivityName(data.data.activity_name || "");
-        setInitialFirstName(data.data.first_name || "");
-        setInitialLastName(data.data.last_name || "");
-        setInitialCity(data.data.city || "");
-        setInitialInstagramAccount(data.data.instagram_account || "");
-      } catch (error) {
-        toast.error("Impossible de charger tes données");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchUserData();
-  }, []);
+  const { isLoading } = useQuery({
+    queryKey: ["pro-settings-user"],
+    queryFn: async () => {
+      const res = await usersApi.getMe();
+      if (!res.success || !res.data) throw new Error("Impossible de charger tes données");
+      const d = res.data as any;
+      setFirstName(d.first_name || "");
+      setLastName(d.last_name || "");
+      setActivityName(d.activity_name || "");
+      setCity(d.city || "");
+      setInstagramAccount(d.instagram_account || "");
+      setInitialFirstName(d.first_name || "");
+      setInitialLastName(d.last_name || "");
+      setInitialActivityName(d.activity_name || "");
+      setInitialCity(d.city || "");
+      setInitialInstagramAccount(d.instagram_account || "");
+      return d;
+    },
+    staleTime: 60_000,
+    retry: 1,
+  });
 
   // Détection des changements
   useEffect(() => {
@@ -209,32 +197,20 @@ const ProSettings = () => {
     }
 
     try {
-      const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
-      const response = await fetch(`${BASE_URL}/api/users/update`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: 'include',
-        body: JSON.stringify(payload),
-      });
+      const result = await usersApi.update(payload);
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        toast.error(errorData.message || "Une erreur est survenue");
+      if (!result.success) {
+        toast.error(result.error || "Une erreur est survenue");
         return;
       }
 
-      const result = await response.json();
-      if (result?.data) {
-        localStorage.setItem("user", JSON.stringify(result.data));
-        
-        // Mise à jour des valeurs initiales
-        setInitialFirstName(result.data.first_name || "");
-        setInitialLastName(result.data.last_name || "");
-        setInitialActivityName(result.data.activity_name || "");
-        setInitialCity(result.data.city || "");
-        setInitialInstagramAccount(result.data.instagram_account || "");
+      if (result.data) {
+        const d = result.data as any;
+        setInitialFirstName(d.first_name || "");
+        setInitialLastName(d.last_name || "");
+        setInitialActivityName(d.activity_name || "");
+        setInitialCity(d.city || "");
+        setInitialInstagramAccount(d.instagram_account || "");
       }
 
       toast.success("Profil mis à jour avec succès !");

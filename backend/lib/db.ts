@@ -1,6 +1,5 @@
 import { Pool, PoolClient } from "pg";
-
-let _pool: Pool | undefined;
+import { execSync } from "child_process";
 
 /** Custom error thrown when a DB query exceeds the timeout. */
 export class DbTimeoutError extends Error {
@@ -10,7 +9,56 @@ export class DbTimeoutError extends Error {
   }
 }
 
-const QUERY_TIMEOUT_MS = 5000;
+// Timeout par mode : pg = 5s (connexion locale/proche), management API = 30s (HTTP)
+const PG_QUERY_TIMEOUT_MS = 5000;
+const MGMT_QUERY_TIMEOUT_MS = 30000;
+
+// ── Mode de connexion ────────────────────────────────────────────────────────
+// "pg"         : connexion TCP directe via node-postgres (pool)
+// "management" : fallback HTTP via Supabase Management API (si pg inaccessible)
+type DbMode = "pg" | "management";
+
+let _mode: DbMode | undefined;
+let _modePromise: Promise<DbMode> | undefined;
+let _pool: Pool | undefined;
+let _projectRef: string | undefined;
+let _mgmtToken: string | undefined;
+
+// ── Utilitaires Supabase ─────────────────────────────────────────────────────
+
+/** Extrait le project ref depuis DATABASE_URL (pooler ou direct). */
+function extractProjectRef(): string {
+  const url = process.env.DATABASE_URL ?? "";
+  // Pooler format : postgres.{ref}:password@... ou postgres.{ref}@...
+  const m1 = url.match(/\/\/postgres\.([a-z0-9]+)[:@]/);
+  if (m1) return m1[1];
+  // Direct format : @db.{ref}.supabase.co
+  const m2 = url.match(/@db\.([a-z0-9]+)\.supabase\.co/);
+  if (m2) return m2[1];
+  if (process.env.SUPABASE_PROJECT_REF) return process.env.SUPABASE_PROJECT_REF;
+  throw new Error("Impossible de détecter le project ref Supabase depuis DATABASE_URL");
+}
+
+/** Lit le token Management API (env var ou keychain macOS). */
+function readMgmtToken(): string {
+  if (process.env.SUPABASE_ACCESS_TOKEN) return process.env.SUPABASE_ACCESS_TOKEN;
+  try {
+    const raw = execSync(
+      'security find-generic-password -s "Supabase CLI" -w 2>/dev/null',
+      { stdio: ["pipe", "pipe", "pipe"] }
+    ).toString().trim();
+    if (raw.startsWith("go-keyring-base64:")) {
+      return Buffer.from(raw.replace("go-keyring-base64:", ""), "base64").toString();
+    }
+    if (raw.length > 10) return raw;
+  } catch { /* not on macOS or keychain not set up */ }
+  throw new Error(
+    "Token Supabase introuvable. " +
+    "Définissez SUPABASE_ACCESS_TOKEN dans .env.dev ou lancez `supabase login`."
+  );
+}
+
+// ── Pool pg ───────────────────────────────────────────────────────────────────
 
 function getPool(): Pool {
   if (!_pool) {
@@ -18,13 +66,12 @@ function getPool(): Pool {
     if (!url) throw new Error("DATABASE_URL manquante");
     _pool = new Pool({
       connectionString: url,
-      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
+      ssl: { rejectUnauthorized: false },
+      connectionTimeoutMillis: 10000,
+      idleTimeoutMillis: 30000,
     });
-
-    // Alert on pool-level errors (connection failures, etc.)
     _pool.on("error", (err) => {
       console.error("[DB POOL] Unexpected error:", err.message);
-      // Dynamic import to avoid circular dependency
       import("./alerts").then(({ sendAlert }) => {
         sendAlert("critical", "DB connection pool error", { message: err.message }).catch(() => {});
       }).catch(() => {});
@@ -33,56 +80,197 @@ function getPool(): Pool {
   return _pool;
 }
 
-/** Convert MySQL-style ? placeholders to PostgreSQL $1, $2, ... */
+// ── Détection du mode (une seule fois au premier appel) ──────────────────────
+
+async function detectMode(): Promise<DbMode> {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL manquante");
+
+  // Test rapide (1s) pour voir si pg est joignable
+  const probe = new Pool({
+    connectionString: url,
+    ssl: { rejectUnauthorized: false },
+    connectionTimeoutMillis: 1000,
+    max: 1,
+  });
+
+  try {
+    const client = await probe.connect();
+    client.release();
+    await probe.end();
+    _mode = "pg";
+    console.log("[DB] Mode : connexion pg directe ✅");
+  } catch {
+    await probe.end().catch(() => {});
+    _mode = "management";
+    _projectRef = extractProjectRef();
+    _mgmtToken = readMgmtToken();
+    console.log("[DB] Mode : Management API Supabase (pg inaccessible — IPv6/pooler) ✅");
+  }
+
+  return _mode;
+}
+
+function getMode(): Promise<DbMode> {
+  if (_mode) return Promise.resolve(_mode);
+  if (!_modePromise) _modePromise = detectMode();
+  return _modePromise;
+}
+
+// ── Utilitaires SQL ───────────────────────────────────────────────────────────
+
+/** Convertit les placeholders MySQL-style ? en $1, $2, ... (PostgreSQL). */
 function convertPlaceholders(sql: string): string {
   let i = 0;
   return sql.replace(/\?/g, () => `$${++i}`);
 }
 
+/**
+ * Colonnes BOOLEAN du schéma Blyss.
+ * Permet de convertir 0/1 (style MySQL) en FALSE/TRUE (PostgreSQL) selon le contexte SQL.
+ */
+const BOOLEAN_COLUMNS = new Set([
+  "is_read", "is_admin", "is_active", "active", "revoked", "processed",
+  "paid_online", "accept_online_payment", "stripe_onboarding_complete",
+  "reminders", "changes", "messages", "late", "offers", "email_summary",
+  "new_reservation", "cancel_change", "daily_reminder", "client_message",
+  "payment_alert", "activity_summary",
+]);
+
+/**
+ * Interpole les params positionnels ($1, $2, ...) dans une chaîne SQL.
+ * Utilisé uniquement en mode Management API — pg utilise la liaison native.
+ *
+ * Gère la migration MySQL → PostgreSQL :
+ * - Valeurs 0/1 passées pour des colonnes BOOLEAN → converties en FALSE/TRUE
+ *   en détectant le nom de colonne dans le SQL précédant le placeholder.
+ * - Chaînes : échappement SQL standard (quote → double quote).
+ */
+function interpolateSql(sql: string, params?: any[]): string {
+  if (!params || params.length === 0) return sql;
+  return sql.replace(/\$(\d+)/g, (match, idx, offset) => {
+    const val = params[parseInt(idx, 10) - 1];
+
+    // Détection du contexte booléen : colonne_bool = $N ou colonne_bool != $N
+    if ((val === 0 || val === 1) && typeof val === "number") {
+      const before = sql.substring(0, offset as number);
+      const colMatch = before.match(/\b(\w+)\s*(?:=|!=|<>|IS(?:\s+NOT)?)\s*$/i);
+      if (colMatch && BOOLEAN_COLUMNS.has(colMatch[1].toLowerCase())) {
+        return val === 0 ? "FALSE" : "TRUE";
+      }
+    }
+
+    if (val === null || val === undefined) return "NULL";
+    if (typeof val === "boolean") return val ? "TRUE" : "FALSE";
+    if (typeof val === "number") return Number.isFinite(val) ? String(val) : "NULL";
+    if (val instanceof Date) return `'${val.toISOString()}'`;
+    if (Array.isArray(val) || typeof val === "object") {
+      return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
+    }
+    return `'${String(val).replace(/'/g, "''")}'`;
+  });
+}
+
+// ── Management API ────────────────────────────────────────────────────────────
+
 type QueryResult = [any[], any[]];
 
-async function runQuery(
-  runner: (text: string, values?: any[]) => Promise<{ rows: any[]; fields?: any[] }>,
+async function mgmtQuery(sql: string, params?: any[]): Promise<QueryResult> {
+  const query = interpolateSql(sql, params);
+  const resp = await fetch(
+    `https://api.supabase.com/v1/projects/${_projectRef}/database/query`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${_mgmtToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query }),
+    }
+  );
+  const json = await resp.json() as any;
+  if (!resp.ok || json?.message) {
+    throw new Error(`[DB Management API] ${json?.message ?? JSON.stringify(json)}`);
+  }
+  return [Array.isArray(json) ? json : [], []];
+}
+
+// ── Exécution avec timeout ────────────────────────────────────────────────────
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new DbTimeoutError()), ms)
+  );
+  return Promise.race([promise, timeout]);
+}
+
+async function runQuery(sql: string, params?: any[]): Promise<QueryResult> {
+  const text = convertPlaceholders(sql);
+  const mode = await getMode(); // attend la détection (1s max pour pg probe)
+
+  if (mode === "pg") {
+    return withTimeout(
+      getPool().query(text, params).then((r) => [r.rows, r.fields ?? []] as QueryResult),
+      PG_QUERY_TIMEOUT_MS
+    );
+  } else {
+    return withTimeout(mgmtQuery(text, params), MGMT_QUERY_TIMEOUT_MS);
+  }
+}
+
+async function runQueryOnClient(
+  client: PoolClient,
   sql: string,
   params?: any[]
 ): Promise<QueryResult> {
-  const text = convertPlaceholders(sql);
-
-  const queryPromise = runner(text, params).then((result) => {
-    return [result.rows, result.fields ?? []] as QueryResult;
-  });
-
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new DbTimeoutError()), QUERY_TIMEOUT_MS)
+  return withTimeout(
+    client.query(sql, params).then((r) => [r.rows, r.fields ?? []] as QueryResult),
+    PG_QUERY_TIMEOUT_MS
   );
-
-  return Promise.race([queryPromise, timeoutPromise]);
 }
 
+// ── Interface publique ────────────────────────────────────────────────────────
+
 /**
- * Returns a mysql2/promise-compatible DB interface backed by a pg.Pool.
- * Callers destructure as: const [rows] = await db.execute(sql, params)
+ * Retourne un objet DB compatible mysql2/promise, backed by pg.Pool ou
+ * Supabase Management API selon la disponibilité du serveur pg.
+ *
+ * Utilisation : const [rows] = await db.execute(sql, params)
  */
 export function getDb() {
   return {
-    execute: (sql: string, params?: any[]) =>
-      runQuery((t, v) => getPool().query(t, v), sql, params),
+    execute: (sql: string, params?: any[]) => runQuery(sql, params),
 
-    query: (sql: string, params?: any[]) =>
-      runQuery((t, v) => getPool().query(t, v), sql, params),
+    query: (sql: string, params?: any[]) => runQuery(sql, params),
 
     getConnection: async () => {
-      const client: PoolClient = await getPool().connect();
-      const run = (sql: string, params?: any[]) =>
-        runQuery((t, v) => client.query(t, v), sql, params);
-      return {
-        execute: run,
-        query: run,
-        beginTransaction: () => client.query("BEGIN"),
-        commit: () => client.query("COMMIT"),
-        rollback: () => client.query("ROLLBACK"),
-        release: () => client.release(),
-      };
+      const mode = await getMode();
+
+      if (mode === "pg") {
+        // Transactions atomiques complètes via pg client dédié
+        const client: PoolClient = await getPool().connect();
+        const run = (sql: string, params?: any[]) =>
+          runQueryOnClient(client, convertPlaceholders(sql), params);
+        return {
+          execute: run,
+          query: run,
+          beginTransaction: () => client.query("BEGIN"),
+          commit: () => client.query("COMMIT"),
+          rollback: () => client.query("ROLLBACK"),
+          release: () => client.release(),
+        };
+      } else {
+        // Mode Management API : chaque requête est exécutée immédiatement.
+        // begin/commit/rollback sont des no-ops (pas d'atomicité garantie en dev).
+        return {
+          execute: (sql: string, params?: any[]) => runQuery(sql, params),
+          query: (sql: string, params?: any[]) => runQuery(sql, params),
+          beginTransaction: async () => {},
+          commit: async () => {},
+          rollback: async () => {},
+          release: () => {},
+        };
+      }
     },
   };
 }

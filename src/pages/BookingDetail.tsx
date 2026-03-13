@@ -1,5 +1,6 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
@@ -9,11 +10,10 @@ import {
 } from "lucide-react";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
-import { stripePaymentsApi } from "@/services/api";
+import { stripePaymentsApi, clientApi } from "@/services/api";
 import { toast } from "sonner";
 import { getImageUrl } from "@/utils/imageUrl";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
 const stripePromise = STRIPE_PK ? loadStripe(STRIPE_PK) : null;
 
@@ -30,6 +30,7 @@ interface BookingDetailData {
   prestation_name: string;
   prestation_description: string | null;
   duration_minutes: number;
+  pro_id: number;
   pro_first_name: string;
   pro_last_name: string;
   activity_name: string | null;
@@ -118,9 +119,6 @@ const BookingDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const { isAuthenticated } = useAuth();
-  const [booking, setBooking] = useState<BookingDetailData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState("");
@@ -131,7 +129,6 @@ const BookingDetail = () => {
   const [balanceAmount, setBalanceAmount] = useState(0);
   const [loadingBalance, setLoadingBalance] = useState(false);
 
-  // Parse id and validate
   const bookingId = id && !isNaN(Number(id)) ? Number(id) : null;
 
   const checkAuth = useCallback(() => {
@@ -148,76 +145,24 @@ const BookingDetail = () => {
     return true;
   }, [navigate, id, isAuthenticated]);
 
-  useEffect(() => {
-  let ignore = false;
-  const fetchBookingDetail = async () => {
-    setIsLoading(true);
-    setError(null);
+  const { data: booking = null, isLoading, error: queryError } = useQuery<BookingDetailData | null>({
+    queryKey: ["booking-detail", bookingId],
+    queryFn: async () => {
+      if (!bookingId) throw new Error("ID invalide");
+      const res = await clientApi.getBookingDetail(bookingId);
+      if (!res.success || !res.data) throw new Error("Réservation introuvable");
+      const b = res.data as any;
+      b.price = Number(b.price) || 0;
+      b.paid_online = Number(b.paid_online) || 0;
+      b.duration_minutes = Number(b.duration_minutes) || 0;
+      return b as BookingDetailData;
+    },
+    enabled: !!bookingId && isAuthenticated,
+    staleTime: 30_000,
+    retry: false,
+  });
 
-    // Validate id
-    if (!bookingId) {
-      setIsLoading(false);
-      setError('ID invalide');
-      return;
-    }
-
-    // Check auth
-    if (!isAuthenticated) {
-      navigate('/login', {
-        replace: true,
-        state: {
-          message: 'Connectez-vous pour voir vos réservations',
-          returnUrl: `/client/booking-detail/${bookingId}`
-        }
-      });
-      setIsLoading(false);
-      return;
-    }
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/client/booking-detail/${bookingId}`, {
-        credentials: 'include',
-      });
-
-      if (response.status === 401) {
-        navigate('/login', {
-          replace: true,
-          state: {
-            message: 'Session expirée. Reconnectez-vous.',
-            returnUrl: `/client/booking-detail/${bookingId}`
-          }
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      if (!response.ok) {
-        if (response.status === 404) throw new Error('Réservation introuvable');
-        throw new Error(`Erreur ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.success && data.data) {
-        const b = data.data;
-
-        // Convertir les champs numériques pour éviter les erreurs
-        b.price = Number(b.price) || 0;
-        b.paid_online = Number(b.paid_online) || 0;
-        b.duration_minutes = Number(b.duration_minutes) || 0;
-
-        if (!ignore) setBooking(b);
-      } else {
-        throw new Error('Données invalides');
-      }
-    } catch (err) {
-      if (!ignore) setError(err instanceof Error ? err.message : 'Erreur de chargement');
-    } finally {
-      if (!ignore) setIsLoading(false);
-    }
-  };
-  fetchBookingDetail();
-  return () => { ignore = true; };
-}, [bookingId, navigate, isAuthenticated]);
+  const error = queryError ? (queryError as Error).message : null;
 
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
@@ -251,30 +196,28 @@ const BookingDetail = () => {
     if (!checkAuth()) return;
     setIsSubmittingReview(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/reviews`, {
+      const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const response = await fetch(`${BASE_URL}/api/reviews`, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reservation_id: booking.id,
-          pro_id: booking.id,
+          pro_id: booking.pro_id,
           rating,
           comment: comment.trim() || null
         })
       });
-      if (!response.ok) {
-        throw new Error('Erreur lors de l\'envoi de l\'avis');
-      }
       const data = await response.json();
       if (data.success) {
         setShowReviewModal(false);
         setRating(0);
         setComment("");
         toast.success('Merci pour ton avis ! 🌟');
+      } else {
+        throw new Error(data.message || 'Erreur');
       }
-    } catch (error) {
+    } catch {
       toast.error('Impossible d\'envoyer ton avis. Réessaie plus tard.');
     } finally {
       setIsSubmittingReview(false);

@@ -1,6 +1,8 @@
 import { NavLink, useLocation } from "react-router-dom";
 import { forwardRef, useEffect } from "react";
 import { Home, Calendar, Heart, User } from "lucide-react";
+import { useRevenueCat } from "@/contexts/RevenueCatContext";
+import { canAccessRoute } from "@/config/subscriptionConfig";
 
 interface MobileLayoutProps {
   children: React.ReactNode;
@@ -12,8 +14,9 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
   ({ children, showNav = true, hideNav }, ref) => {
     const location = useLocation();
     const isPro = location.pathname.startsWith("/pro");
+    const { activePlan } = useRevenueCat();
 
-    const proNavItems = [
+    const allProNavItems = [
       { icon: Home, path: "/pro/dashboard", label: "Accueil" },
       { icon: Calendar, path: "/pro/calendar", label: "Calendrier" },
       { icon: Heart, path: "/pro/clients", label: "Clients" },
@@ -26,6 +29,11 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
       { icon: Heart, path: "/client/favorites", label: "Favoris" },
       { icon: User, path: "/client/profile", label: "Profil" }
     ];
+
+    // Filtrer la nav pro selon le plan actif
+    const proNavItems = allProNavItems.filter(
+      (item) => canAccessRoute(activePlan, item.path)
+    );
 
     const navItems = isPro ? proNavItems : clientNavItems;
 

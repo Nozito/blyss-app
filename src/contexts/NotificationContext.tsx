@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo, ReactNode } from "react";
 import { useAuth } from "./AuthContext";
+import { useLocation } from "react-router-dom";
 import { Bell, X, CheckCircle, AlertCircle, AlertTriangle, Clock, MessageSquare, CreditCard, Gift, Mail, CheckCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -71,8 +72,12 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [activeToasts, setActiveToasts] = useState<Notification[]>([]);
-    const [unreadCount, setUnreadCount] = useState(0);
     const [showNotifications, setShowNotifications] = useState(false);
+
+    const unreadCount = useMemo(
+        () => notifications.filter((n) => !n.is_read).length,
+        [notifications]
+    );
     const [isConnected, setIsConnected] = useState(false);
 
     const wsRef = useRef<WebSocket | null>(null);
@@ -137,13 +142,11 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
                         case "notifications":
                             setNotifications(message.data);
-                            setUnreadCount(message.data.filter((n: Notification) => !n.is_read).length);
                             break;
 
                         case "new_notification":
                             const newNotif = message.data;
                             setNotifications((prev) => [newNotif, ...prev]);
-                            setUnreadCount((prev) => prev + 1);
 
                             if (navigator.vibrate) {
                                 navigator.vibrate(10);
@@ -230,7 +233,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
             wsRef.current.send(JSON.stringify({ type: "mark_read", data: { notificationId: id } }));
             setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
-            setUnreadCount((prev) => Math.max(0, prev - 1));
         }
     };
 
@@ -242,7 +244,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
             wsRef.current.send(JSON.stringify({ type: "mark_all_read" }));
             setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-            setUnreadCount(0);
         }
     };
 
@@ -293,16 +294,10 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         "/client/help",
     ];
 
-    const currentPath = window.location.pathname;
+    const location = useLocation();
+    const currentPath = location.pathname;
 
-    // ✅ Routes qui correspondent avec pattern dynamique
-    const dynamicHiddenRoutes = [
-        /^\/client\/specialist\/\d+$/,  // /client/specialist/123
-        /^\/client\/booking-detail\/\d+$/,  // /client/booking-detail/123
-        /^\/client\/booking\/\d+$/,  // /client/booking/123
-    ];
-
-    const shouldShowBell = user &&
+    const shouldShowBell = !!user &&
         !hiddenRoutes.includes(currentPath) &&
         !currentPath.startsWith("/client/specialist/") &&
         !currentPath.startsWith("/client/booking-detail/") &&
@@ -532,11 +527,62 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                                                     <Bell size={28} className="text-gray-400" strokeWidth={2} />
                                                 </div>
                                                 <p className="text-[15px] font-semibold text-gray-900 mb-1">Aucune notification</p>
-                                                <p className="text-[13px] text-gray-600">Vos notifications apparaîtront ici</p>
+                                                <p className="text-[13px] text-gray-600">Tes notifications apparaîtront ici</p>
                                             </div>
                                         ) : (
-                                            <div className="space-y-3">
-                                                {/* Le reste de ton code de notifications */}
+                                            <div className="space-y-2">
+                                                {unreadNotifications.length > 0 && (
+                                                    <>
+                                                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-1 pb-1">Non lues</p>
+                                                        {unreadNotifications.map((notif) => {
+                                                            const config = notificationConfig[notif.type] || notificationConfig.default;
+                                                            const Icon = config.icon;
+                                                            return (
+                                                                <div
+                                                                    key={notif.id}
+                                                                    onClick={() => markAsRead(notif.id)}
+                                                                    className="flex items-start gap-3 p-3 rounded-2xl bg-primary/5 border border-primary/10 cursor-pointer active:scale-[0.98] transition-transform"
+                                                                >
+                                                                    <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: config.bg }}>
+                                                                        <Icon size={16} style={{ color: config.color }} strokeWidth={2.5} />
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <p className="text-[14px] font-semibold text-gray-900 leading-tight">{notif.title}</p>
+                                                                        <p className="text-[12px] text-gray-600 mt-0.5 leading-snug line-clamp-2">{notif.message}</p>
+                                                                        <p className="text-[11px] text-gray-400 mt-1 font-medium">{formatDate(notif.created_at)}</p>
+                                                                    </div>
+                                                                    <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1.5" />
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </>
+                                                )}
+                                                {readNotifications.length > 0 && (
+                                                    <>
+                                                        {unreadNotifications.length > 0 && (
+                                                            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-1 pt-2 pb-1">Lues</p>
+                                                        )}
+                                                        {readNotifications.map((notif) => {
+                                                            const config = notificationConfig[notif.type] || notificationConfig.default;
+                                                            const Icon = config.icon;
+                                                            return (
+                                                                <div
+                                                                    key={notif.id}
+                                                                    className="flex items-start gap-3 p-3 rounded-2xl bg-gray-50 cursor-default"
+                                                                >
+                                                                    <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 opacity-60" style={{ backgroundColor: config.bg }}>
+                                                                        <Icon size={16} style={{ color: config.color }} strokeWidth={2.5} />
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <p className="text-[14px] font-medium text-gray-600 leading-tight">{notif.title}</p>
+                                                                        <p className="text-[12px] text-gray-400 mt-0.5 leading-snug line-clamp-2">{notif.message}</p>
+                                                                        <p className="text-[11px] text-gray-300 mt-1 font-medium">{formatDate(notif.created_at)}</p>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </>
+                                                )}
                                             </div>
                                         )}
                                     </div>

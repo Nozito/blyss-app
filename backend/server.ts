@@ -398,7 +398,7 @@ wss.on("connection", async (ws: AuthenticatedWebSocket, req) => {
         }
 
         await db.query(
-          `UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?`,
+          `UPDATE notifications SET is_read = TRUE WHERE id = ? AND user_id = ?`,
           [notificationId, ws.userId]
         );
 
@@ -413,7 +413,7 @@ wss.on("connection", async (ws: AuthenticatedWebSocket, req) => {
       // ✅ Marquer toutes les notifications comme lues
       if (data.type === "mark_all_read") {
         await db.query(
-          `UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0`,
+          `UPDATE notifications SET is_read = TRUE WHERE user_id = ? AND is_read = FALSE`,
           [ws.userId]
         );
 
@@ -1740,15 +1740,19 @@ const storageBanner = multer.diskStorage({
 });
 
 
+const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
+const ALLOWED_EXT  = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+
 const fileFilter = (
   _req: Express.Request,
   file: Express.Multer.File,
   cb: FileFilterCallback
 ) => {
-  if (file.mimetype === "image/jpeg" || file.mimetype === "image/png") {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (ALLOWED_MIME.has(file.mimetype) && ALLOWED_EXT.has(ext)) {
     cb(null, true);
   } else {
-    cb(new Error("Only JPEG and PNG files are allowed"));
+    cb(new Error("Only JPEG, PNG or WebP image files are allowed"));
   }
 };
 
@@ -2554,94 +2558,138 @@ app.get(
   "/api/pro/dashboard",
   authMiddleware,
   async (req: AuthenticatedRequest, res: Response) => {
-    let connection;
     try {
       const proId = getProId(req);
 
-      connection = await db.getConnection();
+      // 7 requêtes indépendantes exécutées en parallèle (Promise.all)
+      // → latence totale = max(latences individuelles) au lieu de leur somme
+      const [
+        [weekStatsRows],
+        [todayRows],
+        [upcomingRows],
+        [slotStatsRows],
+        [clientsWeekRows],
+        [topServicesRows],
+        [indexedRevenueRows],
+      ] = await Promise.all([
+        // 1. Stats semaine actuelle + semaine passée (fusionnées en 1 requête)
+        db.query(
+          `SELECT
+            COUNT(*) FILTER (WHERE DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE)) AS this_week,
+            COUNT(*) FILTER (WHERE DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days') AS last_week
+          FROM reservations
+          WHERE pro_id = ?
+            AND status IN ('confirmed', 'completed')
+            AND start_datetime >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'`,
+          [proId]
+        ),
+        // 2. Prévision du jour
+        db.query(
+          `SELECT COALESCE(SUM(price), 0) AS total
+          FROM reservations
+          WHERE pro_id = ?
+            AND status IN ('confirmed', 'completed')
+            AND start_datetime::date = CURRENT_DATE`,
+          [proId]
+        ),
+        // 3. Prochaines clientes
+        db.query(
+          `SELECT
+            r.id,
+            CONCAT(u.first_name, ' ', u.last_name) AS client_name,
+            p.name AS prestation_name,
+            TO_CHAR(r.start_datetime, 'HH24:MI') AS start_time,
+            r.price,
+            r.status
+          FROM reservations r
+          JOIN users u ON u.id = r.client_id
+          JOIN prestations p ON p.id = r.prestation_id
+          WHERE r.pro_id = ?
+            AND r.status IN ('confirmed', 'completed')
+            AND r.start_datetime >= NOW()
+          ORDER BY r.start_datetime ASC
+          LIMIT 3`,
+          [proId]
+        ),
+        // 4. Taux de remplissage (total + booked fusionnés en 1 requête)
+        db.query(
+          `SELECT
+            COUNT(*) FILTER (WHERE status IN ('available', 'booked')) AS total_slots,
+            COUNT(*) FILTER (WHERE status = 'booked') AS booked_slots
+          FROM slots
+          WHERE pro_id = ?
+            AND start_datetime >= CURRENT_DATE
+            AND start_datetime < CURRENT_DATE + INTERVAL '7 days'`,
+          [proId]
+        ),
+        // 5. Clientes de la semaine
+        db.query(
+          `SELECT COUNT(DISTINCT client_id) AS count
+          FROM reservations
+          WHERE pro_id = ?
+            AND status IN ('confirmed', 'completed')
+            AND DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE)`,
+          [proId]
+        ),
+        // 6. Top prestations (30j)
+        db.query(
+          `SELECT
+            p.name AS prestation_name,
+            COUNT(*) AS count
+          FROM reservations r
+          JOIN prestations p ON p.id = r.prestation_id
+          WHERE r.pro_id = ?
+            AND r.status IN ('confirmed', 'completed')
+            AND r.start_datetime >= CURRENT_DATE - INTERVAL '30 days'
+          GROUP BY p.id, p.name
+          ORDER BY count DESC
+          LIMIT 5`,
+          [proId]
+        ),
+        // 7. Revenus hebdomadaires
+        db.query(
+          `SELECT
+            jour,
+            total,
+            EXTRACT(DOW FROM jour)::int + 1 AS dayOfWeek
+          FROM (
+            SELECT
+              start_datetime::date AS jour,
+              SUM(price) AS total
+            FROM reservations
+            WHERE pro_id = ?
+              AND status IN ('confirmed', 'completed')
+              AND DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE)
+            GROUP BY start_datetime::date
+          ) AS t
+          ORDER BY jour`,
+          [proId]
+        ),
+      ]) as [any, any, any, any, any, any, any];
 
-      const [thisWeekRows] = (await connection.query(
-        `
-        SELECT COUNT(*) AS count
-        FROM reservations
-        WHERE pro_id = ?
-          AND status IN ('confirmed', 'completed')
-          AND DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE)
-        `,
-        [proId]
-      )) as [{ count: number }[], any];
-      const servicesThisWeek = thisWeekRows[0]?.count ?? 0;
-
-      const [lastWeekRows] = (await connection.query(
-        `
-        SELECT COUNT(*) AS count
-        FROM reservations
-        WHERE pro_id = ?
-          AND status IN ('confirmed', 'completed')
-          AND DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'
-        `,
-        [proId]
-      )) as [{ count: number }[], any];
-      const servicesLastWeek = lastWeekRows[0]?.count ?? 0;
-
+      // ── Calcul weeklyStats ──────────────────────────────────────────────────
+      const servicesThisWeek = Number(weekStatsRows[0]?.this_week ?? 0);
+      const servicesLastWeek = Number(weekStatsRows[0]?.last_week ?? 0);
       let change = 0;
       let isUp = true;
       if (servicesLastWeek > 0) {
-        change = Math.round(
-          ((servicesThisWeek - servicesLastWeek) / servicesLastWeek) * 100
-        );
+        change = Math.round(((servicesThisWeek - servicesLastWeek) / servicesLastWeek) * 100);
         isUp = change >= 0;
         change = Math.abs(change);
       }
 
-      const [todayRows] = (await connection.query(
-        `
-        SELECT COALESCE(SUM(price), 0) AS total
-        FROM reservations
-        WHERE pro_id = ?
-          AND status IN ('confirmed', 'completed')
-          AND start_datetime::date = CURRENT_DATE
-        `,
-        [proId]
-      )) as [{ total: number | null }[], any];
+      // ── Prévision du jour ───────────────────────────────────────────────────
       const todayForecast = Number(todayRows[0]?.total ?? 0);
 
-      const [upcomingRows] = (await connection.query(
-        `
-        SELECT
-          r.id,
-          CONCAT(u.first_name, ' ', u.last_name) AS client_name,
-          p.name AS prestation_name,
-          TO_CHAR(r.start_datetime, 'HH24:MI') AS start_time,
-          r.price,
-          r.status
-        FROM reservations r
-        JOIN users u ON u.id = r.client_id
-        JOIN prestations p ON p.id = r.prestation_id
-        WHERE r.pro_id = ?
-          AND r.status IN ('confirmed', 'completed')
-          AND r.start_datetime >= NOW()
-        ORDER BY r.start_datetime ASC
-        LIMIT 3
-        `,
-        [proId]
-      )) as [any[], any];
-
-      const upcomingClients = upcomingRows.map((row) => {
+      // ── Prochaines clientes ─────────────────────────────────────────────────
+      const upcomingClients = upcomingRows.map((row: any) => {
         const initials = row.client_name
           .split(" ")
           .filter(Boolean)
           .map((part: string) => part[0]?.toUpperCase())
           .join("")
           .slice(0, 2);
-
-        const status =
-          row.status === "confirmed"
-            ? "upcoming"
-            : row.status === "completed"
-              ? "completed"
-              : "upcoming";
-
+        const status = row.status === "completed" ? "completed" : "upcoming";
         return {
           id: row.id,
           name: row.client_name,
@@ -2649,161 +2697,47 @@ app.get(
           time: row.start_time,
           price: Number(row.price),
           status,
-          avatar: initials
+          avatar: initials,
         };
       });
 
-      const [slotsRows] = (await connection.query(
-        `
-  SELECT COUNT(*) AS total_slots
-  FROM slots
-  WHERE pro_id = ?
-    AND status IN ('available', 'booked')
-    AND start_datetime >= CURRENT_DATE
-    AND start_datetime < CURRENT_DATE + INTERVAL '7 days'
-  `,
-        [proId]
-      )) as [{ total_slots: number }[], any];
-      const totalSlots = slotsRows[0]?.total_slots ?? 0;
+      // ── Taux de remplissage ─────────────────────────────────────────────────
+      const totalSlots = Number(slotStatsRows[0]?.total_slots ?? 0);
+      const bookedSlots = Number(slotStatsRows[0]?.booked_slots ?? 0);
+      const fillRate = totalSlots > 0 ? Math.round((bookedSlots / totalSlots) * 100) : 0;
 
-      const [bookedRows] = (await connection.query(
-        `
-  SELECT COUNT(*) AS booked_slots
-  FROM slots
-  WHERE pro_id = ?
-    AND status = 'booked'
-    AND start_datetime >= CURRENT_DATE
-    AND start_datetime < CURRENT_DATE + INTERVAL '7 days'
-  `,
-        [proId]
-      )) as [{ booked_slots: number }[], any];
-      const bookedSlots = bookedRows[0]?.booked_slots ?? 0;
+      // ── Clientes de la semaine ──────────────────────────────────────────────
+      const clientsThisWeek = Number(clientsWeekRows[0]?.count ?? 0);
 
-      let fillRate = 0;
-      if (totalSlots > 0) {
-        fillRate = Math.round((bookedSlots / totalSlots) * 100);
-      }
-
-      const [clientsWeekRows] = (await connection.query(
-        `
-        SELECT COUNT(DISTINCT client_id) AS count
-        FROM reservations
-        WHERE pro_id = ?
-          AND status IN ('confirmed', 'completed')
-          AND DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE)
-        `,
-        [proId]
-      )) as [{ count: number }[], any];
-      const clientsThisWeek = clientsWeekRows[0]?.count ?? 0;
-
-      const [topServicesRows] = (await connection.query(
-        `
-        SELECT
-          p.name AS prestation_name,
-          COUNT(*) AS count
-        FROM reservations r
-        JOIN prestations p ON p.id = r.prestation_id
-        WHERE r.pro_id = ?
-          AND r.status IN ('confirmed', 'completed')
-          AND r.start_datetime >= CURRENT_DATE - INTERVAL '30 days'
-        GROUP BY p.id, p.name
-        ORDER BY count DESC
-        LIMIT 5
-        `,
-        [proId]
-      )) as [{ prestation_name: string; count: number }[], any];
-
-      const totalTopCount = topServicesRows.reduce(
-        (acc, row) => acc + Number(row.count),
-        0
-      );
-
-      const topServices = topServicesRows.map((row) => ({
+      // ── Top services ────────────────────────────────────────────────────────
+      const totalTopCount = topServicesRows.reduce((acc: number, row: any) => acc + Number(row.count), 0);
+      const topServices = topServicesRows.map((row: any) => ({
         name: row.prestation_name,
-        percentage:
-          totalTopCount > 0
-            ? Math.round((Number(row.count) / totalTopCount) * 100)
-            : 0
+        percentage: totalTopCount > 0 ? Math.round((Number(row.count) / totalTopCount) * 100) : 0,
       }));
 
-      const [indexedRevenueRows] = (await connection.query(
-        `
-        SELECT
-          jour,
-          total,
-          EXTRACT(DOW FROM jour)::int + 1 AS dayOfWeek
-        FROM (
-          SELECT
-            start_datetime::date AS jour,
-            SUM(price) AS total
-          FROM reservations
-          WHERE pro_id = ?
-            AND status IN ('confirmed', 'completed')
-            AND DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE)
-          GROUP BY start_datetime::date
-        ) AS t
-        ORDER BY jour
-        `,
-        [proId]
-      )) as [{ jour: string; total: number | null; dayOfWeek: number }[], any];
+      // ── Revenus hebdomadaires ───────────────────────────────────────────────
+      const DOW_LABELS: Record<number, string> = { 2: "Lun", 3: "Mar", 4: "Mer", 5: "Jeu", 6: "Ven", 7: "Sam", 1: "Dim" };
+      const weeklyRevenue = indexedRevenueRows.map((row: any) => ({
+        day: DOW_LABELS[row.dayOfWeek] ?? "?",
+        amount: Number(row.total ?? 0),
+      }));
 
-      const weeklyRevenue = indexedRevenueRows.map((row) => {
-        const dow = row.dayOfWeek;
-        let label = "";
-        switch (dow) {
-          case 2:
-            label = "Lun";
-            break;
-          case 3:
-            label = "Mar";
-            break;
-          case 4:
-            label = "Mer";
-            break;
-          case 5:
-            label = "Jeu";
-            break;
-          case 6:
-            label = "Ven";
-            break;
-          case 7:
-            label = "Sam";
-            break;
-          case 1:
-          default:
-            label = "Dim";
-            break;
-        }
-
-        return {
-          day: label,
-          amount: Number(row.total ?? 0),
-        };
-      });
-
-      const responseBody = {
-        weeklyStats: {
-          services: servicesThisWeek,
-          change,
-          isUp
-        },
+      res.json({
+        weeklyStats: { services: servicesThisWeek, change, isUp },
         todayForecast,
         upcomingClients,
         fillRate,
         clientsThisWeek,
         topServices,
-        weeklyRevenue
-      };
-
-      res.json(responseBody);
+        weeklyRevenue,
+      });
     } catch (err: any) {
       console.error(err);
       if (err.message === "Pro non authentifié") {
         return res.status(401).json({ message: "Non authentifié" });
       }
       res.status(500).json({ message: "Erreur serveur" });
-    } finally {
-      if (connection) connection.release();
     }
   }
 );
@@ -2972,7 +2906,7 @@ app.put(
         `
         INSERT INTO pro_client_notes (pro_id, client_id, notes)
         VALUES (?, ?, ?)
-        ON DUPLICATE KEY UPDATE notes = VALUES(notes)
+        ON CONFLICT (pro_id, client_id) DO UPDATE SET notes = EXCLUDED.notes
         `,
         [proId, clientId, notes]
       );
@@ -3131,19 +3065,11 @@ app.get(
       ) as [any[], any];
 
       if (!rows || rows.length === 0) {
-        const defaultSettings = {
-          user_id: userId,
-          reminders: 1,
-          changes: 1,
-          messages: 1,
-          late: 1,
-          offers: 1,
-          email_summary: 0
-        };
-
         await connection.query(
-          `INSERT INTO client_notification_settings SET ?`,
-          [defaultSettings]
+          `INSERT INTO client_notification_settings (user_id, reminders, changes, messages, late, offers, email_summary)
+           VALUES (?, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE)
+           ON CONFLICT (user_id) DO NOTHING`,
+          [userId]
         );
 
         return res.status(200).json({
@@ -3322,19 +3248,11 @@ app.get(
       ) as [any[], any];
 
       if (!rows || rows.length === 0) {
-        const defaultSettings = {
-          user_id: userId,
-          new_reservation: 1,
-          cancel_change: 1,
-          daily_reminder: 1,
-          client_message: 1,
-          payment_alert: 1,
-          activity_summary: 0
-        };
-
         await connection.query(
-          `INSERT INTO pro_notification_settings SET ?`,
-          [defaultSettings]
+          `INSERT INTO pro_notification_settings (user_id, new_reservation, cancel_change, daily_reminder, client_message, payment_alert, activity_summary)
+           VALUES (?, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE)
+           ON CONFLICT (user_id) DO NOTHING`,
+          [userId]
         );
 
         return res.status(200).json({
@@ -3889,7 +3807,7 @@ app.post(
       // Si set_default, retirer le défaut des autres
       if (set_default) {
         await connection.query(
-          `UPDATE payment_methods SET is_default = 0 WHERE user_id = ?`,
+          `UPDATE payment_methods SET is_default = FALSE WHERE user_id = ?`,
           [userId]
         );
       }
@@ -3899,7 +3817,7 @@ app.post(
         `INSERT INTO payment_methods 
          (user_id, brand, last4, exp_month, exp_year, cardholder_name, card_number, cvc, is_default) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [userId, brand, last4, exp_month, exp_year, cardholder_name, card_number, cvc, set_default ? 1 : 0]
+        [userId, brand, last4, exp_month, exp_year, cardholder_name, card_number, cvc, set_default ? true : false]
       );
 
       res.json({ success: true, message: "Carte enregistrée" });
@@ -3929,12 +3847,12 @@ app.put(
       connection = await db.getConnection();
 
       await connection.query(
-        `UPDATE payment_methods SET is_default = 0 WHERE user_id = ?`,
+        `UPDATE payment_methods SET is_default = FALSE WHERE user_id = ?`,
         [userId]
       );
 
       await connection.query(
-        `UPDATE payment_methods SET is_default = 1 WHERE id = ? AND user_id = ?`,
+        `UPDATE payment_methods SET is_default = TRUE WHERE id = ? AND user_id = ?`,
         [cardId, userId]
       );
 
@@ -5110,10 +5028,13 @@ app.post("/api/payments/create-intent", authenticateToken, paymentIntentLimiter,
     const clientId = req.user?.id;
     const { reservation_id, type } = req.body;
 
-    // Get reservation details
+    // Get reservation + pro stripe info in a single JOIN
     const [resaRows] = await db.query(
-      `SELECT id, pro_id, client_id, price, total_paid, deposit_amount, payment_status
-       FROM reservations WHERE id = ?`,
+      `SELECT r.id, r.pro_id, r.client_id, r.price, r.total_paid, r.deposit_amount, r.payment_status,
+              u.stripe_account_id, u.stripe_onboarding_complete
+       FROM reservations r
+       JOIN users u ON u.id = r.pro_id
+       WHERE r.id = ?`,
       [reservation_id]
     );
     const reservation = (resaRows as any[])[0];
@@ -5123,14 +5044,7 @@ app.post("/api/payments/create-intent", authenticateToken, paymentIntentLimiter,
     if (reservation.client_id !== clientId) {
       return res.status(403).json({ success: false, message: "Accès non autorisé" });
     }
-
-    // Get pro's Stripe Connect account
-    const [proRows] = await db.query(
-      `SELECT stripe_account_id, stripe_onboarding_complete FROM users WHERE id = ?`,
-      [reservation.pro_id]
-    );
-    const pro = (proRows as any[])[0];
-    if (!pro?.stripe_account_id || !pro.stripe_onboarding_complete) {
+    if (!reservation.stripe_account_id || !reservation.stripe_onboarding_complete) {
       return res.status(400).json({ success: false, message: "Le professionnel n'a pas configuré ses paiements Stripe" });
     }
 
@@ -5187,7 +5101,7 @@ app.post("/api/payments/create-intent", authenticateToken, paymentIntentLimiter,
       },
       automatic_payment_methods: { enabled: true },
       transfer_data: {
-        destination: pro.stripe_account_id,
+        destination: reservation.stripe_account_id,
       },
     });
 

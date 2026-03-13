@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
@@ -34,88 +35,55 @@ interface FavoriteWithDetails {
 const ClientFavorites = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
-  const [favorites, setFavorites] = useState<FavoriteWithDetails[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const checkAuth = useCallback(() => {
-    if (!isAuthenticated) {
-      navigate('/login', {
-        replace: true,
-        state: {
-          message: 'Connectez-vous pour voir vos favoris',
-          returnUrl: '/client/favorites'
-        }
-      });
-      return false;
-    }
-
-    return true;
-  }, [navigate, isAuthenticated]);
-
-  useEffect(() => {
-    const fetchFavorites = async () => {
-      if (!checkAuth()) return;
-
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        const response = await favoritesApi.getAll();
-
-        if (!response.success) {
-          throw new Error(response.error || "Erreur lors de la récupération des favoris");
-        }
-
-        const favoritesRaw = response.data || [];
-
-        if (favoritesRaw.length === 0) {
-          setFavorites([]);
-          return;
-        }
-
-        const formattedFavorites: FavoriteWithDetails[] = favoritesRaw.map((fav: FavoriteFromApi) => ({
-          id: fav.pro_id,
-          name: fav.activity_name || `${fav.first_name} ${fav.last_name}`,
-          specialty: fav.specialty || 'Prothésiste ongulaire',
-          location: fav.city || 'Paris',
-          rating: Number(fav.avg_rating) || 0,
-          reviews: Number(fav.reviews_count) || 0,
-          profile_image_url: getImageUrl(fav.profile_photo)
-        }));
-
-        setFavorites(formattedFavorites);
-
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erreur de chargement');
-        setFavorites([]);
-      } finally {
-        setIsLoading(false);
+  const { data: favorites = [], isLoading, error: queryError } = useQuery<FavoriteWithDetails[]>({
+    queryKey: ["favorites"],
+    queryFn: async () => {
+      const response = await favoritesApi.getAll();
+      if (!response.success) throw new Error(response.error || "Erreur de chargement");
+      return (response.data || []).map((fav: FavoriteFromApi) => ({
+        id: fav.pro_id,
+        name: fav.activity_name || `${fav.first_name} ${fav.last_name}`,
+        specialty: fav.specialty || "Prothésiste ongulaire",
+        location: fav.city || "Paris",
+        rating: Number(fav.avg_rating) || 0,
+        reviews: Number(fav.reviews_count) || 0,
+        profile_image_url: getImageUrl(fav.profile_photo),
+      }));
+    },
+    enabled: isAuthenticated,
+    staleTime: 60_000,
+    onError: () => {
+      if (!isAuthenticated) {
+        navigate("/login", { replace: true, state: { returnUrl: "/client/favorites" } });
       }
-    };
+    },
+  } as any);
 
-    fetchFavorites();
-  }, [checkAuth]);
+  const error = queryError ? (queryError as Error).message : null;
 
   const removeFavorite = useCallback(async (proId: number, e: React.MouseEvent) => {
     e.stopPropagation();
-
-    if (!checkAuth()) return;
-
-    const previousFavorites = [...favorites];
-    setFavorites(favorites.filter(f => f.id !== proId));
-
+    // Optimistic update
+    queryClient.setQueryData<FavoriteWithDetails[]>(["favorites"], (prev = []) =>
+      prev.filter((f) => f.id !== proId)
+    );
+    queryClient.setQueryData<Set<number>>(["favorites-ids"], (prev = new Set()) => {
+      const next = new Set(prev);
+      next.delete(proId);
+      return next;
+    });
     try {
       const response = await favoritesApi.remove(proId);
-
-      if (!response.success) {
-        throw new Error("Erreur lors de la suppression");
-      }
+      if (!response.success) throw new Error("Erreur lors de la suppression");
+      queryClient.invalidateQueries({ queryKey: ["favorites"] });
+      queryClient.invalidateQueries({ queryKey: ["favorites-ids"] });
     } catch {
-      setFavorites(previousFavorites);
-      toast.error('Impossible de retirer ce favori. Vérifie ta connexion et réessaie.');
+      queryClient.invalidateQueries({ queryKey: ["favorites"] });
+      toast.error("Impossible de retirer ce favori.");
     }
-  }, [favorites, checkAuth]);
+  }, [queryClient]);
 
   if (isLoading) {
     return (

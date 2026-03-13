@@ -211,14 +211,13 @@ const SpecialistProfile = () => {
       localStorage.removeItem('pendingAction');
       setShowReviewModal(true);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, id]);
 
   const handleToggleFavorite = useCallback(async () => {
     if (!id) return;
 
     if (!isAuthenticated) {
       const returnUrl = `/client/specialist/${id}`;
-      localStorage.setItem('returnUrl', returnUrl);
       navigate('/login', {
         state: {
           message: 'Connectez-vous pour ajouter aux favoris',
@@ -254,7 +253,6 @@ const SpecialistProfile = () => {
 
   const handleReservationClick = useCallback(() => {
     if (!isAuthenticated) {
-      localStorage.setItem('returnUrl', `/client/booking/${id}`);
       navigate('/login', {
         state: {
           message: 'Connectez-vous pour réserver',
@@ -270,9 +268,7 @@ const SpecialistProfile = () => {
 
   const handleReviewClick = useCallback(() => {
     if (!isAuthenticated) {
-      localStorage.setItem('returnUrl', `/client/specialist/${id}`);
       localStorage.setItem('pendingAction', 'review');
-
       navigate('/login', {
         state: {
           message: 'Connectez-vous pour laisser un avis',
