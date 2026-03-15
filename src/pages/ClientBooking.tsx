@@ -9,7 +9,9 @@ import {
   CreditCard,
   Smartphone,
   Sparkles,
-  Loader2
+  Loader2,
+  ShieldCheck,
+  X
 } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,6 +19,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { stripePaymentsApi } from "@/services/api";
 import { toast } from "sonner";
+import { ConditionItem } from "./ProPublicProfile";
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
@@ -32,6 +35,7 @@ interface Pro {
   banner_photo: string | null;
   instagram_account: string | null;
   bio: string | null;
+  acceptance_conditions: ConditionItem[] | null;
 }
 
 interface Prestation {
@@ -383,7 +387,11 @@ const ClientBooking = () => {
         ]);
 
         if (proData.success && proData.data) {
-          setPro(proData.data);
+          const proResult = proData.data;
+          if (proResult.acceptance_conditions && typeof proResult.acceptance_conditions === "string") {
+            proResult.acceptance_conditions = JSON.parse(proResult.acceptance_conditions);
+          }
+          setPro(proResult);
         } else {
           navigate('/client');
           return;
@@ -666,6 +674,37 @@ const ClientBooking = () => {
                 {pro.city && ` à ${pro.city}`}
               </p>
             </div>
+
+            {pro.acceptance_conditions && pro.acceptance_conditions.filter(c => c.text.trim()).length > 0 && (
+              <section className="bg-card rounded-2xl p-4 shadow-sm border border-muted space-y-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={15} className="text-foreground/50 flex-shrink-0" />
+                  <h2 className="text-sm font-bold text-foreground">Conditions de réservation</h2>
+                </div>
+                <div className="space-y-2">
+                  {pro.acceptance_conditions.filter(c => c.text.trim()).map((c, i) => (
+                    <div
+                      key={i}
+                      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 border ${
+                        c.accepted
+                          ? "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-800/40"
+                          : "bg-rose-50/60 border-rose-200 dark:bg-rose-950/20 dark:border-rose-800/40"
+                      }`}
+                    >
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${c.accepted ? "bg-emerald-500" : "bg-rose-400"}`}>
+                        {c.accepted
+                          ? <Check size={10} className="text-white" strokeWidth={3} />
+                          : <X size={10} className="text-white" strokeWidth={3} />
+                        }
+                      </div>
+                      <span className={`text-xs font-medium leading-snug ${c.accepted ? "text-emerald-800 dark:text-emerald-200" : "text-rose-700 dark:text-rose-300"}`}>
+                        {c.text}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
             <div className="space-y-3">
               {prestations.map((prestation, index) => {

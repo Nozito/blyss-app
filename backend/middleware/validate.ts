@@ -56,6 +56,12 @@ export const userUpdateSchema = z.object({
   city: z.string().max(100, "Ville trop longue").optional(),
   instagram_account: z.string().max(50, "Compte Instagram trop long").optional(),
   bio: z.string().max(500, "Biographie trop longue").optional(),
+  acceptance_conditions: z.array(
+    z.object({
+      text: z.string().min(1, "Le texte est requis").max(150, "Maximum 150 caractères"),
+      accepted: z.boolean(),
+    })
+  ).max(8, "Maximum 8 conditions").optional().nullable(),
   profile_visibility: z.enum(["public", "private"]).optional(),
   banner_photo: z.string().max(500).optional(),
   profile_photo: z.string().max(500).optional(),
@@ -131,4 +137,39 @@ export const paymentIntentSchema = z.object({
 
 export const favoriteSchema = z.object({
   pro_id: z.number("pro_id doit être un nombre").int().positive(),
+});
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export const unavailabilitySchema = z
+  .object({
+    start_date: z
+      .string()
+      .regex(ISO_DATE_RE, "start_date doit être au format YYYY-MM-DD"),
+    end_date: z
+      .string()
+      .regex(ISO_DATE_RE, "end_date doit être au format YYYY-MM-DD"),
+    reason: z
+      .string()
+      .max(200, "Motif trop long (max 200 caractères)")
+      .optional()
+      .nullable(),
+  })
+  .refine((d) => d.end_date >= d.start_date, {
+    message: "end_date doit être >= start_date",
+    path: ["end_date"],
+  })
+  .refine(
+    (d) => {
+      const maxFuture = new Date();
+      maxFuture.setFullYear(maxFuture.getFullYear() + 2);
+      return new Date(d.start_date) <= maxFuture;
+    },
+    { message: "La date ne peut pas dépasser 2 ans dans le futur", path: ["start_date"] }
+  );
+
+export const reservationStatusSchema = z.object({
+  status: z.enum(["completed", "cancelled"], {
+    message: "status doit être 'completed' ou 'cancelled'",
+  }),
 });

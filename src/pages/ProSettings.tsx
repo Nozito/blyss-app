@@ -6,6 +6,99 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { usersApi } from "@/services/api";
 
+// ── Hissé hors du composant pour éviter le remount à chaque frappe ──
+interface SettingsInputFieldProps {
+  label: string;
+  name: string;
+  type?: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  helpText?: string;
+  showPassword?: boolean;
+  onTogglePassword?: () => void;
+  isTouched?: boolean;
+  error?: string;
+  onBlur: (name: string, value: string) => void;
+  onValidate: (name: string, value: string) => void;
+}
+
+const SettingsInputField = ({
+  label, name, type = "text", value, onChange, placeholder, helpText,
+  showPassword, onTogglePassword, isTouched, error, onBlur, onValidate,
+}: SettingsInputFieldProps) => {
+  const hasValue = value.length > 0;
+  const isPassword = type === "password";
+
+  return (
+    <div className="flex flex-col relative animate-slide-up">
+      <label className={`text-xs font-medium mb-2 transition-colors duration-200 ${
+        error ? "text-destructive" : hasValue ? "text-primary" : "text-muted-foreground"
+      }`}>
+        {label}
+      </label>
+      <div className="relative group">
+        <input
+          type={isPassword && !showPassword ? "password" : "text"}
+          autoComplete={type === "password" ? "current-password" : "off"}
+          className={`
+            border-2 rounded-2xl px-4 h-12 w-full text-sm bg-background
+            transition-all duration-300 ease-out
+            focus:outline-none focus:ring-4 focus:scale-[1.02]
+            ${error
+              ? "border-destructive focus:ring-destructive/10 focus:border-destructive"
+              : hasValue
+              ? "border-primary/30 focus:ring-primary/10 focus:border-primary"
+              : "border-muted focus:ring-primary/10 focus:border-primary/50"
+            }
+            ${isPassword ? "pr-20" : "pr-10"}
+          `}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            if (isTouched) onValidate(name, e.target.value);
+          }}
+          onBlur={(e) => onBlur(name, e.target.value)}
+        />
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+          {isPassword && onTogglePassword && (
+            <button
+              type="button"
+              onClick={onTogglePassword}
+              className="p-1 hover:bg-muted rounded-lg transition-colors active:scale-95"
+            >
+              {showPassword
+                ? <EyeOff size={18} className="text-muted-foreground" />
+                : <Eye size={18} className="text-muted-foreground" />
+              }
+            </button>
+          )}
+          {!isPassword && hasValue && !error && (
+            <div className="w-6 h-6 rounded-full bg-green-500/10 flex items-center justify-center animate-in zoom-in duration-200">
+              <Check size={14} className="text-green-600" />
+            </div>
+          )}
+          {error && (
+            <div className="w-6 h-6 rounded-full bg-destructive/10 flex items-center justify-center animate-in zoom-in duration-200">
+              <AlertCircle size={14} className="text-destructive" />
+            </div>
+          )}
+        </div>
+      </div>
+      {error && (
+        <div className="mt-2 flex items-start gap-2 animate-in slide-in-from-top-1 duration-200">
+          <AlertCircle size={14} className="text-destructive mt-0.5 flex-shrink-0" />
+          <p className="text-xs text-destructive leading-relaxed">{error}</p>
+        </div>
+      )}
+      {helpText && !error && (
+        <p className="mt-2 text-xs text-muted-foreground leading-relaxed">{helpText}</p>
+      )}
+    </div>
+  );
+};
+
 const ProSettings = () => {
   const navigate = useNavigate();
 
@@ -231,111 +324,6 @@ const ProSettings = () => {
     navigate("/forgot-password");
   };
 
-  // Composant Input avec animations améliorées
-  const InputField = ({
-    label,
-    name,
-    type = "text",
-    value,
-    onChange,
-    placeholder,
-    helpText,
-    showPassword,
-    onTogglePassword,
-  }: {
-    label: string;
-    name: string;
-    type?: string;
-    value: string;
-    onChange: (value: string) => void;
-    placeholder?: string;
-    helpText?: string;
-    showPassword?: boolean;
-    onTogglePassword?: () => void;
-  }) => {
-    const error = touched[name] && fieldErrors[name];
-    const hasValue = value.length > 0;
-    const isPassword = type === "password";
-
-    return (
-      <div className="flex flex-col relative animate-slide-up">
-        <label className={`text-xs font-medium mb-2 transition-colors duration-200 ${
-          error ? "text-destructive" : hasValue ? "text-primary" : "text-muted-foreground"
-        }`}>
-          {label}
-        </label>
-        <div className="relative group">
-          <input
-            type={isPassword && !showPassword ? "password" : "text"}
-            autoComplete={type === "password" ? "current-password" : "off"}
-            className={`
-              border-2 rounded-2xl px-4 h-12 w-full text-sm bg-background
-              transition-all duration-300 ease-out
-              focus:outline-none focus:ring-4 focus:scale-[1.02]
-              ${error 
-                ? "border-destructive focus:ring-destructive/10 focus:border-destructive" 
-                : hasValue
-                ? "border-primary/30 focus:ring-primary/10 focus:border-primary"
-                : "border-muted focus:ring-primary/10 focus:border-primary/50"
-              }
-              ${isPassword ? "pr-20" : "pr-10"}
-            `}
-            placeholder={placeholder}
-            value={value}
-            onChange={(e) => {
-              onChange(e.target.value);
-              if (touched[name]) validateField(name, e.target.value);
-            }}
-            onBlur={(e) => handleBlur(name, e.target.value)}
-          />
-          
-          {/* Icône de validation / erreur */}
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-            {isPassword && onTogglePassword && (
-              <button
-                type="button"
-                onClick={onTogglePassword}
-                className="p-1 hover:bg-muted rounded-lg transition-colors active:scale-95"
-              >
-                {showPassword ? (
-                  <EyeOff size={18} className="text-muted-foreground" />
-                ) : (
-                  <Eye size={18} className="text-muted-foreground" />
-                )}
-              </button>
-            )}
-            
-            {!isPassword && hasValue && !error && (
-              <div className="w-6 h-6 rounded-full bg-green-500/10 flex items-center justify-center animate-in zoom-in duration-200">
-                <Check size={14} className="text-green-600" />
-              </div>
-            )}
-            
-            {error && (
-              <div className="w-6 h-6 rounded-full bg-destructive/10 flex items-center justify-center animate-in zoom-in duration-200">
-                <AlertCircle size={14} className="text-destructive" />
-              </div>
-            )}
-          </div>
-        </div>
-        
-        {error && (
-          <div className="mt-2 flex items-start gap-2 animate-in slide-in-from-top-1 duration-200">
-            <AlertCircle size={14} className="text-destructive mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-destructive leading-relaxed">
-              {error}
-            </p>
-          </div>
-        )}
-        
-        {helpText && !error && (
-          <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-            {helpText}
-          </p>
-        )}
-      </div>
-    );
-  };
 
   if (isLoading) {
     return (
@@ -401,28 +389,40 @@ const ProSettings = () => {
           </div>
 
           <div className="blyss-card flex flex-col gap-5 hover:shadow-lg transition-shadow duration-300">
-            <InputField
+            <SettingsInputField
               label="Nom de ton activité"
               name="activityName"
               value={activityName}
               onChange={setActivityName}
               placeholder={initialActivityName || "Ex : Nails by Emma"}
+              isTouched={touched.activityName}
+              error={fieldErrors.activityName}
+              onBlur={handleBlur}
+              onValidate={validateField}
             />
 
-            <InputField
+            <SettingsInputField
               label="Ton prénom"
               name="firstName"
               value={firstName}
               onChange={setFirstName}
               placeholder={initialFirstName || "Ex : Emma"}
+              isTouched={touched.firstName}
+              error={fieldErrors.firstName}
+              onBlur={handleBlur}
+              onValidate={validateField}
             />
 
-            <InputField
+            <SettingsInputField
               label="Ton nom"
               name="lastName"
               value={lastName}
               onChange={setLastName}
               placeholder={initialLastName || "Ex : Bernard"}
+              isTouched={touched.lastName}
+              error={fieldErrors.lastName}
+              onBlur={handleBlur}
+              onValidate={validateField}
             />
           </div>
         </div>
@@ -438,21 +438,29 @@ const ProSettings = () => {
           </div>
 
           <div className="blyss-card flex flex-col gap-5 hover:shadow-lg transition-shadow duration-300">
-            <InputField
+            <SettingsInputField
               label="Ville / zone"
               name="city"
               value={city}
               onChange={setCity}
               placeholder={initialCity || "Ex : Paris 11e, Lyon centre..."}
+              isTouched={touched.city}
+              error={fieldErrors.city}
+              onBlur={handleBlur}
+              onValidate={validateField}
             />
 
-            <InputField
+            <SettingsInputField
               label="Instagram (optionnel)"
               name="instagramAccount"
               value={instagramAccount}
               onChange={setInstagramAccount}
               placeholder={initialInstagramAccount || "@toncompte"}
               helpText="Ton compte pourra être affiché sur ton profil Blyss."
+              isTouched={touched.instagramAccount}
+              error={fieldErrors.instagramAccount}
+              onBlur={handleBlur}
+              onValidate={validateField}
             />
           </div>
         </div>
@@ -468,7 +476,7 @@ const ProSettings = () => {
           </div>
 
           <div className="blyss-card flex flex-col gap-5 hover:shadow-lg transition-shadow duration-300">
-            <InputField
+            <SettingsInputField
               label="Ancien mot de passe"
               name="currentPassword"
               type="password"
@@ -477,10 +485,14 @@ const ProSettings = () => {
               placeholder="Ton mot de passe actuel"
               showPassword={showCurrentPassword}
               onTogglePassword={() => setShowCurrentPassword(!showCurrentPassword)}
+              isTouched={touched.currentPassword}
+              error={fieldErrors.currentPassword}
+              onBlur={handleBlur}
+              onValidate={validateField}
             />
 
             <div className="space-y-3">
-              <InputField
+              <SettingsInputField
                 label="Nouveau mot de passe"
                 name="newPassword"
                 type="password"
@@ -489,6 +501,10 @@ const ProSettings = () => {
                 placeholder="Nouveau mot de passe"
                 showPassword={showNewPassword}
                 onTogglePassword={() => setShowNewPassword(!showNewPassword)}
+                isTouched={touched.newPassword}
+                error={fieldErrors.newPassword}
+                onBlur={handleBlur}
+                onValidate={validateField}
               />
               
               {/* Indicateur de force du mot de passe */}
@@ -522,7 +538,7 @@ const ProSettings = () => {
               )}
             </div>
 
-            <InputField
+            <SettingsInputField
               label="Confirme le nouveau mot de passe"
               name="newPasswordConfirm"
               type="password"
@@ -532,6 +548,10 @@ const ProSettings = () => {
               showPassword={showConfirmPassword}
               onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
               helpText="Ton mot de passe doit contenir au moins 8 caractères, une majuscule et un chiffre."
+              isTouched={touched.newPasswordConfirm}
+              error={fieldErrors.newPasswordConfirm}
+              onBlur={handleBlur}
+              onValidate={validateField}
             />
 
             <button

@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, MapPin, Star, Clock, Heart, Loader2, Instagram, Sparkles, ChevronRight } from "lucide-react";
+import { ArrowLeft, MapPin, Star, Clock, Heart, Loader2, Instagram, Sparkles, ChevronRight, ShieldCheck, Check, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { favoritesApi, instagramApi, InstagramPhoto, API_URL } from "@/services/api";
+import { ConditionItem } from "./ProPublicProfile";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { getImageUrl } from "@/utils/imageUrl";
@@ -44,6 +45,7 @@ interface Pro {
   banner_photo: string | null;
   instagram_account: string | null;
   bio: string | null;
+  acceptance_conditions: ConditionItem[] | null;
   pro_status: string;
 }
 
@@ -131,7 +133,11 @@ const SpecialistProfile = () => {
         if (!proData.success || !proData.data) {
           throw new Error("Professionnel non trouvé");
         }
-        setPro(proData.data);
+        const proResult = proData.data;
+        if (proResult.acceptance_conditions && typeof proResult.acceptance_conditions === "string") {
+          proResult.acceptance_conditions = JSON.parse(proResult.acceptance_conditions);
+        }
+        setPro(proResult);
 
         // ✅ Route: GET /api/prestations/pro/:id
         const prestationsRes = await fetch(`${API_URL}/api/prestations/pro/${id}`);
@@ -493,12 +499,46 @@ const SpecialistProfile = () => {
             </section>
           )}
 
+          {/* Conditions de réservation */}
+          {pro.acceptance_conditions && pro.acceptance_conditions.filter(c => c.text.trim()).length > 0 && (
+            <section className="bg-card rounded-2xl p-4 shadow-sm border-2 border-border space-y-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={15} className="text-foreground/50 flex-shrink-0" />
+                <h2 className="text-base font-bold text-foreground">
+                  Conditions de réservation
+                </h2>
+              </div>
+              <div className="space-y-2">
+                {pro.acceptance_conditions.filter(c => c.text.trim()).map((c, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 border ${
+                      c.accepted
+                        ? "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-800/40"
+                        : "bg-rose-50/60 border-rose-200 dark:bg-rose-950/20 dark:border-rose-800/40"
+                    }`}
+                  >
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${c.accepted ? "bg-emerald-500" : "bg-rose-400"}`}>
+                      {c.accepted
+                        ? <Check size={10} className="text-white" strokeWidth={3} />
+                        : <X size={10} className="text-white" strokeWidth={3} />
+                      }
+                    </div>
+                    <span className={`text-sm font-medium leading-snug ${c.accepted ? "text-emerald-800 dark:text-emerald-200" : "text-rose-700 dark:text-rose-300"}`}>
+                      {c.text}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
           {/* ── Instagram Photos (affichées si Plan Signature actif + connecté) ── */}
           {igPhotos.length > 0 && (
             <section className="bg-card rounded-2xl p-4 shadow-sm border-2 border-border">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center">
+                  <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
                     <Instagram size={14} className="text-white" />
                   </div>
                   <h2 className="text-base font-bold text-foreground">Instagram</h2>

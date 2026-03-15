@@ -24,6 +24,7 @@ export interface User {
   IBAN?: string | null;
   bankaccountname?: string | null;
   bio?: string | null;
+  acceptance_conditions?: Array<{ text: string; accepted: boolean }> | null;
   is_admin?: boolean;
   is_active?: boolean;
 }

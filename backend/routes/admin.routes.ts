@@ -7,6 +7,7 @@ import { getDb } from "../lib/db";
 import { sendNotificationToUser } from "../lib/notifications";
 import { AuthenticatedRequest } from "../lib/types";
 import { parseParamToInt } from "../lib/helpers";
+import { runReminderCycle } from "../lib/reminders";
 
 const router = express.Router();
 
@@ -651,6 +652,22 @@ router.delete(
     } catch (error) {
       console.error("Error deleting booking:", error);
       res.status(500).json({ success: false, message: "Erreur serveur" });
+    }
+  }
+);
+
+/* POST /reminders/trigger — manual trigger for testing (dev only) */
+router.post(
+  "/reminders/trigger",
+  authenticateToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!(await requireAdmin(req, res))) return;
+      await runReminderCycle();
+      res.json({ success: true, message: "Reminder cycle triggered" });
+    } catch (err) {
+      console.error("Error triggering reminders:", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
     }
   }
 );

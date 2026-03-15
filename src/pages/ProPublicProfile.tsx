@@ -25,6 +25,92 @@ import { useRevenueCat } from "@/contexts/RevenueCatContext";
 import { instagramApi, InstagramStatus } from "@/services/api";
 import { set } from "date-fns";
 
+export interface ConditionItem {
+  text: string;
+  accepted: boolean;
+}
+
+// ── InputField hissé hors du composant pour éviter le remount à chaque frappe ──
+interface InputFieldProps {
+  label: string;
+  name: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  helpText?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon?: any;
+  maxLength?: number;
+  isTouched?: boolean;
+  error?: string;
+  onBlur: (name: string, value: string) => void;
+  onValidate: (name: string, value: string) => void;
+}
+
+const InputField = ({
+  label, name, value, onChange, placeholder, helpText, icon: Icon,
+  maxLength, isTouched, error, onBlur, onValidate,
+}: InputFieldProps) => {
+  const hasValue = value.length > 0;
+  return (
+    <div className="flex flex-col relative animate-slide-up">
+      <label className={`text-xs font-medium mb-2 transition-colors duration-200 ${error ? "text-destructive" : hasValue ? "text-primary" : "text-muted-foreground"}`}>
+        {label}
+      </label>
+      <div className="relative group">
+        {Icon && (
+          <div className="absolute left-3 top-1/2 -translate-y-1/2">
+            <Icon size={18} className={`transition-colors ${error ? "text-destructive" : hasValue ? "text-primary" : "text-muted-foreground"}`} />
+          </div>
+        )}
+        <input
+          type="text"
+          className={`
+            border-2 rounded-2xl px-4 h-12 w-full text-sm bg-background
+            transition-all duration-300 ease-out
+            focus:outline-none focus:ring-4 focus:scale-[1.02]
+            ${error
+              ? "border-destructive focus:ring-destructive/10 focus:border-destructive"
+              : hasValue
+                ? "border-primary/30 focus:ring-primary/10 focus:border-primary"
+                : "border-muted focus:ring-primary/10 focus:border-primary/50"
+            }
+            ${Icon ? "pl-11" : ""}
+          `}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => {
+            const newValue = maxLength ? e.target.value.slice(0, maxLength) : e.target.value;
+            onChange(newValue);
+            if (isTouched) onValidate(name, newValue);
+          }}
+          onBlur={(e) => onBlur(name, e.target.value)}
+          maxLength={maxLength}
+        />
+        {hasValue && !error && (
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-green-500/10 flex items-center justify-center animate-in zoom-in duration-200">
+            <Check size={14} className="text-green-600" />
+          </div>
+        )}
+        {error && (
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-destructive/10 flex items-center justify-center animate-in zoom-in duration-200">
+            <AlertCircle size={14} className="text-destructive" />
+          </div>
+        )}
+      </div>
+      {error && (
+        <div className="mt-2 flex items-start gap-2 animate-in slide-in-from-top-1 duration-200">
+          <AlertCircle size={14} className="text-destructive mt-0.5 flex-shrink-0" />
+          <p className="text-xs text-destructive leading-relaxed">{error}</p>
+        </div>
+      )}
+      {helpText && !error && (
+        <p className="mt-2 text-xs text-muted-foreground leading-relaxed">{helpText}</p>
+      )}
+    </div>
+  );
+};
+
 const ProPublicProfile = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -129,6 +215,7 @@ const ProPublicProfile = () => {
   const [activityName, setActivityName] = useState("");
   const [city, setCity] = useState("");
   const [bio, setBio] = useState("");
+  const [conditions, setConditions] = useState<ConditionItem[]>([]);
   const [instagramAccount, setInstagramAccount] = useState("");
   const [profileVisibility, setProfileVisibility] = useState<"public" | "private">("public");
 
@@ -136,6 +223,7 @@ const ProPublicProfile = () => {
   const [initialActivityName, setInitialActivityName] = useState("");
   const [initialCity, setInitialCity] = useState("");
   const [initialBio, setInitialBio] = useState("");
+  const [initialConditions, setInitialConditions] = useState<ConditionItem[]>([]);
   const [initialInstagramAccount, setInitialInstagramAccount] = useState("");
   const [initialProfileVisibility, setInitialProfileVisibility] = useState<"public" | "private">("public");
 
@@ -167,6 +255,12 @@ const ProPublicProfile = () => {
         setActivityName(data.data.activity_name || "");
         setCity(data.data.city || "");
         setBio(data.data.bio || "");
+        const parsedConditions: ConditionItem[] = data.data.acceptance_conditions
+          ? (typeof data.data.acceptance_conditions === "string"
+            ? JSON.parse(data.data.acceptance_conditions)
+            : data.data.acceptance_conditions)
+          : [];
+        setConditions(parsedConditions);
         setInstagramAccount(data.data.instagram_account || "");
         setProfileVisibility(data.data.profile_visibility || "public");
         setBannerPhoto(data.data.banner_photo || ""); // NOUVEAU
@@ -175,6 +269,7 @@ const ProPublicProfile = () => {
         setInitialActivityName(data.data.activity_name || "");
         setInitialCity(data.data.city || "");
         setInitialBio(data.data.bio || "");
+        setInitialConditions(parsedConditions);
         setInitialInstagramAccount(data.data.instagram_account || "");
         setInitialProfileVisibility(data.data.profile_visibility || "public");
         setInitialBannerPhoto(data.data.banner_photo || ""); // NOUVEAU
@@ -195,12 +290,13 @@ const ProPublicProfile = () => {
       activityName !== initialActivityName ||
       city !== initialCity ||
       bio !== initialBio ||
+      JSON.stringify(conditions) !== JSON.stringify(initialConditions) ||
       instagramAccount !== initialInstagramAccount ||
       profileVisibility !== initialProfileVisibility ||
       bannerFile !== null; // NOUVEAU
     setHasChanges(changed);
-  }, [activityName, city, bio, instagramAccount, profileVisibility, bannerFile,
-    initialActivityName, initialCity, initialBio, initialInstagramAccount,
+  }, [activityName, city, bio, conditions, instagramAccount, profileVisibility, bannerFile,
+    initialActivityName, initialCity, initialBio, initialConditions, initialInstagramAccount,
     initialProfileVisibility]);
 
 
@@ -270,7 +366,23 @@ const ProPublicProfile = () => {
     validateField(name, value);
   };
 
-  // Ajoute cette fonction après handleBlur (ligne ~160)
+  const addCondition = () => {
+    if (conditions.length >= 8) return;
+    setConditions(prev => [...prev, { text: "", accepted: true }]);
+  };
+
+  const removeCondition = (index: number) => {
+    setConditions(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const updateConditionText = (index: number, text: string) => {
+    setConditions(prev => prev.map((c, i) => i === index ? { ...c, text: text.slice(0, 150) } : c));
+  };
+
+  const updateConditionAccepted = (index: number, accepted: boolean) => {
+    setConditions(prev => prev.map((c, i) => i === index ? { ...c, accepted } : c));
+  };
+
   const handleBannerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -369,6 +481,7 @@ const ProPublicProfile = () => {
     if (activityName !== initialActivityName) payload.activity_name = activityName;
     if (city !== initialCity) payload.city = city;
     if (bio !== initialBio) payload.bio = bio;
+    if (JSON.stringify(conditions) !== JSON.stringify(initialConditions)) payload.acceptance_conditions = conditions;
     if (instagramAccount !== initialInstagramAccount) payload.instagram_account = instagramAccount;
     if (profileVisibility !== initialProfileVisibility) payload.profile_visibility = profileVisibility;
     if (bannerPath !== initialBannerPhoto) payload.banner_photo = bannerPath; // NOUVEAU
@@ -395,6 +508,15 @@ const ProPublicProfile = () => {
         setInitialActivityName(result.data.activity_name || "");
         setInitialCity(result.data.city || "");
         setInitialBio(result.data.bio || "");
+        const raw = result.data.acceptance_conditions;
+        const savedConditions: ConditionItem[] = (() => {
+          if (!raw) return [...conditions];
+          const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+          if (!Array.isArray(parsed) || (parsed.length === 0 && conditions.length > 0)) return [...conditions];
+          return parsed;
+        })();
+        setConditions(savedConditions);
+        setInitialConditions(savedConditions);
         setInitialInstagramAccount(result.data.instagram_account || "");
         setInitialProfileVisibility(result.data.profile_visibility || "public");
         setInitialBannerPhoto(result.data.banner_photo || ""); // NOUVEAU
@@ -414,96 +536,6 @@ const ProPublicProfile = () => {
   };
 
 
-  const InputField = ({
-    label,
-    name,
-    value,
-    onChange,
-    placeholder,
-    helpText,
-    icon: Icon,
-    maxLength,
-  }: {
-    label: string;
-    name: string;
-    value: string;
-    onChange: (value: string) => void;
-    placeholder?: string;
-    helpText?: string;
-    icon?: any;
-    maxLength?: number;
-  }) => {
-    const error = touched[name] && fieldErrors[name];
-    const hasValue = value.length > 0;
-
-    return (
-      <div className="flex flex-col relative animate-slide-up">
-        <label className={`text-xs font-medium mb-2 transition-colors duration-200 ${error ? "text-destructive" : hasValue ? "text-primary" : "text-muted-foreground"
-          }`}>
-          {label}
-        </label>
-        <div className="relative group">
-          {Icon && (
-            <div className="absolute left-3 top-1/2 -translate-y-1/2">
-              <Icon size={18} className={`transition-colors ${error ? "text-destructive" : hasValue ? "text-primary" : "text-muted-foreground"
-                }`} />
-            </div>
-          )}
-          <input
-            type="text"
-            className={`
-              border-2 rounded-2xl px-4 h-12 w-full text-sm bg-background
-              transition-all duration-300 ease-out
-              focus:outline-none focus:ring-4 focus:scale-[1.02]
-              ${error
-                ? "border-destructive focus:ring-destructive/10 focus:border-destructive"
-                : hasValue
-                  ? "border-primary/30 focus:ring-primary/10 focus:border-primary"
-                  : "border-muted focus:ring-primary/10 focus:border-primary/50"
-              }
-              ${Icon ? "pl-11" : ""}
-            `}
-            placeholder={placeholder}
-            value={value}
-            onChange={(e) => {
-              const newValue = maxLength ? e.target.value.slice(0, maxLength) : e.target.value;
-              onChange(newValue);
-              if (touched[name]) validateField(name, newValue);
-            }}
-            onBlur={(e) => handleBlur(name, e.target.value)}
-            maxLength={maxLength}
-          />
-
-          {hasValue && !error && (
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-green-500/10 flex items-center justify-center animate-in zoom-in duration-200">
-              <Check size={14} className="text-green-600" />
-            </div>
-          )}
-
-          {error && (
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-destructive/10 flex items-center justify-center animate-in zoom-in duration-200">
-              <AlertCircle size={14} className="text-destructive" />
-            </div>
-          )}
-        </div>
-
-        {error && (
-          <div className="mt-2 flex items-start gap-2 animate-in slide-in-from-top-1 duration-200">
-            <AlertCircle size={14} className="text-destructive mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-destructive leading-relaxed">
-              {error}
-            </p>
-          </div>
-        )}
-
-        {helpText && !error && (
-          <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-            {helpText}
-          </p>
-        )}
-      </div>
-    );
-  };
 
   if (isLoading) {
     return (
@@ -655,6 +687,37 @@ const ProPublicProfile = () => {
                   <p className="text-sm text-muted-foreground leading-relaxed">
                     {bio}
                   </p>
+                </section>
+              )}
+
+              {/* Conditions de réservation - preview */}
+              {conditions.filter(c => c.text.trim()).length > 0 && (
+                <section className="space-y-2">
+                  <h2 className="text-base font-bold text-foreground">
+                    Conditions de réservation
+                  </h2>
+                  <div className="space-y-1.5">
+                    {conditions.filter(c => c.text.trim()).map((c, i) => (
+                      <div
+                        key={i}
+                        className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 border ${
+                          c.accepted
+                            ? "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-800/40"
+                            : "bg-rose-50/60 border-rose-200 dark:bg-rose-950/20 dark:border-rose-800/40"
+                        }`}
+                      >
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${c.accepted ? "bg-emerald-500" : "bg-rose-400"}`}>
+                          {c.accepted
+                            ? <Check size={10} className="text-white" strokeWidth={3} />
+                            : <X size={10} className="text-white" strokeWidth={3} />
+                          }
+                        </div>
+                        <span className={`text-xs font-medium ${c.accepted ? "text-emerald-800 dark:text-emerald-200" : "text-rose-700 dark:text-rose-300"}`}>
+                          {c.text}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </section>
               )}
 
@@ -1050,6 +1113,10 @@ const ProPublicProfile = () => {
               icon={User}
               helpText="Le nom sous lequel tes clientes te trouveront sur Blyss."
               maxLength={100}
+              isTouched={touched.activityName}
+              error={fieldErrors.activityName}
+              onBlur={handleBlur}
+              onValidate={validateField}
             />
 
             <InputField
@@ -1061,11 +1128,15 @@ const ProPublicProfile = () => {
               icon={MapPin}
               helpText="Aide tes clientes à te localiser facilement."
               maxLength={100}
+              isTouched={touched.city}
+              error={fieldErrors.city}
+              onBlur={handleBlur}
+              onValidate={validateField}
             />
           </div>
         </div>
 
-        {/* SECTION : Bio */}
+        {/* SECTION : Bio + Conditions */}
         <div className="space-y-4 mb-6 animate-slide-up" style={{ animationDelay: "0.3s" }}>
           <div className="flex items-center gap-2 px-1">
             <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
@@ -1125,6 +1196,111 @@ const ProPublicProfile = () => {
               </div>
             )}
           </div>
+
+          {/* Conditions d'acceptation */}
+        </div>
+
+        {/* SECTION : Conditions de réservation */}
+        <div className="space-y-4 mb-6 animate-slide-up" style={{ animationDelay: "0.35s" }}>
+          <div className="flex items-center gap-2 px-1">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+            <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              Conditions de réservation
+            </h2>
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+          </div>
+
+          <p className="text-xs text-muted-foreground px-1 leading-relaxed">
+            Écris tes propres conditions. Les clientes les verront sur ton profil.
+          </p>
+
+          <div className="space-y-2">
+            {conditions.map((cond, index) => (
+              <div
+                key={index}
+                className={`rounded-2xl border-2 p-3 transition-all duration-200 ${
+                  cond.accepted
+                    ? "border-emerald-200 bg-emerald-50/50 dark:border-emerald-800/40 dark:bg-emerald-950/20"
+                    : "border-rose-200 bg-rose-50/40 dark:border-rose-800/40 dark:bg-rose-950/20"
+                }`}
+              >
+                {/* Ligne 1 : toggle + delete */}
+                <div className="flex items-center gap-2 mb-2.5">
+                  <div className="flex rounded-xl overflow-hidden border-2 border-border bg-background flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => updateConditionAccepted(index, true)}
+                      className={`flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150 ${
+                        cond.accepted
+                          ? "bg-emerald-500 text-white"
+                          : "text-muted-foreground hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40"
+                      }`}
+                    >
+                      <Check size={11} strokeWidth={3} />
+                      J'accepte
+                    </button>
+                    <div className="w-px bg-border" />
+                    <button
+                      type="button"
+                      onClick={() => updateConditionAccepted(index, false)}
+                      className={`flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150 ${
+                        !cond.accepted
+                          ? "bg-rose-500 text-white"
+                          : "text-muted-foreground hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40"
+                      }`}
+                    >
+                      <X size={11} strokeWidth={3} />
+                      J'accepte pas
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeCondition(index)}
+                    className="ml-auto w-7 h-7 rounded-xl bg-muted hover:bg-destructive/10 hover:text-destructive flex items-center justify-center text-muted-foreground transition-colors flex-shrink-0"
+                    aria-label="Supprimer"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+
+                {/* Ligne 2 : champ texte */}
+                <input
+                  type="text"
+                  value={cond.text}
+                  onChange={(e) => updateConditionText(index, e.target.value)}
+                  placeholder="Ex : Déplacement possible, Test allergie requis..."
+                  maxLength={150}
+                  className={`w-full text-sm bg-transparent border-none outline-none placeholder:text-muted-foreground/50 font-medium ${
+                    cond.accepted ? "text-emerald-800 dark:text-emerald-200" : "text-rose-700 dark:text-rose-300"
+                  }`}
+                />
+
+                {cond.text.length > 120 && (
+                  <p className="text-[10px] text-muted-foreground mt-1 text-right">
+                    {150 - cond.text.length} restants
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Bouton ajouter */}
+          {conditions.length < 8 && (
+            <button
+              type="button"
+              onClick={addCondition}
+              className="w-full py-3 rounded-2xl border-2 border-dashed border-primary/30 text-primary text-sm font-medium hover:border-primary/60 hover:bg-primary/5 active:scale-[0.98] transition-all duration-150 flex items-center justify-center gap-2"
+            >
+              <span className="text-lg leading-none">+</span>
+              Ajouter une condition
+            </button>
+          )}
+
+          {conditions.length > 0 && (
+            <p className="text-xs text-center text-muted-foreground">
+              {conditions.length} / 8 condition{conditions.length > 1 ? "s" : ""}
+            </p>
+          )}
         </div>
 
         {/* SECTION : Réseaux sociaux */}
@@ -1147,6 +1323,10 @@ const ProPublicProfile = () => {
               icon={Instagram}
               helpText="Ton compte Instagram sera affiché sur ton profil Blyss."
               maxLength={50}
+              isTouched={touched.instagramAccount}
+              error={fieldErrors.instagramAccount}
+              onBlur={handleBlur}
+              onValidate={validateField}
             />
           </div>
 
@@ -1154,7 +1334,7 @@ const ProPublicProfile = () => {
           {isSignature ? (
             <div className="blyss-card hover:shadow-lg transition-shadow duration-300">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
                   <Instagram size={18} className="text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -1198,7 +1378,7 @@ const ProPublicProfile = () => {
                   type="button"
                   onClick={handleIgConnect}
                   disabled={igLoading}
-                  className="w-full py-3 rounded-xl text-sm font-semibold bg-gradient-to-r from-pink-500 to-purple-600 text-white active:scale-95 transition-all shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full py-3 rounded-xl text-sm font-semibold bg-primary text-white active:scale-95 transition-all shadow-sm shadow-primary/25 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {igLoading ? (
                     <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />

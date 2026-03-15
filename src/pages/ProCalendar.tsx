@@ -21,6 +21,8 @@ import {
   Eye,
   Copy,
   Sparkles,
+  CalendarOff,
+  LayoutList,
 } from "lucide-react";
 import api from "@/services/api";
 
@@ -52,6 +54,13 @@ interface TemplateSlot {
   id: string;
   time: string;
   duration: number;
+}
+
+interface Unavailability {
+  id: number;
+  start_date: string;
+  end_date: string;
+  reason: string | null;
 }
 
 // ========== NOTIFICATION COMPONENT ==========
@@ -168,6 +177,17 @@ const ProCalendar = () => {
   // Form states
   const [newSlotTime, setNewSlotTime] = useState("09:00");
   const [newSlotDuration, setNewSlotDuration] = useState(60);
+
+  // Unavailabilities states
+  const [unavailabilities, setUnavailabilities] = useState<Unavailability[]>([]);
+  const [showUnavailModal, setShowUnavailModal] = useState(false);
+  const [unavailStartDate, setUnavailStartDate] = useState("");
+  const [unavailEndDate, setUnavailEndDate] = useState("");
+  const [unavailReason, setUnavailReason] = useState("");
+  const [unavailSaving, setUnavailSaving] = useState(false);
+
+  // Timeline (agenda) view
+  const [showTimeline, setShowTimeline] = useState(false);
 
   // Weekly planning states
   const [templateSlots, setTemplateSlots] = useState<TemplateSlot[]>([]);
@@ -369,29 +389,46 @@ const ProCalendar = () => {
     });
   };
 
+  const isUnavailableDay = (day: number) => {
+    const date = toISODate(new Date(currentDate.getFullYear(), currentDate.getMonth(), day));
+    return unavailabilities.some(u => date >= u.start_date && date <= u.end_date);
+  };
+
   // ========== ACTIONS ==========
   const handleCompleteAppointment = async (apt: any) => {
+    // Optimistic: close modal + update status immediately
+    setShowActionsModal(false);
+    setSelectedAppointment(null);
+    setAppointments(prev => prev.map(a =>
+      a.id === apt.id ? { ...a, status: "completed" } : a
+    ));
     try {
-      setAppointments(prev => prev.map(a =>
-        a.id === apt.id ? { ...a, status: "completed" } : a
-      ));
+      await api.pro.updateReservationStatus(apt.id, "completed");
       notify("Rendez-vous marqué comme terminé");
-      setShowActionsModal(false);
-      setSelectedAppointment(null);
-    } catch (error) {
+    } catch {
+      // Rollback
+      setAppointments(prev => prev.map(a =>
+        a.id === apt.id ? { ...a, status: apt.status } : a
+      ));
       notify("Erreur lors de la mise à jour", "error");
     }
   };
 
   const handleCancelAppointment = async (apt: any) => {
+    // Optimistic: close modal + update status immediately
+    setShowActionsModal(false);
+    setSelectedAppointment(null);
+    setAppointments(prev => prev.map(a =>
+      a.id === apt.id ? { ...a, status: "cancelled" } : a
+    ));
     try {
-      setAppointments(prev => prev.map(a =>
-        a.id === apt.id ? { ...a, status: "cancelled" } : a
-      ));
+      await api.pro.updateReservationStatus(apt.id, "cancelled");
       notify("Rendez-vous annulé");
-      setShowActionsModal(false);
-      setSelectedAppointment(null);
-    } catch (error) {
+    } catch {
+      // Rollback
+      setAppointments(prev => prev.map(a =>
+        a.id === apt.id ? { ...a, status: apt.status } : a
+      ));
       notify("Erreur lors de l'annulation", "error");
     }
   };
@@ -400,15 +437,20 @@ const ProCalendar = () => {
     const slot = slots.find(s => s.id === id);
     if (!slot || slot.isPast) return;
 
+    // Optimistic: toggle immediately
+    setSlots(prev => prev.map(s =>
+      s.id === id ? { ...s, isActive: !s.isActive } : s
+    ));
+    notify(slot.isActive ? "Créneau désactivé" : "Créneau activé");
+
     try {
       const newStatus = slot.isActive ? 'blocked' : 'available';
       await api.pro.updateSlot(parseInt(id), { status: newStatus });
-
+    } catch {
+      // Rollback
       setSlots(prev => prev.map(s =>
-        s.id === id ? { ...s, isActive: !s.isActive } : s
+        s.id === id ? { ...s, isActive: slot.isActive } : s
       ));
-      notify(slot.isActive ? "Créneau désactivé" : "Créneau activé");
-    } catch (error) {
       notify("Erreur lors de la mise à jour", "error");
     }
   };
@@ -457,11 +499,15 @@ const ProCalendar = () => {
   };
 
   const deleteSlot = async (id: string) => {
+    const deleted = slots.find(s => s.id === id);
+    // Optimistic: remove immediately
+    setSlots(prev => prev.filter(slot => slot.id !== id));
+    notify("Créneau supprimé");
     try {
       await api.pro.deleteSlot(parseInt(id));
-      setSlots(prev => prev.filter(slot => slot.id !== id));
-      notify("Créneau supprimé");
-    } catch (error) {
+    } catch {
+      // Rollback
+      if (deleted) setSlots(prev => [...prev, deleted].sort((a, b) => a.time.localeCompare(b.time)));
       notify("Erreur lors de la suppression", "error");
     }
   };
@@ -579,15 +625,78 @@ const ProCalendar = () => {
     }
   };
 
+  const fetchUnavailabilities = async () => {
+    try {
+      const res = await api.pro.getUnavailabilities();
+      if (res.success && res.data) setUnavailabilities(res.data);
+    } catch (err) {
+      console.error("Error fetching unavailabilities:", err);
+    }
+  };
+
+  const createUnavailability = async () => {
+    if (!unavailStartDate || !unavailEndDate) {
+      notify("Sélectionne une période", "error");
+      return;
+    }
+    if (unavailEndDate < unavailStartDate) {
+      notify("La date de fin doit être après le début", "error");
+      return;
+    }
+    setUnavailSaving(true);
+    try {
+      const res = await api.pro.createUnavailability({
+        start_date: unavailStartDate,
+        end_date: unavailEndDate,
+        reason: unavailReason || undefined,
+      });
+      if (res.success) {
+        await fetchUnavailabilities();
+        setUnavailStartDate("");
+        setUnavailEndDate("");
+        setUnavailReason("");
+        notify("Période bloquée");
+      }
+    } catch (err) {
+      notify("Erreur lors de l'enregistrement", "error");
+    } finally {
+      setUnavailSaving(false);
+    }
+  };
+
+  const removeUnavailability = async (id: number) => {
+    const deleted = unavailabilities.find(u => u.id === id);
+    // Optimistic: remove immediately
+    setUnavailabilities(prev => prev.filter(u => u.id !== id));
+    notify("Période supprimée");
+    try {
+      await api.pro.deleteUnavailability(id);
+    } catch {
+      // Rollback
+      if (deleted) setUnavailabilities(prev => [...prev, deleted].sort((a, b) => a.start_date.localeCompare(b.start_date)));
+      notify("Erreur lors de la suppression", "error");
+    }
+  };
+
+  const formatUnavailDate = (dateStr: string) => {
+    const d = new Date(dateStr + "T00:00:00");
+    return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  };
+
   // ========== EFFECTS ==========
   useEffect(() => {
-    document.body.style.overflow = (showSlotsModal || showActionsModal || showWeeklyModal || showWeekViewModal)
+    document.body.style.overflow = (showSlotsModal || showActionsModal || showWeeklyModal || showWeekViewModal || showUnavailModal)
       ? 'hidden'
       : 'unset';
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [showSlotsModal, showActionsModal, showWeeklyModal, showWeekViewModal]);
+  }, [showSlotsModal, showActionsModal, showWeeklyModal, showWeekViewModal, showUnavailModal]);
+
+  useEffect(() => {
+    fetchUnavailabilities();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const fetchAppointments = async () => {
@@ -690,33 +799,9 @@ const ProCalendar = () => {
     }
   }, [showWeeklyModal]);
 
-  useEffect(() => {
-  const fetchTodaySlots = async () => {
-    try {
-      const today = toISODate(new Date());
-      const res = await api.pro.getSlots({ date: today });
-
-      if (res.success && res.data) {
-        setSlots(res.data.map((s: any) => ({
-          id: s.id.toString(),
-          time: s.time,
-          duration: s.duration,
-          isActive: Boolean(s.isActive),
-          isAvailable: Boolean(s.isAvailable),
-          isPast: s.computed_status === 'past'
-        })));
-      }
-    } catch (error) {
-      console.error('Error fetching today slots:', error);
-    }
-  };
-
-  fetchTodaySlots();
-}, []);
-
   // ========== RENDER ==========
   return (
-    <MobileLayout hideNav={showSlotsModal || showActionsModal || showWeeklyModal || showWeekViewModal}>
+    <MobileLayout hideNav={showSlotsModal || showActionsModal || showWeeklyModal || showWeekViewModal || showUnavailModal}>
       {notification && (
         <Notification
           message={notification.message}
@@ -796,6 +881,7 @@ const ProCalendar = () => {
               <div className="grid grid-cols-7 gap-1.5">
                 {getDaysInMonth(currentDate).map((day, index) => {
                   const hasApt = day && hasAppointments(day);
+                  const hasUnavail = day && isUnavailableDay(day);
                   return (
                     <button
                       key={index}
@@ -807,14 +893,16 @@ const ProCalendar = () => {
                         ${!day ? "invisible" : ""}
                         ${day && isSelected(day) ? "bg-gradient-to-br from-primary to-primary/90 text-white shadow-lg shadow-primary/30 scale-110" : ""}
                         ${day && isToday(day) && !isSelected(day) ? "bg-primary/10 text-primary ring-1 ring-primary/30" : ""}
-                        ${day && !isSelected(day) && !isToday(day) ? "hover:bg-muted hover:scale-105 active:scale-95 text-foreground" : ""}
+                        ${day && !isSelected(day) && !isToday(day) && !hasUnavail ? "hover:bg-muted hover:scale-105 active:scale-95 text-foreground" : ""}
+                        ${day && hasUnavail && !isSelected(day) ? "bg-orange-50 text-orange-400 hover:bg-orange-100 active:scale-95" : ""}
                       `}
                       style={{ animationDelay: `${index * 0.01}s` }}
                     >
                       {day}
-                      {hasApt && (
+                      {(hasApt || hasUnavail) && (
                         <div className="absolute bottom-1 flex gap-0.5">
-                          <div className={`w-1 h-1 rounded-full ${isSelected(day) ? "bg-white" : "bg-primary"} animate-pulse`} />
+                          {hasApt && <div className={`w-1 h-1 rounded-full ${isSelected(day) ? "bg-white" : "bg-primary"} animate-pulse`} />}
+                          {hasUnavail && <div className={`w-1 h-1 rounded-full ${isSelected(day) ? "bg-white" : "bg-orange-400"}`} />}
                         </div>
                       )}
                     </button>
@@ -859,19 +947,19 @@ const ProCalendar = () => {
         {/* Slots Management Section */}
         <div className="mb-4 animate-slide-up" style={{ animationDelay: "0.08s" }}>
           <h3 className="text-xs font-bold text-muted-foreground mb-2 uppercase tracking-wide">Gestion des créneaux</h3>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setShowSlotsModal(true)}
               className="bg-card rounded-xl p-3 border border-border hover:border-primary/40 hover:shadow-lg hover:scale-105 active:scale-95 transition-all duration-300"
             >
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                   <Settings size={18} className="text-primary" strokeWidth={2} />
                 </div>
-                <div className="text-center">
-                  <p className="text-xs font-bold text-foreground">Aujourd'hui</p>
+                <div className="text-left">
+                  <p className="text-xs font-bold text-foreground">Créneaux</p>
                   <p className="text-[10px] text-primary font-bold animate-number-change">
-                    {activeCount} créneaux
+                    {activeCount} actifs
                   </p>
                 </div>
               </div>
@@ -881,12 +969,12 @@ const ProCalendar = () => {
               onClick={() => setShowWeekViewModal(true)}
               className="bg-card rounded-xl p-3 border border-border hover:border-blue-500/40 hover:shadow-lg hover:scale-105 active:scale-95 transition-all duration-300"
             >
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
                   <Eye size={18} className="text-blue-600" strokeWidth={2} />
                 </div>
-                <div className="text-center">
-                  <p className="text-xs font-bold text-foreground">Voir</p>
+                <div className="text-left">
+                  <p className="text-xs font-bold text-foreground">Vue</p>
                   <p className="text-[10px] text-muted-foreground">Semaine</p>
                 </div>
               </div>
@@ -896,13 +984,33 @@ const ProCalendar = () => {
               onClick={() => setShowWeeklyModal(true)}
               className="bg-card rounded-xl p-3 border border-border hover:border-emerald-500/40 hover:shadow-lg hover:scale-105 active:scale-95 transition-all duration-300"
             >
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
                   <Sparkles size={18} className="text-emerald-600" strokeWidth={2} />
                 </div>
-                <div className="text-center">
-                  <p className="text-xs font-bold text-foreground">Créer</p>
-                  <p className="text-[10px] text-muted-foreground">Planning</p>
+                <div className="text-left">
+                  <p className="text-xs font-bold text-foreground">Planning</p>
+                  <p className="text-[10px] text-muted-foreground">Hebdo</p>
+                </div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setShowUnavailModal(true)}
+              className="bg-card rounded-xl p-3 border border-border hover:border-orange-400/40 hover:shadow-lg hover:scale-105 active:scale-95 transition-all duration-300"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0 relative">
+                  <CalendarOff size={18} className="text-orange-500" strokeWidth={2} />
+                  {unavailabilities.length > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-orange-500 text-white text-[9px] font-bold flex items-center justify-center">
+                      {unavailabilities.length}
+                    </span>
+                  )}
+                </div>
+                <div className="text-left">
+                  <p className="text-xs font-bold text-foreground">Absences</p>
+                  <p className="text-[10px] text-muted-foreground">Congés, repos</p>
                 </div>
               </div>
             </button>
@@ -913,14 +1021,68 @@ const ProCalendar = () => {
         <div className="animate-slide-up" style={{ animationDelay: "0.12s" }}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Rendez-vous du jour</h3>
-            {filteredAppointments.length > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold animate-bounce-in">
-                {filteredAppointments.length}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {filteredAppointments.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold animate-bounce-in">
+                  {filteredAppointments.length}
+                </span>
+              )}
+              {filteredAppointments.length > 0 && (
+                <button
+                  onClick={() => setShowTimeline(v => !v)}
+                  className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 ${
+                    showTimeline ? "bg-primary text-white" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
+                  title={showTimeline ? "Vue liste" : "Vue agenda"}
+                >
+                  {showTimeline ? <LayoutList size={14} strokeWidth={2} /> : <CalendarIcon size={14} strokeWidth={2} />}
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="space-y-2.5">
+          {/* Timeline View */}
+          {showTimeline && !loading && filteredAppointments.length > 0 && (
+            <div className="relative overflow-x-hidden">
+              <div className="relative" style={{ height: `${14 * 56}px` }}>
+                {/* Hour lines */}
+                {Array.from({ length: 15 }, (_, i) => i + 8).map(hour => (
+                  <div key={hour} className="absolute left-0 right-0 flex items-start" style={{ top: `${(hour - 8) * 56}px` }}>
+                    <span className="text-[10px] text-muted-foreground font-medium w-10 flex-shrink-0 -mt-2">{hour}h</span>
+                    <div className="flex-1 border-t border-dashed border-border mt-0" />
+                  </div>
+                ))}
+
+                {/* Appointment blocks */}
+                {filteredAppointments.map((apt) => {
+                  const [h, m] = apt.time.split(":").map(Number);
+                  const duration = parseDuration(apt.duration);
+                  const topPx = (h - 8) * 56 + (m / 60) * 56;
+                  const heightPx = Math.max(32, (duration / 60) * 56);
+                  const statusInfo = getAppointmentStatus(apt);
+                  const colorMap: Record<string, string> = {
+                    emerald: "bg-emerald-100 border-emerald-300 text-emerald-800",
+                    blue: "bg-blue-100 border-blue-300 text-blue-800",
+                    amber: "bg-amber-100 border-amber-300 text-amber-800",
+                    red: "bg-red-100 border-red-300 text-red-700",
+                  };
+                  return (
+                    <div
+                      key={apt.id}
+                      className={`absolute left-11 right-0 rounded-lg border px-2 py-1 cursor-pointer hover:shadow-md transition-shadow duration-200 overflow-hidden ${colorMap[statusInfo.color] || colorMap.amber}`}
+                      style={{ top: `${topPx}px`, height: `${heightPx}px` }}
+                      onClick={() => { setSelectedAppointment(apt); setShowActionsModal(true); }}
+                    >
+                      <p className="text-[11px] font-bold truncate leading-tight">{apt.time} {apt.client_name}</p>
+                      {heightPx > 38 && <p className="text-[10px] truncate opacity-80">{apt.prestation_name}</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className={`space-y-2.5 ${showTimeline ? "hidden" : ""}`}>
             {loading ? (
               <div className="bg-card rounded-xl p-10 text-center border border-border">
                 <div className="w-9 h-9 border-3 border-primary/20 border-t-primary rounded-full animate-spin mx-auto mb-2" />
@@ -1463,6 +1625,126 @@ const ProCalendar = () => {
               >
                 <Sparkles size={18} strokeWidth={2.5} />
                 Appliquer le planning
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unavailabilities Modal */}
+      {showUnavailModal && (
+        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-[430px] bg-card rounded-t-2xl shadow-2xl animate-slide-up-modal max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <div>
+                <h3 className="text-lg font-bold text-foreground tracking-tight flex items-center gap-2">
+                  <CalendarOff size={20} className="text-orange-500" />
+                  Indisponibilités
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Congés, vacances, jours de repos</p>
+              </div>
+              <button onClick={() => setShowUnavailModal(false)} className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center active:scale-90 transition-all duration-200">
+                <X size={18} className="text-foreground" strokeWidth={2} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Add new period */}
+              <div className="bg-orange-50 rounded-xl p-4 border border-orange-200">
+                <p className="text-xs font-semibold text-foreground mb-3">Bloquer une période</p>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div>
+                    <label className="text-[10px] text-muted-foreground font-medium mb-1 block">Du</label>
+                    <input
+                      type="date"
+                      value={unavailStartDate}
+                      onChange={e => setUnavailStartDate(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg bg-card border border-border text-foreground text-sm font-semibold focus:outline-none focus:border-orange-400 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground font-medium mb-1 block">Au</label>
+                    <input
+                      type="date"
+                      value={unavailEndDate}
+                      min={unavailStartDate}
+                      onChange={e => setUnavailEndDate(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg bg-card border border-border text-foreground text-sm font-semibold focus:outline-none focus:border-orange-400 transition-all"
+                    />
+                  </div>
+                </div>
+                <div className="mb-3">
+                  <label className="text-[10px] text-muted-foreground font-medium mb-1 block">Motif (optionnel)</label>
+                  <input
+                    type="text"
+                    value={unavailReason}
+                    onChange={e => setUnavailReason(e.target.value)}
+                    placeholder="Vacances, repos, formation..."
+                    className="w-full px-3 py-2 rounded-lg bg-card border border-border text-foreground text-sm focus:outline-none focus:border-orange-400 transition-all placeholder:text-muted-foreground"
+                  />
+                </div>
+                <button
+                  onClick={createUnavailability}
+                  disabled={!unavailStartDate || !unavailEndDate || unavailSaving}
+                  className="w-full py-2.5 rounded-xl bg-orange-500 text-white font-semibold text-sm active:scale-95 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {unavailSaving ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Plus size={16} strokeWidth={2.5} />
+                  )}
+                  Bloquer cette période
+                </button>
+              </div>
+
+              {/* Existing unavailabilities */}
+              {unavailabilities.length > 0 ? (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground mb-2">Périodes bloquées</p>
+                  <div className="space-y-2">
+                    {unavailabilities.map((u, i) => (
+                      <div
+                        key={u.id}
+                        className="flex items-center gap-3 bg-card rounded-xl px-3 py-2.5 border border-border animate-slide-up"
+                        style={{ animationDelay: `${i * 0.05}s` }}
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0">
+                          <CalendarOff size={15} className="text-orange-500" strokeWidth={2} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-foreground">
+                            {formatUnavailDate(u.start_date)}
+                            {u.start_date !== u.end_date && ` → ${formatUnavailDate(u.end_date)}`}
+                          </p>
+                          {u.reason && <p className="text-[10px] text-muted-foreground truncate">{u.reason}</p>}
+                        </div>
+                        <button
+                          onClick={() => removeUnavailability(u.id)}
+                          className="w-8 h-8 rounded-lg bg-destructive/10 hover:bg-destructive/20 flex items-center justify-center active:scale-90 transition-all duration-200 flex-shrink-0"
+                        >
+                          <Trash2 size={14} className="text-destructive" strokeWidth={2} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-6">
+                  <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
+                    <CalendarOff size={24} className="text-muted-foreground" strokeWidth={2} />
+                  </div>
+                  <p className="text-sm font-semibold text-foreground mb-1">Aucune période bloquée</p>
+                  <p className="text-xs text-muted-foreground">Tes clientes pourront réserver tous les jours</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-border">
+              <button
+                onClick={() => setShowUnavailModal(false)}
+                className="w-full py-3 rounded-xl bg-muted text-foreground font-semibold text-sm active:scale-95 transition-all duration-200"
+              >
+                Fermer
               </button>
             </div>
           </div>

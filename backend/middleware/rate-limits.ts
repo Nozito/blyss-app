@@ -101,6 +101,19 @@ export const adminLimiter = rateLimit({
   },
 });
 
+// 15 souscriptions push par heure par IP (anti-spam)
+export const pushLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de tentatives, réessayez dans 1 heure.",
+  },
+});
+
 // Instagram OAuth & sync — 30 requêtes par 15 min par IP (inclut syncs manuels)
 export const instagramLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

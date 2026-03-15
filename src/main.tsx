@@ -10,6 +10,11 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   });
 }
 
+// Register service worker for push notifications
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
 createRoot(document.getElementById("root")!).render(
   <Sentry.ErrorBoundary fallback={<p>Une erreur inattendue s'est produite.</p>}>
     <App />

@@ -36,6 +36,9 @@ import dotenv from "dotenv";
 import multer, { FileFilterCallback } from "multer";
 import path from "path";
 import fs from "fs";
+import sharp from "sharp";
+import { sendPushToUser } from "./lib/push";
+import { startReminderCron, runReminderCycle } from "./lib/reminders";
 import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
 import http from "http";
@@ -63,8 +66,9 @@ import {
   publicListingLimiter,
   adminLimiter,
   instagramLimiter,
+  pushLimiter,
 } from "./middleware/rate-limits";
-import { validate, userUpdateSchema, financeObjectiveSchema, prestationSchema, prestationPatchSchema, slotCreateSchema, reservationSchema, reviewSchema, depositSchema, paymentIntentSchema, favoriteSchema } from "./middleware/validate";
+import { validate, userUpdateSchema, financeObjectiveSchema, prestationSchema, prestationPatchSchema, slotCreateSchema, reservationSchema, reviewSchema, depositSchema, paymentIntentSchema, favoriteSchema, unavailabilitySchema, reservationStatusSchema } from "./middleware/validate";
 import authRouter from "./routes/auth.routes";
 import adminRouter from "./routes/admin.routes";
 import {
@@ -739,9 +743,9 @@ app.get(
       }
 
       const [rows] = await db.query(
-        `SELECT 
-          id, first_name, last_name, activity_name, city, 
-          instagram_account, profile_photo, banner_photo, bio, pro_status
+        `SELECT
+          id, first_name, last_name, activity_name, city,
+          instagram_account, profile_photo, banner_photo, bio, acceptance_conditions, pro_status
         FROM users
         WHERE id = ? AND role = 'pro' AND pro_status = 'active'`,
         [proId]
@@ -1717,27 +1721,8 @@ if (!fs.existsSync(uploadBannerDir)) {
 }
 
 
-/* STORAGE PROFILE PHOTO */
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req: AuthenticatedRequest, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `pp_${req.user!.id}_${Date.now()}${ext}`);
-  },
-});
-
-/* STORAGE BANNER */
-const storageBanner = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, uploadBannerDir);
-  },
-  filename: (req: AuthenticatedRequest, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `banner_${req.user!.id}_${Date.now()}${ext}`);
-  },
-});
+/* STORAGE — memory (sharp processes before disk write) */
+const memStorage = multer.memoryStorage();
 
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -1756,21 +1741,8 @@ const fileFilter = (
   }
 };
 
-const upload = multer({
-  storage,
-  fileFilter,
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB max
-  },
-});
-
-const uploadBanner = multer({
-  storage: storageBanner,
-  fileFilter,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB max
-  }
-});
+const upload = multer({ storage: memStorage, fileFilter, limits: { fileSize: 10 * 1024 * 1024 } });
+const uploadBanner = multer({ storage: memStorage, fileFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 
 /* UPLOAD PROFILE PHOTO */
 app.post(
@@ -1780,18 +1752,19 @@ app.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       if (!req.file || !req.user?.id) {
-        return res.status(400).json({
-          success: false,
-          message: "No file or userId provided"
-        });
+        return res.status(400).json({ success: false, message: "No file or userId provided" });
       }
 
-      const photoPath = `uploads/profile_photo/${req.file.filename}`;
+      const filename = `pp_${req.user.id}_${Date.now()}.webp`;
+      const destPath = path.join(uploadDir, filename);
 
-      await db.execute("UPDATE users SET profile_photo = ? WHERE id = ?", [
-        photoPath,
-        req.user.id,
-      ]);
+      await sharp(req.file.buffer)
+        .resize(512, 512, { fit: "cover", position: "center" })
+        .webp({ quality: 82 })
+        .toFile(destPath);
+
+      const photoPath = `uploads/profile_photo/${filename}`;
+      await db.execute("UPDATE users SET profile_photo = ? WHERE id = ?", [photoPath, req.user.id]);
 
       res.json({ success: true, photo: photoPath });
     } catch (err) {
@@ -1809,49 +1782,88 @@ app.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Non authentifié" });
+      if (!req.file) return res.status(400).json({ success: false, message: "Aucun fichier fourni" });
 
-      if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: "Non authentifié"
-        });
-      }
+      const filename = `banner_${userId}_${Date.now()}.webp`;
+      const destPath = path.join(uploadBannerDir, filename);
 
-      if (!req.file) {
-        return res.status(400).json({
-          success: false,
-          message: "Aucun fichier fourni"
-        });
-      }
+      await sharp(req.file.buffer)
+        .resize(1200, 400, { fit: "cover", position: "center" })
+        .webp({ quality: 85 })
+        .toFile(destPath);
 
-      const fileUrl = `uploads/banners/${req.file.filename}`;
-
-      await db.query(
-        'UPDATE users SET banner_photo = ? WHERE id = ?',
-        [fileUrl, userId]
-      );
+      const fileUrl = `uploads/banners/${filename}`;
+      await db.query("UPDATE users SET banner_photo = ? WHERE id = ?", [fileUrl, userId]);
 
       const [users] = await db.query(
-        'SELECT id, email, first_name, last_name, role, city, profile_photo, banner_photo, bio, instagram_account, activity_name FROM users WHERE id = ?',
+        "SELECT id, email, first_name, last_name, role, city, profile_photo, banner_photo, bio, instagram_account, activity_name FROM users WHERE id = ?",
         [userId]
       ) as any;
 
-      res.json({
-        success: true,
-        message: "Bannière mise à jour",
-        data: users[0]
-      });
-
+      res.json({ success: true, message: "Bannière mise à jour", data: users[0] });
     } catch (error) {
       console.error("Error uploading banner:", error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur lors de l'upload"
-      });
+      res.status(500).json({ success: false, message: "Erreur lors de l'upload" });
     }
   }
 );
 
+
+/* ── PUSH NOTIFICATIONS ─────────────────────────────────────────────────── */
+
+/* GET VAPID PUBLIC KEY */
+app.get("/api/push/vapid-key", (_req: Request, res: Response) => {
+  const key = process.env.VAPID_PUBLIC_KEY;
+  if (!key) return res.status(503).json({ success: false, message: "Push not configured" });
+  res.json({ publicKey: key });
+});
+
+/* SAVE PUSH SUBSCRIPTION */
+app.post(
+  "/api/push/subscribe",
+  pushLimiter,
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { endpoint, p256dh, auth } = req.body;
+      if (!endpoint || !p256dh || !auth) {
+        return res.status(400).json({ success: false, message: "Subscription data missing" });
+      }
+      await db.execute(
+        `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (user_id, endpoint) DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth`,
+        [req.user!.id, endpoint, p256dh, auth]
+      );
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ success: false, message: "Subscribe failed" });
+    }
+  }
+);
+
+/* REMOVE PUSH SUBSCRIPTION */
+app.delete(
+  "/api/push/unsubscribe",
+  pushLimiter,
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { endpoint } = req.body;
+      if (!endpoint) return res.status(400).json({ success: false, message: "Endpoint required" });
+      await db.execute(
+        "DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?",
+        [req.user!.id, endpoint]
+      );
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ success: false, message: "Unsubscribe failed" });
+    }
+  }
+);
 
 /* UPDATE USER PROFILE */
 app.put(
@@ -1867,6 +1879,7 @@ app.put(
         city,
         instagram_account,
         bio,
+        acceptance_conditions,
         currentPassword,
         newPassword,
       } = req.body;
@@ -1927,10 +1940,18 @@ app.put(
             : user.instagram_account
           : null;
       const updatedBio = bio !== undefined ? bio : user.bio;
+      const updatedAcceptanceConditions =
+        user.role === "pro"
+          ? acceptance_conditions !== undefined
+            ? JSON.stringify(acceptance_conditions)
+            : (user as any).acceptance_conditions
+              ? JSON.stringify((user as any).acceptance_conditions)
+              : null
+          : null;
 
       await db.execute(
         `UPDATE users
-         SET first_name = ?, last_name = ?, activity_name = ?, city = ?, instagram_account = ?, bio = ?, password_hash = ?
+         SET first_name = ?, last_name = ?, activity_name = ?, city = ?, instagram_account = ?, bio = ?, acceptance_conditions = ?::jsonb, password_hash = ?
          WHERE id = ?`,
         [
           updatedFirstName,
@@ -1939,6 +1960,7 @@ app.put(
           updatedCity,
           updatedInstagramAccount,
           updatedBio,
+          updatedAcceptanceConditions,
           passwordHash,
           req.user!.id,
         ]
@@ -2119,36 +2141,54 @@ app.get(
       const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
       const offset = (page - 1) * limit;
 
+      const search = ((req.query.search as string) || "").trim();
+      const cityFilter = ((req.query.city as string) || "").trim();
+      const minRating = parseFloat(req.query.min_rating as string) || 0;
+
+      const whereParts: string[] = ["u.role = 'pro'", "u.pro_status = 'active'"];
+      const whereParams: any[] = [];
+
+      if (search) {
+        whereParts.push("(u.activity_name ILIKE ? OR u.first_name ILIKE ? OR u.last_name ILIKE ?)");
+        whereParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      }
+      if (cityFilter) {
+        whereParts.push("u.city ILIKE ?");
+        whereParams.push(`%${cityFilter}%`);
+      }
+
+      const whereClause = whereParts.join(" AND ");
+      const havingClause = minRating > 0 ? "HAVING COALESCE(AVG(r.rating), 0) >= ?" : "";
+      const havingParams = minRating > 0 ? [minRating] : [];
+
       connection = await db.getConnection();
 
       const [countRows] = await connection.query(
-        `SELECT COUNT(*) as total FROM users WHERE role = 'pro' AND pro_status = 'active'`
+        `SELECT COUNT(*) as total FROM (
+          SELECT u.id FROM users u
+          LEFT JOIN reviews r ON r.pro_id = u.id
+          WHERE ${whereClause}
+          GROUP BY u.id
+          ${havingClause}
+        ) as c`,
+        [...whereParams, ...havingParams]
       );
-      const total = (countRows as { total: number }[])[0]?.total ?? 0;
+      const total = Number((countRows as any[])[0]?.total ?? 0);
 
       const [rows] = await connection.query(
-        `
-        SELECT
-          u.id,
-          u.first_name,
-          u.last_name,
-          u.activity_name,
-          u.city,
-          u.instagram_account,
-          u.profile_photo,
-          u.banner_photo,
-          u.bio,
-          u.pro_status,
+        `SELECT
+          u.id, u.first_name, u.last_name, u.activity_name, u.city,
+          u.instagram_account, u.profile_photo, u.banner_photo, u.bio, u.pro_status,
           COALESCE(AVG(r.rating), 0) as avg_rating,
           COUNT(DISTINCT r.id) as reviews_count
         FROM users u
         LEFT JOIN reviews r ON r.pro_id = u.id
-        WHERE u.role = 'pro' AND u.pro_status = 'active'
+        WHERE ${whereClause}
         GROUP BY u.id
+        ${havingClause}
         ORDER BY avg_rating DESC, reviews_count DESC
-        LIMIT ? OFFSET ?
-        `,
-        [limit, offset]
+        LIMIT ? OFFSET ?`,
+        [...whereParams, ...havingParams, limit, offset]
       );
 
       res.json({
@@ -3577,6 +3617,163 @@ app.delete(
 );
 
 // ==========================================
+// PRO - UPDATE RESERVATION STATUS
+// ==========================================
+
+/* PATCH /api/pro/reservations/:id/status — mark completed or cancelled */
+app.patch(
+  "/api/pro/reservations/:id/status",
+  authMiddleware,
+  validate(reservationStatusSchema),
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const reservationId = parseInt(String(req.params.id));
+      const { status } = req.body;
+
+      connection = await db.getConnection();
+
+      const [rows] = await connection.query(
+        "SELECT id, status, slot_id FROM reservations WHERE id = ? AND pro_id = ?",
+        [reservationId, proId]
+      );
+
+      if ((rows as any[]).length === 0) {
+        return res.status(404).json({ success: false, error: "Réservation non trouvée" });
+      }
+
+      const reservation = (rows as any[])[0];
+
+      if (reservation.status === "cancelled" || reservation.status === "completed") {
+        return res.status(400).json({ success: false, error: "Réservation déjà finalisée" });
+      }
+
+      await connection.query(
+        "UPDATE reservations SET status = ? WHERE id = ?",
+        [status, reservationId]
+      );
+
+      // Free the slot when cancelling
+      if (status === "cancelled" && reservation.slot_id) {
+        await connection.query(
+          "UPDATE slots SET status = 'available' WHERE id = ?",
+          [reservation.slot_id]
+        );
+      }
+
+      res.json({ success: true, message: `Réservation ${status}` });
+    } catch (err) {
+      console.error("[PATCH reservation status] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+// ==========================================
+// PRO UNAVAILABILITIES
+// ==========================================
+
+/* GET UNAVAILABILITIES */
+app.get(
+  "/api/pro/unavailabilities",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const { from, to } = req.query;
+
+      connection = await db.getConnection();
+
+      let query = "SELECT id, pro_id, start_date, end_date, reason, created_at FROM unavailabilities WHERE pro_id = ?";
+      const params: any[] = [proId];
+
+      if (from) {
+        query += " AND end_date >= ?";
+        params.push(String(from));
+      }
+      if (to) {
+        query += " AND start_date <= ?";
+        params.push(String(to));
+      }
+
+      query += " ORDER BY start_date ASC";
+
+      const [rows] = await connection.query(query, params);
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      console.error("[GET UNAVAILABILITIES] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+/* CREATE UNAVAILABILITY */
+app.post(
+  "/api/pro/unavailabilities",
+  authMiddleware,
+  validate(unavailabilitySchema),
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const { start_date, end_date, reason } = req.body;
+
+      connection = await db.getConnection();
+
+      const [rows] = await connection.query(
+        "INSERT INTO unavailabilities (pro_id, start_date, end_date, reason) VALUES (?, ?, ?, ?) RETURNING *",
+        [proId, start_date, end_date, reason || null]
+      );
+
+      const row = Array.isArray(rows) ? rows[0] : rows;
+      res.json({ success: true, data: row });
+    } catch (err) {
+      console.error("[CREATE UNAVAILABILITY] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+/* DELETE UNAVAILABILITY */
+app.delete(
+  "/api/pro/unavailabilities/:id",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const id = parseInt(String(req.params.id));
+
+      connection = await db.getConnection();
+
+      const [result] = await connection.query(
+        "DELETE FROM unavailabilities WHERE id = ? AND pro_id = ? RETURNING id",
+        [id, proId]
+      );
+
+      if ((result as any[]).length === 0) {
+        return res.status(404).json({ success: false, error: "Indisponibilité non trouvée" });
+      }
+
+      res.json({ success: true, message: "Indisponibilité supprimée" });
+    } catch (err) {
+      console.error("[DELETE UNAVAILABILITY] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+// ==========================================
 // CLIENT - SPECIALISTS ROUTES
 // ==========================================
 
@@ -4470,6 +4667,79 @@ app.patch(
         success: false,
         message: "Erreur lors de l'annulation"
       });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+/* RESCHEDULE BOOKING */
+app.patch(
+  "/api/client/my-booking/:id/reschedule",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const clientId = req.user?.id;
+      const bookingId = parseParamToInt(req.params.id);
+      const { start_datetime, end_datetime, slot_id } = req.body;
+
+      if (!clientId) return res.status(401).json({ success: false, message: "Non authentifié" });
+      if (isNaN(bookingId)) return res.status(400).json({ success: false, message: "ID invalide" });
+      if (!start_datetime || !end_datetime) {
+        return res.status(400).json({ success: false, message: "start_datetime et end_datetime requis" });
+      }
+
+      const newStart = new Date(start_datetime);
+      const newEnd = new Date(end_datetime);
+      if (isNaN(newStart.getTime()) || isNaN(newEnd.getTime()) || newEnd <= newStart) {
+        return res.status(400).json({ success: false, message: "Dates invalides" });
+      }
+
+      connection = await db.getConnection();
+
+      const [existing] = await connection.query(
+        `SELECT id, status, start_datetime, slot_id FROM reservations WHERE id = ? AND client_id = ?`,
+        [bookingId, clientId]
+      ) as [any[], any];
+
+      if (existing.length === 0) return res.status(404).json({ success: false, message: "Réservation non trouvée" });
+
+      const booking = existing[0];
+      if (booking.status === "cancelled") return res.status(400).json({ success: false, message: "Réservation déjà annulée" });
+      if (booking.status === "completed") return res.status(400).json({ success: false, message: "Impossible de reporter une réservation terminée" });
+
+      const hoursUntil = (new Date(booking.start_datetime).getTime() - Date.now()) / 3_600_000;
+      if (hoursUntil < 24) {
+        return res.status(400).json({ success: false, message: "Impossible de reporter moins de 24h avant le rendez-vous" });
+      }
+
+      // Free old slot
+      if (booking.slot_id) {
+        await connection.query(`UPDATE slots SET status = 'available' WHERE id = ?`, [booking.slot_id]);
+      }
+
+      // Book new slot
+      const newSlotId = slot_id ? parseInt(slot_id) : null;
+      if (newSlotId) {
+        const [slotRows] = await connection.query(
+          `SELECT id, status FROM slots WHERE id = ?`, [newSlotId]
+        ) as [any[], any];
+        if (slotRows.length === 0 || slotRows[0].status !== "available") {
+          return res.status(409).json({ success: false, message: "Ce créneau n'est plus disponible" });
+        }
+        await connection.query(`UPDATE slots SET status = 'booked' WHERE id = ?`, [newSlotId]);
+      }
+
+      await connection.query(
+        `UPDATE reservations SET start_datetime = ?, end_datetime = ?, slot_id = ? WHERE id = ?`,
+        [start_datetime, end_datetime, newSlotId, bookingId]
+      );
+
+      res.json({ success: true, message: "Rendez-vous reporté avec succès" });
+    } catch (error) {
+      console.error("❌ Error rescheduling booking:", error);
+      res.status(500).json({ success: false, message: "Erreur lors du report" });
     } finally {
       if (connection) connection.release();
     }
@@ -5502,6 +5772,7 @@ if (process.env.NODE_ENV !== "test") {
   server.listen(PORT, () => {
     console.log(`🚀 Backend running on http://localhost:${PORT}`);
     console.log(`🔌 WebSocket server ready on ws://localhost:${PORT}`);
+    startReminderCron();
   });
 }
 

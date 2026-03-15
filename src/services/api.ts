@@ -590,6 +590,26 @@ export const proApi = {
       method: "DELETE",
     }),
 
+  updateReservationStatus: (id: number, status: "completed" | "cancelled") =>
+    apiCall(`/api/pro/reservations/${id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+
+  getUnavailabilities: (params?: { from?: string; to?: string }) => {
+    const q = params ? `?from=${params.from || ""}&to=${params.to || ""}` : "";
+    return apiCall<any[]>(`/api/pro/unavailabilities${q}`);
+  },
+
+  createUnavailability: (data: { start_date: string; end_date: string; reason?: string }) =>
+    apiCall("/api/pro/unavailabilities", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  deleteUnavailability: (id: number) =>
+    apiCall(`/api/pro/unavailabilities/${id}`, { method: "DELETE" }),
+
   getNotificationSettings: async (): Promise<ApiResponse<ProNotificationSettings>> => {
     return apiCall("/api/pro/notification-settings");
   },
