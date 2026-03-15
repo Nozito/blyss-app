@@ -89,9 +89,13 @@ export const RevenueCatProvider: React.FC<RevenueCatProviderProps> = ({
     const init = async () => {
       setIsLoading(true);
       try {
+        // Toujours récupérer l'abonnement backend — c'est le fallback si RC est absent
+        await fetchBackendSubscription();
+
         const apiKey = import.meta.env.VITE_REVENUECAT_API_KEY;
         if (!apiKey) {
-          console.warn("VITE_REVENUECAT_API_KEY is not set");
+          console.warn("VITE_REVENUECAT_API_KEY is not set — falling back to backend subscription");
+          setConfiguredUserId(userId);
           return;
         }
 
@@ -101,7 +105,6 @@ export const RevenueCatProvider: React.FC<RevenueCatProviderProps> = ({
         const [offeringsResult, customerInfoResult] = await Promise.all([
           Purchases.getSharedInstance().getOfferings(),
           Purchases.getSharedInstance().getCustomerInfo(),
-          fetchBackendSubscription(),
         ]);
 
         setOfferings(offeringsResult);
