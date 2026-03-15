@@ -152,6 +152,9 @@ const db = getDb();
 // 8. MIDDLEWARE
 // ==========================================
 
+// Trust reverse proxy (nginx on VPS) — required for express-rate-limit + cookies
+app.set("trust proxy", 1);
+
 // Security headers (before anything else, after Stripe raw-body route)
 app.use(
   helmet({
