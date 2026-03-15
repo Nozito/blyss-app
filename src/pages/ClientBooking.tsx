@@ -349,7 +349,7 @@ const ClientBooking = () => {
   useEffect(() => {
     if (authLoading) return;
 
-    if (!isAuthenticated || !token) {
+    if (!isAuthenticated) {
       const returnUrl = `/client/booking/${id}`;
       localStorage.setItem('returnUrl', returnUrl);
 
@@ -361,7 +361,7 @@ const ClientBooking = () => {
         }
       });
     }
-  }, [isAuthenticated, authLoading, id, navigate, token]);
+  }, [isAuthenticated, authLoading, id, navigate]);
 
   useEffect(() => {
     const fetchData = async () => {

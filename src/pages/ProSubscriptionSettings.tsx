@@ -42,10 +42,8 @@ const ProSubscriptionSettings = () => {
     return Crown;
   };
 
-  const getPlanColor = (plan: PlanId) => {
-    if (plan === "start") return "from-blue-500 to-blue-600";
-    if (plan === "serenite") return "from-purple-500 to-purple-600";
-    return "from-amber-500 to-amber-600";
+  const getPlanColor = (_plan: PlanId) => {
+    return "from-blyss-pink to-blyss-pink/70";
   };
 
   const handleChangePlan = () => {
