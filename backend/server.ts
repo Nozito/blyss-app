@@ -36,6 +36,12 @@ import dotenv from "dotenv";
 import multer, { FileFilterCallback } from "multer";
 import path from "path";
 import fs from "fs";
+
+// En prod le JS compilé est dans dist/ — les uploads sont dans le dossier parent
+const UPLOADS_DIR = path.resolve(
+  __dirname,
+  process.env.NODE_ENV === "production" ? "../uploads" : "uploads"
+);
 import sharp from "sharp";
 import { sendPushToUser } from "./lib/push";
 import { startReminderCron, runReminderCycle } from "./lib/reminders";
@@ -1712,13 +1718,13 @@ app.get(
 );
 
 /* UPLOAD PHOTO */
-const uploadDir = path.join(__dirname, "/uploads/profile_photo");
+const uploadDir = path.join(UPLOADS_DIR, "profile_photo");
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
 /* UPLOAD BANNER - DOSSIER */
-const uploadBannerDir = path.join(__dirname, "/uploads/banners");
+const uploadBannerDir = path.join(UPLOADS_DIR, "banners");
 if (!fs.existsSync(uploadBannerDir)) {
   fs.mkdirSync(uploadBannerDir, { recursive: true });
 }
@@ -2122,7 +2128,7 @@ app.put(
 
 app.use(
   "/uploads",
-  express.static(path.join(__dirname, "uploads"), {
+  express.static(UPLOADS_DIR, {
     dotfiles: "deny",
     maxAge: "1h",
     etag: false,

@@ -373,8 +373,8 @@ const ClientBooking = () => {
         setIsLoading(true);
 
         const [proRes, prestationsRes] = await Promise.all([
-          fetch(`${API_URL}/api/users/pros/${id}`),
-          fetch(`${API_URL}/api/prestations/pro/${id}`)
+          fetch(`${API_URL}/api/users/pros/${id}`, { credentials: "include" }),
+          fetch(`${API_URL}/api/prestations/pro/${id}`, { credentials: "include" })
         ]);
 
         if (!proRes.ok || !prestationsRes.ok) {

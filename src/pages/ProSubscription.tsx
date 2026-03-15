@@ -333,8 +333,8 @@ const ProSubscription = () => {
                           ${isCurrent
                             ? "bg-muted/50"
                             : isSelected
-                              ? "bg-gradient-to-br from-primary to-primary/70 scale-110 shadow-primary/30"
-                              : "bg-muted"
+                              ? "bg-gradient-to-br from-blyss-pink to-blyss-pink/70 scale-110 shadow-blyss-pink/30"
+                              : "bg-blyss-pink/10"
                           }
                         `}>
                           <Icon
@@ -343,7 +343,7 @@ const ProSubscription = () => {
                               ? "text-muted-foreground"
                               : isSelected
                                 ? "text-white"
-                                : "text-muted-foreground"
+                                : "text-blyss-pink"
                             }`}
                           />
                         </div>

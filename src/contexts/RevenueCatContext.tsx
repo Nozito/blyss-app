@@ -164,12 +164,17 @@ export const RevenueCatProvider: React.FC<RevenueCatProviderProps> = ({
       ? backendSubscription.plan
       : null);
 
+  // Considérer comme loading si l'utilisateur est présent mais que l'init RC
+  // n'a pas encore démarré (configuredUserId = null) — évite la redirection
+  // prématurée vers /pro/subscription pendant le premier rendu async
+  const effectiveLoading = isLoading || (!!user && configuredUserId === null);
+
   const value: RevenueCatContextType = {
     customerInfo,
     offerings,
     activePlan,
     backendSubscription,
-    isLoading,
+    isLoading: effectiveLoading,
     refreshCustomerInfo,
     purchasePackage,
     restorePurchases,

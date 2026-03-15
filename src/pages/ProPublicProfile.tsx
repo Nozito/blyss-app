@@ -1480,7 +1480,7 @@ const ProPublicProfile = () => {
               transition-all duration-300 ease-out
               flex items-center justify-center gap-2
               ${hasChanges && !isSaving
-                ? "gradient-gold text-secondary-foreground active:scale-[0.97] shadow-lg hover:shadow-xl scale-105"
+                ? "bg-blyss-pink text-white active:scale-[0.97] shadow-lg shadow-blyss-pink/30 hover:bg-blyss-pink/90 scale-105"
                 : "bg-muted text-muted-foreground cursor-not-allowed scale-100"
               }
             `}
