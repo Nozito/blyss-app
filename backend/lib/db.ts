@@ -86,11 +86,19 @@ async function detectMode(): Promise<DbMode> {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL manquante");
 
-  // Test rapide (1s) pour voir si pg est joignable
+  // En production, on utilise toujours pg directement (pas de probe ni fallback).
+  // La Management API est un fallback dev uniquement (machines sans IPv6).
+  if (process.env.NODE_ENV === "production") {
+    _mode = "pg";
+    console.log("[DB] Mode : connexion pg directe ✅");
+    return _mode;
+  }
+
+  // Test rapide (3s) pour voir si pg est joignable (dev uniquement)
   const probe = new Pool({
     connectionString: url,
     ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 1000,
+    connectionTimeoutMillis: 3000,
     max: 1,
   });
 
