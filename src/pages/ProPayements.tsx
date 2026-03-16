@@ -155,7 +155,7 @@ const ProPayments = () => {
                 <button
                   onClick={handleStartOnboarding}
                   disabled={onboarding}
-                  className="w-full py-4 rounded-2xl font-semibold text-sm gradient-gold text-secondary-foreground active:scale-[0.97] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-2"
+                  className="w-full py-4 rounded-2xl font-semibold text-sm bg-blyss-pink text-white shadow-blyss-pink/30 hover:bg-blyss-pink/90 active:scale-[0.97] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-2"
                 >
                   {onboarding ? (
                     <>
@@ -189,7 +189,7 @@ const ProPayments = () => {
                 <button
                   onClick={handleStartOnboarding}
                   disabled={onboarding}
-                  className="w-full py-4 rounded-2xl font-semibold text-sm gradient-gold text-secondary-foreground active:scale-[0.97] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-2"
+                  className="w-full py-4 rounded-2xl font-semibold text-sm bg-blyss-pink text-white shadow-blyss-pink/30 hover:bg-blyss-pink/90 active:scale-[0.97] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-2"
                 >
                   {onboarding ? (
                     <>

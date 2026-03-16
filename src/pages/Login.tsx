@@ -213,7 +213,10 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
           // ✅ Navigation normale selon le rôle
           setTimeout(() => {
             // Utilise returnUrl stocké (depuis SpecialistProfile, ClientBooking, etc.)
-            const returnUrl = localStorage.getItem("returnUrl");
+            const rawReturnUrl = localStorage.getItem("returnUrl");
+            const returnUrl = rawReturnUrl && rawReturnUrl.startsWith("/") && !rawReturnUrl.startsWith("//")
+              ? rawReturnUrl
+              : null;
             if (returnUrl) {
               localStorage.removeItem("returnUrl");
               navigate(returnUrl, { replace: true });

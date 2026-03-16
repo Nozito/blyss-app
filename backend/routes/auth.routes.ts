@@ -1,8 +1,12 @@
 import express, { Request, Response } from "express";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import { authMiddleware, authenticateToken } from "../middleware/auth";
-import { authLoginLimiter, authSignupLimiter, authRefreshLimiter } from "../middleware/rate-limits";
+import { authLoginLimiter, authSignupLimiter, authRefreshLimiter, passwordResetLimiter } from "../middleware/rate-limits";
+import { validate } from "../middleware/validate";
+import { forgotPasswordSchema, resetPasswordSchema } from "../middleware/validate";
 import { getDb } from "../lib/db";
+import { sendPasswordResetEmail } from "../lib/email";
 import {
   generateAccessToken,
   generateAndStoreRefreshToken,
@@ -500,8 +504,8 @@ router.get(
           [userId]
         ) as Promise<[any[], any]>,
         db.query(
-          `SELECT id, pro_id, prestation_id, start_datetime, end_datetime,
-            status, price, notes, created_at
+          `SELECT id, pro_id, client_id, prestation_id, slot_id, start_datetime, end_datetime,
+            status, price, paid_online, payment_status, total_paid, created_at
            FROM reservations WHERE client_id = ? OR pro_id = ?`,
           [userId, userId]
         ) as Promise<[any[], any]>,
@@ -531,6 +535,111 @@ router.get(
     } catch (err) {
       console.error("❌ Export data error:", err);
       return res.status(500).json({ success: false, message: "Erreur serveur" });
+    }
+  }
+);
+
+/* POST /forgot-password */
+router.post(
+  "/forgot-password",
+  passwordResetLimiter,
+  validate(forgotPasswordSchema),
+  async (req: Request, res: Response) => {
+    // Always return 200 — never reveal whether an email exists (anti-enumeration)
+    const genericOk = () =>
+      res.json({
+        success: true,
+        message: "Si cet email est associé à un compte, un lien de réinitialisation a été envoyé.",
+      });
+
+    try {
+      const { email } = req.body as { email: string };
+      const db = getDb();
+
+      const [rows] = await db.execute(
+        "SELECT id, first_name, is_active FROM users WHERE email = ?",
+        [email]
+      );
+      const user = (rows as any[])[0];
+
+      if (!user || user.is_active === false) return genericOk();
+
+      // Invalidate any previous tokens for this user
+      await db.execute(
+        "DELETE FROM password_reset_tokens WHERE user_id = ?",
+        [user.id]
+      );
+
+      // Generate a cryptographically random token (URL-safe base64)
+      const rawToken = crypto.randomBytes(32).toString("base64url");
+      const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+      await db.execute(
+        "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+        [user.id, tokenHash, expiresAt.toISOString()]
+      );
+
+      await sendPasswordResetEmail(email, user.first_name, rawToken);
+
+      return genericOk();
+    } catch (err) {
+      console.error("❌ forgot-password error:", err);
+      return genericOk(); // Still don't leak info on error
+    }
+  }
+);
+
+/* POST /reset-password */
+router.post(
+  "/reset-password",
+  validate(resetPasswordSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { token, password } = req.body as { token: string; password: string };
+      const db = getDb();
+
+      const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+      const [rows] = await db.execute(
+        `SELECT prt.id, prt.user_id, prt.expires_at, prt.used_at
+         FROM password_reset_tokens prt
+         WHERE prt.token_hash = ?`,
+        [tokenHash]
+      );
+      const record = (rows as any[])[0];
+
+      if (!record) {
+        return res.status(400).json({ success: false, error: "invalid_token" });
+      }
+      if (record.used_at) {
+        return res.status(400).json({ success: false, error: "token_already_used" });
+      }
+      if (new Date(record.expires_at) < new Date()) {
+        return res.status(400).json({ success: false, error: "token_expired" });
+      }
+
+      const passwordHash = await bcrypt.hash(password, 12);
+
+      // Update password + mark token used in a single transaction
+      await db.execute(
+        "UPDATE users SET password_hash = ? WHERE id = ?",
+        [passwordHash, record.user_id]
+      );
+      await db.execute(
+        "UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ?",
+        [record.id]
+      );
+      // Revoke all refresh tokens (force re-login on all devices)
+      await db.execute(
+        "DELETE FROM refresh_tokens WHERE user_id = ?",
+        [record.user_id]
+      );
+
+      return res.json({ success: true, message: "Mot de passe réinitialisé avec succès." });
+    } catch (err) {
+      console.error("❌ reset-password error:", err);
+      return res.status(500).json({ success: false, error: "server_error" });
     }
   }
 );

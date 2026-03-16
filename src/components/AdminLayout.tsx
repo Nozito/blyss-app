@@ -21,7 +21,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import logo from "@/assets/logo.png";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 interface DashboardCounts {
   totalUsers: number;

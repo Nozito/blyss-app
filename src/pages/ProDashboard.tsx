@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRevenueCat } from "@/contexts/RevenueCatContext";
 import api from "@/services/api";
 
 import {
@@ -61,6 +62,7 @@ type ProDashboardData = {
 const ProDashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { activePlan, isLoading: rcLoading } = useRevenueCat();
 
   const { data, isLoading: loading, error: queryError } = useQuery<ProDashboardData>({
     queryKey: ["pro-dashboard"],
@@ -235,6 +237,23 @@ const ProDashboard = () => {
           </div>
         </header>
 
+        {/* Bannière abonnement manquant */}
+        {!rcLoading && !activePlan && (
+          <button
+            onClick={() => navigate("/pro/subscription")}
+            className="w-full flex items-center gap-3 rounded-2xl bg-blyss-pink/10 border border-blyss-pink/30 p-4 text-left hover:bg-blyss-pink/15 active:scale-[0.98] transition-all"
+          >
+            <div className="w-10 h-10 rounded-xl bg-blyss-pink flex items-center justify-center flex-shrink-0">
+              <Sparkles size={18} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-foreground">Abonnement requis</p>
+              <p className="text-xs text-muted-foreground">Active ton abonnement pour publier tes prestations</p>
+            </div>
+            <ArrowUpRight size={16} className="text-blyss-pink flex-shrink-0" />
+          </button>
+        )}
+
         {/* Weekly Performance - Design premium */}
         <section
           className="relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br from-primary via-primary/95 to-primary/80 shadow-xl shadow-primary/25 animate-slide-up"
@@ -355,27 +374,27 @@ const ProDashboard = () => {
 
         {/* Today's Forecast - Plus visible */}
         <section
-          className="relative overflow-hidden rounded-xl p-4 bg-gradient-to-br from-emerald-50 to-emerald-50/30 dark:from-emerald-950/30 dark:to-emerald-950/10 border border-emerald-200/60 dark:border-emerald-800/40 animate-slide-up shadow-sm"
+          className="relative overflow-hidden rounded-xl p-4 bg-blyss-pink/5 border border-blyss-pink/20 animate-slide-up shadow-sm"
           style={{ animationDelay: "0.15s" }}
         >
-          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-400/10 rounded-full blur-2xl" />
-          
+          <div className="absolute top-0 right-0 w-24 h-24 bg-blyss-pink/10 rounded-full blur-2xl" />
+
           <div className="relative flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-xl bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/30">
+              <div className="w-11 h-11 rounded-xl bg-blyss-pink flex items-center justify-center shadow-lg shadow-blyss-pink/30">
                 <Target size={20} className="text-white" strokeWidth={2.5} />
               </div>
               <div>
-                <p className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-0.5">
+                <p className="text-[10px] font-black text-blyss-pink uppercase tracking-wider mb-0.5">
                   Prévision du jour
                 </p>
-                <p className="text-[11px] text-emerald-600/80 dark:text-emerald-500/80">
+                <p className="text-[11px] text-blyss-pink/70">
                   Revenu estimé
                 </p>
               </div>
             </div>
             <div className="text-right">
-              <p className="text-3xl font-black text-emerald-700 dark:text-emerald-400 tracking-tight">
+              <p className="text-3xl font-black text-blyss-pink tracking-tight">
                 {todayForecast.toFixed(2).replace(".", ",")}€
               </p>
             </div>

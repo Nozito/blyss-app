@@ -18,12 +18,19 @@ import getCroppedImg from "@/utils/cropImage";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 const ClientProfile = () => {
   const navigate = useNavigate();
   const { user, logout, isAuthenticated } = useAuth();
   const inputFileRef = useRef<HTMLInputElement>(null);
+
+  const profileCompleteness = (() => {
+    let score = 60; // first_name + last_name + email always present
+    if (user?.profile_photo) score += 20;
+    if ((user as any)?.phone_number) score += 20;
+    return score;
+  })();
 
   const initialPhoto =
     user?.profile_photo && user.profile_photo.startsWith("http")
@@ -187,10 +194,13 @@ const ClientProfile = () => {
               )}
               <div className="flex items-center gap-1.5">
                 <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
-                  <div className="h-full w-[95%] bg-gradient-to-r from-primary to-primary/60 rounded-full" />
+                  <div
+                    className="h-full bg-gradient-to-r from-primary to-primary/60 rounded-full transition-all duration-500"
+                    style={{ width: `${profileCompleteness}%` }}
+                  />
                 </div>
                 <span className="text-[10px] font-semibold text-primary">
-                  95%
+                  {profileCompleteness}%
                 </span>
               </div>
             </div>

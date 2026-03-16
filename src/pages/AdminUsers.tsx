@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus,
@@ -24,7 +25,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 interface User {
   id: number;
@@ -43,11 +44,21 @@ interface User {
 }
 
 const AdminUsers = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState<'all' | 'client' | 'pro'>('all');
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("search") ?? "");
+  const [roleFilter, setRoleFilter] = useState<'all' | 'client' | 'pro'>(
+    (searchParams.get("role") as 'all' | 'client' | 'pro') ?? 'all'
+  );
+
+  const updateParams = useCallback((search: string, role: string) => {
+    const p: Record<string, string> = {};
+    if (search) p.search = search;
+    if (role && role !== 'all') p.role = role;
+    setSearchParams(p, { replace: true });
+  }, [setSearchParams]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
@@ -270,7 +281,7 @@ const AdminUsers = () => {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); updateParams(e.target.value, roleFilter); }}
               placeholder="Rechercher par nom ou email..."
               className="w-full pl-11 pr-4 py-3 rounded-xl border-2 border-gray-200 bg-gray-50 focus:border-primary focus:bg-white outline-none transition-all font-medium text-sm"
             />
@@ -281,7 +292,7 @@ const AdminUsers = () => {
               <motion.button
                 key={role}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => setRoleFilter(role)}
+                onClick={() => { setRoleFilter(role); updateParams(searchQuery, role); }}
                 className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${roleFilter === role
                   ? 'bg-white text-gray-900 shadow-sm'
                   : 'text-gray-600 hover:text-gray-900'

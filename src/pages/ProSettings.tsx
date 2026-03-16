@@ -1,10 +1,10 @@
 import MobileLayout from "@/components/MobileLayout";
-import { ChevronLeft, Check, AlertCircle, Eye, EyeOff, Save } from "lucide-react";
+import { ChevronLeft, Check, AlertCircle, Eye, EyeOff, Save, Download, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { usersApi } from "@/services/api";
+import { usersApi, authApi } from "@/services/api";
 
 // ── Hissé hors du composant pour éviter le remount à chaque frappe ──
 interface SettingsInputFieldProps {
@@ -128,6 +128,41 @@ const ProSettings = () => {
   const [touched, setTouched] = useState<{ [key: string]: boolean }>({});
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+
+  const [isExporting, setIsExporting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleExportData = async () => {
+    setIsExporting(true);
+    try {
+      await authApi.exportData();
+      toast.success("Tes données ont été téléchargées");
+    } catch {
+      toast.error("Impossible d'exporter tes données");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true);
+    try {
+      const res = await authApi.deleteAccount();
+      if (res.success) {
+        toast.success("Compte supprimé");
+        await authApi.logout();
+        navigate("/");
+      } else {
+        toast.error("Impossible de supprimer le compte");
+      }
+    } catch {
+      toast.error("Une erreur est survenue");
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
   const [passwordStrength, setPasswordStrength] = useState<"weak" | "medium" | "strong" | null>(null);
 
   const { isLoading } = useQuery({
@@ -578,7 +613,7 @@ const ProSettings = () => {
               transition-all duration-300 ease-out
               flex items-center justify-center gap-2
               ${hasChanges && !isSaving
-                ? "gradient-gold text-secondary-foreground active:scale-[0.97] shadow-lg hover:shadow-xl scale-105"
+                ? "bg-blyss-pink text-white shadow-blyss-pink/30 active:scale-[0.97] shadow-lg hover:shadow-xl hover:bg-blyss-pink/90 scale-105"
                 : "bg-muted text-muted-foreground cursor-not-allowed scale-100"
               }
             `}
@@ -602,6 +637,54 @@ const ProSettings = () => {
           </button>
         </div>
       </div>
+
+        {/* Données & confidentialité */}
+        <div className="rounded-2xl border border-border bg-card p-5 space-y-3 mb-4">
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
+            Données & confidentialité
+          </p>
+
+          <button
+            onClick={handleExportData}
+            disabled={isExporting}
+            className="w-full flex items-center gap-3 py-3 px-4 rounded-xl bg-muted/50 hover:bg-muted transition-colors text-sm font-medium text-foreground disabled:opacity-50 active:scale-[0.98]"
+          >
+            <Download size={16} className="text-primary flex-shrink-0" />
+            {isExporting ? "Export en cours..." : "Exporter mes données"}
+          </button>
+
+          {!showDeleteConfirm ? (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="w-full flex items-center gap-3 py-3 px-4 rounded-xl bg-destructive/5 hover:bg-destructive/10 transition-colors text-sm font-medium text-destructive active:scale-[0.98]"
+            >
+              <Trash2 size={16} className="flex-shrink-0" />
+              Supprimer mon compte
+            </button>
+          ) : (
+            <div className="rounded-xl border-2 border-destructive/30 bg-destructive/5 p-4 space-y-3">
+              <p className="text-sm font-semibold text-destructive">Supprimer définitivement ?</p>
+              <p className="text-xs text-muted-foreground">
+                Cette action est irréversible. Toutes tes données, prestations et réservations seront effacées.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 py-2 rounded-xl bg-muted text-sm font-semibold text-foreground hover:bg-muted/80 transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleDeleteAccount}
+                  disabled={isDeleting}
+                  className="flex-1 py-2 rounded-xl bg-destructive text-sm font-semibold text-white hover:bg-destructive/90 transition-colors disabled:opacity-50"
+                >
+                  {isDeleting ? "Suppression..." : "Confirmer"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
 
       <style>{`
         @keyframes fade-in {

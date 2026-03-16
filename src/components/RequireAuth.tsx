@@ -34,7 +34,11 @@ const RequireAuth = ({ children, role }: RequireAuthProps) => {
       role === "admin" ? Boolean(isAdmin) : userRole === role;
 
     if (!hasAccess) {
-      return <Navigate to="/" replace />;
+      const fallback =
+        userRole === "pro" ? "/pro/dashboard" :
+        userRole === "client" ? "/client" :
+        "/";
+      return <Navigate to={fallback} replace />;
     }
   }
 

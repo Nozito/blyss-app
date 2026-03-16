@@ -114,6 +114,20 @@ export const pushLimiter = rateLimit({
   },
 });
 
+// 3 demandes de reset par heure par IP (anti-spam email)
+export const passwordResetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  skip: () => process.env.NODE_ENV === "test",
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de demandes de réinitialisation, réessayez dans 1 heure.",
+  },
+});
+
 // Instagram OAuth & sync — 30 requêtes par 15 min par IP (inclut syncs manuels)
 export const instagramLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

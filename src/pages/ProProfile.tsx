@@ -105,7 +105,7 @@ const ProProfile = () => {
   const navigate = useNavigate();
 
   // STATE
-  const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
+  const baseUrl = import.meta.env.VITE_API_URL || "";
   const initialPhoto =
     user?.profile_photo && user.profile_photo.startsWith("http")
       ? user.profile_photo
@@ -185,8 +185,8 @@ const ProProfile = () => {
         navigate("/login");
         return;
       }
-      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
-      const response = await fetch(`${API_URL}/users/upload-photo`, {
+      const API_URL = import.meta.env.VITE_API_URL || "";
+      const response = await fetch(`${API_URL}/api/users/upload-photo`, {
         method: "POST",
         credentials: 'include',
         body: formData,
@@ -539,7 +539,7 @@ const ProProfile = () => {
                 {item.label}
               </span>
               {item.locked ? (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 uppercase tracking-wide">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blyss-pink/10 text-blyss-pink uppercase tracking-wide">
                   Upgrade
                 </span>
               ) : (

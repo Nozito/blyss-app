@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
-import { MapPin, Star, ChevronRight, Heart, Loader2, Sparkles, AlertCircle } from "lucide-react";
+import { MapPin, Star, ChevronRight, Heart, Sparkles, AlertCircle } from "lucide-react";
 import { favoritesApi } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -88,9 +88,24 @@ const ClientFavorites = () => {
   if (isLoading) {
     return (
       <MobileLayout>
-        <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6">
-          <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
-          <p className="text-sm text-muted-foreground">Chargement de tes favoris...</p>
+        <div className="min-h-screen bg-background pb-24">
+          <div className="pt-6 pb-6 text-center px-6">
+            <div className="h-9 w-36 bg-muted rounded-xl mx-auto mb-2 animate-pulse" />
+            <div className="h-4 w-48 bg-muted rounded-lg mx-auto animate-pulse" />
+          </div>
+          <div className="px-4 space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 p-4 rounded-2xl bg-card border border-border animate-pulse">
+                <div className="w-16 h-16 rounded-2xl bg-muted flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-32 bg-muted rounded" />
+                  <div className="h-3 w-24 bg-muted rounded" />
+                  <div className="h-3 w-20 bg-muted rounded" />
+                </div>
+                <div className="w-5 h-5 rounded bg-muted" />
+              </div>
+            ))}
+          </div>
         </div>
       </MobileLayout>
     );

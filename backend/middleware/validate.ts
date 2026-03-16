@@ -173,3 +173,19 @@ export const reservationStatusSchema = z.object({
     message: "status doit être 'completed' ou 'cancelled'",
   }),
 });
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email("Email invalide").max(255),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, "Token requis").max(256),
+  password: z
+    .string()
+    .min(8, "Le mot de passe doit faire au moins 8 caractères")
+    .max(128, "Mot de passe trop long")
+    .regex(
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/,
+      "Le mot de passe doit contenir au moins une majuscule, une minuscule et un chiffre"
+    ),
+});

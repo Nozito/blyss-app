@@ -276,7 +276,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
           toast.success("Compte créé avec succès !");
 
           const targetRoute = formData.role === "pro"
-            ? "/pro/new-subscription"
+            ? "/pro/subscription"
             : "/client";
 
           setTimeout(() => {

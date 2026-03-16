@@ -427,8 +427,8 @@ const ProFinance = () => {
               className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-sm p-5"
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-600/10 flex items-center justify-center">
-                  <Sparkles size={20} className="text-purple-600 dark:text-purple-400" />
+                <div className="w-11 h-11 rounded-xl bg-blyss-pink/10 flex items-center justify-center">
+                  <Sparkles size={20} className="text-blyss-pink" />
                 </div>
                 <div className="flex-1">
                   <h3 className="text-base font-bold text-foreground">Prévision</h3>
@@ -449,9 +449,9 @@ const ProFinance = () => {
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20 rounded-xl p-4 border border-purple-200/50 dark:border-purple-800/30">
+              <div className="bg-blyss-pink/5 rounded-xl p-4 border border-blyss-pink/20">
                 <p className="text-sm text-muted-foreground mb-2">Projection :</p>
-                <p className="text-3xl font-bold text-purple-700 dark:text-purple-300 mb-1">
+                <p className="text-3xl font-bold text-blyss-pink mb-1">
                   {formatCurrency(stats.forecast)}
                 </p>
 
@@ -477,8 +477,8 @@ const ProFinance = () => {
               className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-sm p-5"
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500/20 to-blue-600/10 flex items-center justify-center">
-                  <FileDown size={20} className="text-blue-600 dark:text-blue-400" />
+                <div className="w-11 h-11 rounded-xl bg-blyss-pink/10 flex items-center justify-center">
+                  <FileDown size={20} className="text-blyss-pink" />
                 </div>
                 <div className="flex-1">
                   <h3 className="text-base font-bold text-foreground">Export comptable</h3>

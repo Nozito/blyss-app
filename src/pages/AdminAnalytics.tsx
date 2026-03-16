@@ -12,7 +12,7 @@ import {
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 const AdminAnalytics = () => {
   const [loading, setLoading] = useState(true);

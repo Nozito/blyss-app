@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
 export const API_URL = API_BASE_URL;
 
@@ -344,6 +344,26 @@ export const authApi = {
     } finally {
       clearSession();
     }
+  },
+
+  deleteAccount: async (): Promise<ApiResponse<void>> => {
+    return apiCall("/api/auth/delete-account", { method: "DELETE" });
+  },
+
+  exportData: async (): Promise<void> => {
+    const response = await fetch(`${API_URL}/api/auth/export-data`, {
+      credentials: "include",
+    });
+    if (!response.ok) throw new Error("Export échoué");
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "mes-donnees-blyss.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   },
 };
 
@@ -934,7 +954,7 @@ export const instagramApi = {
 
   /** Récupère les photos Instagram publiques d'un Pro (sans auth). */
   getPublicPhotos: async (proId: number): Promise<ApiResponse<InstagramPublicData>> => {
-    const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+    const BASE_URL = import.meta.env.VITE_API_URL || "";
     const res = await fetch(`${BASE_URL}/api/public/pro/${proId}/instagram`);
     return res.json();
   },

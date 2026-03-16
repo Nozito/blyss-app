@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus,
@@ -17,7 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 interface Booking {
   id: number;
@@ -34,11 +35,21 @@ interface Booking {
 }
 
 const AdminBookings = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'confirmed' | 'cancelled' | 'completed'>('all');
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("search") ?? "");
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'confirmed' | 'cancelled' | 'completed'>(
+    (searchParams.get("status") as 'all' | 'pending' | 'confirmed' | 'cancelled' | 'completed') ?? 'all'
+  );
+
+  const updateParams = useCallback((search: string, status: string) => {
+    const p: Record<string, string> = {};
+    if (search) p.search = search;
+    if (status && status !== 'all') p.status = status;
+    setSearchParams(p, { replace: true });
+  }, [setSearchParams]);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
@@ -276,7 +287,7 @@ const AdminBookings = () => {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); updateParams(e.target.value, statusFilter); }}
               placeholder="Rechercher une réservation..."
               className="w-full pl-11 pr-4 py-3 rounded-xl border-2 border-gray-200 bg-gray-50 focus:border-primary focus:bg-white outline-none transition-all font-medium text-sm"
             />
@@ -288,7 +299,7 @@ const AdminBookings = () => {
               <motion.button
                 key={status}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => setStatusFilter(status)}
+                onClick={() => { setStatusFilter(status); updateParams(searchQuery, status); }}
                 className={`px-3 py-2 rounded-lg font-bold text-xs whitespace-nowrap transition-all ${
                   statusFilter === status
                     ? 'bg-white text-gray-900 shadow-sm'

@@ -263,23 +263,20 @@ const SpecialistProfile = () => {
         state: {
           message: 'Connectez-vous pour réserver',
           returnUrl: `/client/booking/${id}`
-        },
-        replace: true
+        }
       });
       return;
     }
 
-    navigate(`/client/booking/${id}`, { replace: true });
+    navigate(`/client/booking/${id}`);
   }, [id, isAuthenticated, navigate]);
 
   const handleReviewClick = useCallback(() => {
     if (!isAuthenticated) {
       localStorage.setItem('pendingAction', 'review');
+      localStorage.setItem('returnUrl', `/client/specialist/${id}`);
       navigate('/login', {
-        state: {
-          message: 'Connectez-vous pour laisser un avis',
-          returnUrl: `/client/specialist/${id}`
-        }
+        state: { message: 'Connectez-vous pour laisser un avis' }
       });
       return;
     }

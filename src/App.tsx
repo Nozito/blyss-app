@@ -23,6 +23,7 @@ import Signup from "./pages/Signup";
 import NotFound from "./pages/NotFound";
 import Legal from "./pages/Legal";
 import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import ClientHome from "./pages/ClientHome";
 
 import "./index.css";
@@ -106,6 +107,7 @@ const AppInner = () => {
           <Route path="/signup" element={<Signup />} />
           <Route path="/legal" element={<Legal />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* PRO — flow d'abonnement (pas de RequireSubscription ici) */}
           <Route path="/pro/subscription" element={<RequireAuth role="pro"><ProSubscription /></RequireAuth>} />

@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRevenueCat } from "@/contexts/RevenueCatContext";
 import { instagramApi, InstagramStatus } from "@/services/api";
+import { getImageUrl } from "@/utils/imageUrl";
 import { set } from "date-fns";
 
 export interface ConditionItem {
@@ -245,7 +246,7 @@ const ProPublicProfile = () => {
     const fetchUserData = async () => {
       setIsLoading(true);
       try {
-        const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+        const BASE_URL = import.meta.env.VITE_API_URL || "";
         const response = await fetch(`${BASE_URL}/api/users`, {
           credentials: "include",
         });
@@ -418,7 +419,7 @@ const ProPublicProfile = () => {
     formData.append('banner', bannerFile);
 
     try {
-      const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+      const BASE_URL = import.meta.env.VITE_API_URL || "";
       const response = await fetch(`${BASE_URL}/api/users/upload-banner`, {
         method: "POST",
         credentials: "include",
@@ -487,7 +488,7 @@ const ProPublicProfile = () => {
     if (bannerPath !== initialBannerPhoto) payload.banner_photo = bannerPath; // NOUVEAU
 
     try {
-      const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+      const BASE_URL = import.meta.env.VITE_API_URL || "";
       const response = await fetch(`${BASE_URL}/api/users/update`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -585,7 +586,7 @@ const ProPublicProfile = () => {
             <div className="relative h-64 w-full overflow-hidden bg-muted">
               {(bannerPreview || bannerPhoto) ? (
                 <img
-                  src={bannerPreview || `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'}/${bannerPhoto}`}
+                  src={bannerPreview || getImageUrl(bannerPhoto) || ""}
                   alt="Bannière"
                   className="absolute inset-0 w-full h-full object-cover"
                 />
@@ -618,7 +619,7 @@ const ProPublicProfile = () => {
               <div className="w-32 h-32 rounded-2xl bg-background border-4 border-background shadow-xl overflow-hidden">
                 {profilePhoto ? (
                   <img
-                    src={`${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'}/${profilePhoto}`}
+                    src={getImageUrl(profilePhoto) || ""}
                     alt="Profile"
                     className="w-full h-full object-cover"
                   />
@@ -1042,7 +1043,7 @@ const ProPublicProfile = () => {
             <div className="relative w-full h-40 rounded-2xl overflow-hidden bg-muted mb-3 group">
               {(bannerPreview || bannerPhoto) ? (
                 <img
-                  src={bannerPreview || `${import.meta.env.VITE_API_URL || "http://localhost:3001"}/${bannerPhoto}`}
+                  src={bannerPreview || getImageUrl(bannerPhoto) || ""}
                   alt="Bannière"
                   className="w-full h-full object-cover"
                 />

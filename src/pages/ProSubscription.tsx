@@ -101,6 +101,24 @@ const ProSubscription = () => {
     return map;
   }, [offerings]);
 
+  // Compute max savings across all plans (for the toggle banner)
+  const maxSavings = useMemo(() => {
+    return PLAN_DISPLAYS.reduce((max, plan) => {
+      if (!plan.commitment) return max;
+      const annualPkg = packageMap[`${plan.id}_annual`];
+      const monthlyPkg = packageMap[`${plan.id}_monthly`];
+      const annualPrice = annualPkg?.webBillingProduct?.price?.amountMicros
+        ? annualPkg.webBillingProduct.price.amountMicros / 1_000_000
+        : null;
+      const monthlyPrice = monthlyPkg?.webBillingProduct?.price?.amountMicros
+        ? monthlyPkg.webBillingProduct.price.amountMicros / 1_000_000
+        : null;
+      if (!annualPrice || !monthlyPrice) return max;
+      const savings = Math.round((monthlyPrice * plan.commitment - annualPrice) * 100) / 100;
+      return savings > max ? savings : max;
+    }, 0);
+  }, [packageMap]);
+
   // Get RC package for a plan + period
   const getPackageForPlan = (planId: PlanId): Package | null => {
     const period = isAnnual ? "annual" : "monthly";
@@ -263,21 +281,23 @@ const ProSubscription = () => {
               />
             </div>
 
-            <div
-              className={`
-                flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200
-                transition-all duration-300
-                ${isAnnual
-                  ? "opacity-100 translate-y-0 scale-100"
-                  : "opacity-0 -translate-y-2 scale-95 pointer-events-none"
-                }
-              `}
-            >
-              <TrendingDown size={14} className="text-emerald-600" />
-              <span className="text-xs font-semibold text-emerald-700">
-                Jusqu'a 50\u20AC d'economies par an
-              </span>
-            </div>
+            {maxSavings > 0 && (
+              <div
+                className={`
+                  flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200
+                  transition-all duration-300
+                  ${isAnnual
+                    ? "opacity-100 translate-y-0 scale-100"
+                    : "opacity-0 -translate-y-2 scale-95 pointer-events-none"
+                  }
+                `}
+              >
+                <TrendingDown size={14} className="text-emerald-600" />
+                <span className="text-xs font-semibold text-emerald-700">
+                  Jusqu'a {Number.isInteger(maxSavings) ? maxSavings : maxSavings.toFixed(2)}\u20AC d'economies par an
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Plans */}
@@ -292,6 +312,13 @@ const ProSubscription = () => {
                 const monthlyPkg = packageMap[`${plan.id}_monthly`];
                 const monthlyRawPrice = monthlyPkg?.webBillingProduct?.price?.amountMicros
                   ? monthlyPkg.webBillingProduct.price.amountMicros / 1_000_000
+                  : null;
+                const monthlyFormattedPrice = monthlyPkg?.webBillingProduct?.price?.formattedPrice ?? null;
+                const actualSavingsRaw = (monthlyRawPrice && rawPrice && plan.commitment)
+                  ? monthlyRawPrice * plan.commitment - rawPrice
+                  : null;
+                const actualSavings = actualSavingsRaw !== null && actualSavingsRaw > 0
+                  ? parseFloat(actualSavingsRaw.toFixed(2))
                   : null;
 
                 return (
@@ -398,13 +425,13 @@ const ProSubscription = () => {
                     {/* Prix - Version ANNUELLE */}
                     {isAnnual && (
                       <div className="relative mb-4 space-y-3 animate-fade-in">
-                        {plan.savingsAmount && !isCurrent && (
+                        {actualSavings && !isCurrent && (
                           <div className="absolute -top-3 -right-3 z-10">
                             <div className="relative">
                               <div className="absolute inset-0 bg-emerald-500 blur-lg opacity-30 animate-pulse-soft" />
                               <div className="relative flex items-center gap-1 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-full shadow-lg animate-bounce-in">
                                 <TrendingDown size={11} />
-                                -{plan.savingsAmount}\u20AC
+                                -{Number.isInteger(actualSavings) ? actualSavings : actualSavings?.toFixed(2)}\u20AC
                               </div>
                             </div>
                           </div>
@@ -446,15 +473,7 @@ const ProSubscription = () => {
                                 ? "text-foreground"
                                 : "text-foreground/90"
                             }`}>
-                              {rawPrice ? Math.floor(rawPrice) : "---"}
-                            </span>
-                            <span className={`text-xl font-bold ${isCurrent
-                              ? "text-muted-foreground"
-                              : isSelected
-                                ? "text-foreground"
-                                : "text-foreground/90"
-                            }`}>
-                              \u20AC
+                              {price !== "---" ? price : "---"}
                             </span>
                           </div>
 
@@ -478,29 +497,29 @@ const ProSubscription = () => {
                                     : "text-foreground"
                                 }`}>
                                   {rawPrice && plan.commitment
-                                    ? (rawPrice / plan.commitment).toFixed(2)
+                                    ? `${(rawPrice / plan.commitment).toFixed(2)} \u20AC`
                                     : "---"}
                                 </span>
                                 <span className="text-xs font-semibold text-muted-foreground">
-                                  \u20AC/mois
+                                  /mois
                                 </span>
                               </div>
                             </div>
 
-                            {plan.savingsAmount && !isCurrent && monthlyRawPrice && (
+                            {actualSavings && !isCurrent && monthlyFormattedPrice && (
                               <div className="flex items-center justify-between">
                                 <span className="text-xs text-muted-foreground/80">
                                   Au lieu de
                                 </span>
                                 <span className="text-sm line-through text-muted-foreground/60 font-medium">
-                                  {monthlyRawPrice.toFixed(2)}\u20AC/mois
+                                  {monthlyFormattedPrice}/mois
                                 </span>
                               </div>
                             )}
                           </div>
                         </div>
 
-                        {plan.savingsAmount && !isCurrent && (
+                        {actualSavings && !isCurrent && (
                           <div className={`
                             flex items-center justify-center gap-2 px-3 py-2 rounded-xl transition-all
                             ${isSelected
@@ -519,7 +538,7 @@ const ProSubscription = () => {
                               />
                             </div>
                             <span className={`text-xs font-semibold ${isSelected ? "text-emerald-700" : "text-emerald-600"}`}>
-                              Tu economises {plan.savingsAmount}\u20AC sur {plan.commitment} mois
+                              Tu economises {Number.isInteger(actualSavings) ? actualSavings : actualSavings?.toFixed(2)}\u20AC sur {plan.commitment} mois
                             </span>
                           </div>
                         )}
