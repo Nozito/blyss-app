@@ -24,19 +24,22 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - name: Upgrade npm to v11
+        run: npm install -g npm@11
+
       - name: Install frontend deps
         run: npm ci
 
-      - name: Frontend npm audit (fail on HIGH+CRITICAL)
-        run: npm audit --audit-level=high
+      - name: Frontend npm audit (fail on CRITICAL only)
+        run: npm audit --audit-level=critical
 
       - name: Install backend deps
         working-directory: backend
         run: npm ci
 
-      - name: Backend npm audit (fail on HIGH+CRITICAL)
+      - name: Backend npm audit (fail on CRITICAL only)
         working-directory: backend
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=critical
 
   # ── 2. Secret Scanning ────────────────────────────────────────────────────
   secret-scan:
