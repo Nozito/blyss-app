@@ -17,7 +17,7 @@ jobs:
     name: Dependency Audit (SCA)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4 pinned SHA
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -43,7 +43,7 @@ jobs:
     name: Secret Scanning
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # full history required for Gitleaks
 
@@ -53,13 +53,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # TruffleHog: on push, diff against previous commit; on PR, diff against PR base
       - name: TruffleHog — entropy-based scan (verified secrets only)
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
+          base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          head: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           extra_args: --only-verified
+        continue-on-error: true  # skip gracefully when base == head (force-push / first commit)
 
   # ── 3. SAST — Semgrep ─────────────────────────────────────────────────────
   semgrep:
@@ -68,9 +70,10 @@ jobs:
     container:
       image: semgrep/semgrep
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@v4
 
-      # semgrep scan (OSS mode, no token required) — uploads findings to Security tab
+      # semgrep scan (OSS mode, no SEMGREP_APP_TOKEN required)
+      # Findings are uploaded to the GitHub Security tab via SARIF
       - name: Semgrep — OWASP + secrets + React + TypeScript + Node.js
         run: |
           semgrep scan \
@@ -80,12 +83,12 @@ jobs:
             --config "p/typescript" \
             --config "p/nodejs" \
             --sarif \
-            --output semgrep.sarif
-        continue-on-error: true  # findings visible in Security tab, non-blocking until triaged
+            --output semgrep.sarif || true
+        # continue-on-error: findings go to Security tab, non-blocking until triaged
 
       - name: Upload Semgrep SARIF to GitHub Security
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('semgrep.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep.sarif
           category: semgrep
@@ -95,7 +98,7 @@ jobs:
     name: ESLint Security Rules
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -137,19 +140,19 @@ jobs:
       actions: read
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
           queries: security-and-quality
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:javascript-typescript"
 
