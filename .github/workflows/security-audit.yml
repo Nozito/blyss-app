@@ -94,42 +94,52 @@ jobs:
           category: semgrep
 
   # ── 4. ESLint Security ────────────────────────────────────────────────────
+  # Note: Semgrep (job 3) already covers OWASP/secrets/React/Node.js rules.
+  # This job adds eslint-plugin-security as a lightweight complement — fully non-blocking.
   eslint-security:
     name: ESLint Security Rules
     runs-on: ubuntu-latest
+    continue-on-error: true  # entire job is informational
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
 
-      - name: Install deps
-        run: npm ci
-
-      - name: Install security plugins
-        run: npm install --no-save eslint eslint-plugin-security eslint-plugin-no-secrets
+      # Install ESLint 8 + plugins into an isolated project to avoid ESLint 9 conflicts
+      # (ESLint 9 removed --plugin/--rule CLI flags for external plugins)
+      - name: Setup isolated ESLint 8 env
+        working-directory: /tmp
+        run: |
+          mkdir eslint-scan && cd eslint-scan
+          npm init -y
+          npm install --save-dev eslint@8 eslint-plugin-security eslint-plugin-no-secrets
 
       - name: Run ESLint security scan
         run: |
-          npx eslint src/ \
+          cd /tmp/eslint-scan
+          node_modules/.bin/eslint \
+            --resolve-plugins-relative-to /tmp/eslint-scan \
             --plugin security \
             --plugin no-secrets \
-            --rule 'security/detect-object-injection: error' \
-            --rule 'security/detect-non-literal-regexp: warn' \
             --rule 'security/detect-unsafe-regex: error' \
-            --rule 'no-secrets/no-secrets: error' \
+            --rule 'security/detect-non-literal-regexp: warn' \
+            --rule 'no-secrets/no-secrets: warn' \
+            --ext .ts,.tsx \
             --format json \
-            --output-file eslint-security.json || true
-        continue-on-error: true
+            --output-file /tmp/eslint-security.json \
+            $GITHUB_WORKSPACE/src/ \
+            $GITHUB_WORKSPACE/backend/lib/ \
+            $GITHUB_WORKSPACE/backend/routes/ \
+            $GITHUB_WORKSPACE/backend/middleware/ || true
 
       - name: Upload ESLint results
-        if: always()
+        if: always() && hashFiles('/tmp/eslint-security.json') != ''
         uses: actions/upload-artifact@v4
         with:
           name: eslint-security-report
-          path: eslint-security.json
+          path: /tmp/eslint-security.json
 
   # ── 5. CodeQL Analysis ────────────────────────────────────────────────────
   codeql:
