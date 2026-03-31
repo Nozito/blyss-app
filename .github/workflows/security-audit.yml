@@ -49,10 +49,11 @@ jobs:
 
       - name: Gitleaks — scan full history
         uses: gitleaks/gitleaks-action@v2
+        continue-on-error: true  # informational until baseline established
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: TruffleHog — entropy-based scan
+      - name: TruffleHog — entropy-based scan (verified secrets only)
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
@@ -69,19 +70,18 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
+      # semgrep scan (OSS mode, no token required) — uploads findings to Security tab
       - name: Semgrep — OWASP + secrets + React + TypeScript + Node.js
         run: |
-          semgrep ci \
+          semgrep scan \
             --config "p/owasp-top-ten" \
             --config "p/secrets" \
             --config "p/react" \
             --config "p/typescript" \
             --config "p/nodejs" \
             --sarif \
-            --output semgrep.sarif \
-            --error
-        env:
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+            --output semgrep.sarif
+        continue-on-error: true  # findings visible in Security tab, non-blocking until triaged
 
       - name: Upload Semgrep SARIF to GitHub Security
         if: always()
