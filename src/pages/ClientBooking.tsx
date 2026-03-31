@@ -2,7 +2,8 @@ import { useState, useMemo, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   Check,
   Clock,
   Calendar as CalendarIcon,
@@ -24,6 +25,14 @@ import { ConditionItem } from "./ProPublicProfile";
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
 const stripePromise = STRIPE_PK ? loadStripe(STRIPE_PK) : null;
+
+/** Formate une Date en YYYY-MM-DD en heure locale (pas UTC). */
+const toLocalDateStr = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
 
 interface Pro {
   id: number;
@@ -96,12 +105,7 @@ const Calendar: React.FC<CalendarProps> = ({ selectedDate, onSelectDate, proId, 
     return date < today;
   };
 
-  const hasAvailability = (date: Date) => {
-  const dateStr = date.toISOString().split('T')[0];
-  const has = availableDates.has(dateStr);
-  
-  return has;
-};
+  const hasAvailability = (date: Date) => availableDates.has(toLocalDateStr(date));
 
   const isDateSelected = (date: Date) => {
     if (!selectedDate) return false;
@@ -138,7 +142,7 @@ const Calendar: React.FC<CalendarProps> = ({ selectedDate, onSelectDate, proId, 
           disabled={!canGoPrevious()}
           className="w-9 h-9 rounded-xl bg-muted/50 hover:bg-muted flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed active:scale-95"
         >
-          <ArrowLeft size={18} className="text-foreground" />
+          <ChevronLeft size={18} className="text-foreground" />
         </button>
 
         <h3 className="text-base font-bold text-foreground">
@@ -149,7 +153,7 @@ const Calendar: React.FC<CalendarProps> = ({ selectedDate, onSelectDate, proId, 
           onClick={goToNextMonth}
           className="w-9 h-9 rounded-xl bg-muted/50 hover:bg-muted flex items-center justify-center transition-all active:scale-95"
         >
-          <ArrowLeft size={18} className="text-foreground rotate-180" />
+          <ChevronRight size={18} className="text-foreground" />
         </button>
       </div>
 
@@ -464,7 +468,7 @@ const ClientBooking = () => {
 
       setIsLoadingSlots(true);
       try {
-        const dateStr = selectedDate.toISOString().split('T')[0];
+        const dateStr = toLocalDateStr(selectedDate);
         const response = await fetch(`${API_URL}/api/slots/available/${id}/${dateStr}`);
 
         if (!response.ok) {
@@ -488,6 +492,21 @@ const ClientBooking = () => {
 
     fetchSlots();
   }, [selectedDate, id]);
+
+  // Rafraîchissement temps réel : créneaux toutes les 30s quand l'utilisateur est sur l'étape 2 avec une date choisie
+  useEffect(() => {
+    if (step !== 2 || !selectedDate || !id) return;
+    const refresh = async () => {
+      try {
+        const dateStr = toLocalDateStr(selectedDate);
+        const res = await fetch(`${API_URL}/api/slots/available/${id}/${dateStr}`);
+        const data = await res.json();
+        if (data.success && data.data) setAvailableSlots(data.data);
+      } catch {}
+    };
+    const interval = setInterval(refresh, 30000);
+    return () => clearInterval(interval);
+  }, [step, selectedDate, id]);
 
   useEffect(() => {
     setSelectedTime(null);
@@ -712,7 +731,7 @@ const ClientBooking = () => {
                 return (
                   <motion.button
                     key={prestation.id}
-                    onClick={() => setSelectedPrestation(prestation.id)}
+                    onClick={() => { setSelectedPrestation(prestation.id); setTimeout(() => setStep(2), 120); }}
                     className={`
                       w-full bg-card rounded-3xl p-5 
                       shadow-lg shadow-black/5 border-2 
@@ -817,24 +836,27 @@ const ClientBooking = () => {
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-2.5">
                   {availableSlots.map((slot) => {
                     const isSelected = selectedTime === slot.time;
                     return (
                       <button
                         key={slot.id}
-                        onClick={() => setSelectedTime(slot.time)}
+                        onClick={() => { setSelectedTime(slot.time); setTimeout(() => setStep(3), 120); }}
                         className={`
-                          rounded-2xl px-4 py-3 
-                          text-sm font-bold
-                          transition-all duration-300
+                          rounded-2xl px-4 py-3.5
+                          transition-all duration-200 active:scale-[0.97]
+                          flex flex-col items-center gap-0.5
                           ${isSelected
                             ? "bg-primary text-white shadow-lg shadow-primary/30"
                             : "bg-card text-foreground border border-muted hover:bg-muted/50"
                           }
                         `}
                       >
-                        {slot.time}
+                        <span className="text-base font-black leading-none">{slot.time}</span>
+                        <span className={`text-[11px] font-medium leading-none ${isSelected ? "text-white/70" : "text-muted-foreground"}`}>
+                          {formatDuration(slot.duration)}
+                        </span>
                       </button>
                     );
                   })}
@@ -862,35 +884,41 @@ const ClientBooking = () => {
               </p>
             </div>
 
-            <div className="bg-card rounded-3xl p-6 shadow-lg shadow-black/5 border border-muted space-y-4">
-              <SummaryRow
-                label="Spécialiste"
-                value={pro.activity_name || `${pro.first_name} ${pro.last_name}`}
-              />
-              <Divider />
-              <SummaryRow label="Prestation" value={selectedPrestationData?.name} />
-              <Divider />
-              <SummaryRow
-                label="Date"
-                value={selectedDate ? selectedDate.toLocaleDateString('fr-FR', {
-                  weekday: 'short',
-                  day: 'numeric',
-                  month: 'long'
-                }) : undefined}
-              />
-              <Divider />
-              <SummaryRow label="Horaire" value={selectedTime || undefined} />
-              <Divider />
-              <SummaryRow
-                label="Durée"
-                value={selectedPrestationData ? formatDuration(selectedPrestationData.duration_minutes) : undefined}
-              />
-              <Divider />
-              <div className="flex items-center justify-between pt-2">
-                <span className="text-sm text-muted-foreground">Total</span>
-                <span className="font-bold text-2xl text-foreground">
-                  {selectedPrestationData?.price.toFixed(2)}€
-                </span>
+            <div className="bg-card rounded-3xl p-5 shadow-lg shadow-black/5 border border-muted">
+              {/* Prestation header */}
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Prestation</p>
+                  <p className="font-bold text-foreground">{selectedPrestationData?.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    avec {pro.activity_name || `${pro.first_name} ${pro.last_name}`}
+                    {pro.city ? ` · ${pro.city}` : ""}
+                  </p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-xs text-muted-foreground mb-0.5">Total</p>
+                  <p className="text-2xl font-black text-foreground">{selectedPrestationData?.price.toFixed(2)}€</p>
+                </div>
+              </div>
+              <div className="h-px bg-muted mb-4" />
+              {/* Date + time row */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 bg-muted/40 rounded-2xl px-4 py-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Date</p>
+                  <p className="font-bold text-sm text-foreground capitalize">
+                    {selectedDate?.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  </p>
+                </div>
+                <div className="flex-1 bg-primary/8 rounded-2xl px-4 py-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Horaire</p>
+                  <p className="font-black text-base text-primary">{selectedTime}</p>
+                </div>
+                <div className="flex-1 bg-muted/40 rounded-2xl px-4 py-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Durée</p>
+                  <p className="font-bold text-sm text-foreground">
+                    {selectedPrestationData ? formatDuration(selectedPrestationData.duration_minutes) : "—"}
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -1052,7 +1080,7 @@ const ClientBooking = () => {
                 transition-all duration-300 active:scale-95
               "
             >
-              <ArrowLeft size={20} className="text-foreground" />
+              <ChevronLeft size={20} className="text-foreground" />
             </button>
 
             <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
@@ -1072,7 +1100,7 @@ const ClientBooking = () => {
           </AnimatePresence>
         </main>
 
-        {step < 5 && step !== 4 && (
+        {step === 3 && (
           <footer className="pb-6 pt-4">
             <button
               onClick={handleNext}

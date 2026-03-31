@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useLocation, Link } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 
 const Legal = () => {
   const location = useLocation();
@@ -34,7 +34,7 @@ const Legal = () => {
             className="p-2 -ml-2 rounded-xl hover:bg-muted/50 transition-all active:scale-90"
             aria-label="Retour"
           >
-            <ArrowLeft size={22} className="text-foreground" aria-hidden="true" />
+            <ChevronLeft size={22} className="text-foreground" aria-hidden="true" />
           </button>
           <h1 className="font-display text-xl font-bold text-foreground">Informations légales</h1>
         </div>
@@ -286,8 +286,13 @@ const Legal = () => {
               <p>
                 [NOM_EDITEUR] — [ADRESSE_COMPLETE]<br />
                 Délégué à la Protection des Données (DPO) :{" "}
-                <a href="mailto:[EMAIL_DPO]" className="text-primary hover:underline">
-                  [EMAIL_DPO]
+                <a href="mailto:privacy@blyssapp.fr" className="text-primary hover:underline">
+                  privacy@blyssapp.fr
+                </a>
+                <br />
+                Pour signaler une faille de sécurité :{" "}
+                <a href="mailto:security@blyssapp.fr" className="text-primary hover:underline">
+                  security@blyssapp.fr
                 </a>
               </p>
             </div>
@@ -386,6 +391,38 @@ const Legal = () => {
                     Politique de confidentialité Supabase →
                   </a>
                 </div>
+                <div className="p-4 rounded-xl bg-muted/40 border border-border">
+                  <p className="font-semibold text-foreground mb-1">Meta Platforms Ireland Ltd.</p>
+                  <p>
+                    Intégration Instagram (synchronisation du portfolio photo).
+                    Traitement vers les USA encadré par les Clauses Contractuelles Types (CCT).
+                    DPA disponible via Meta Business Terms.
+                  </p>
+                  <a
+                    href="https://www.facebook.com/legal/terms/dataprocessing"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline text-xs mt-1 inline-block"
+                  >
+                    Data Processing Terms Meta →
+                  </a>
+                </div>
+                <div className="p-4 rounded-xl bg-muted/40 border border-border">
+                  <p className="font-semibold text-foreground mb-1">Functional Software Inc. (Sentry)</p>
+                  <p>
+                    Monitoring des erreurs applicatives (logs anonymisés, sans PII).
+                    Transfert vers les USA encadré par les CCT. DPA signé.
+                    Aucune donnée personnelle identifiable (email, nom, token) n'est transmise à Sentry.
+                  </p>
+                  <a
+                    href="https://sentry.io/legal/dpa/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline text-xs mt-1 inline-block"
+                  >
+                    DPA Sentry →
+                  </a>
+                </div>
               </div>
             </div>
 
@@ -426,9 +463,10 @@ const Legal = () => {
               </ul>
               <p className="mt-4 p-3 rounded-xl bg-primary/5 border border-primary/20 text-xs">
                 Pour exercer vos droits ou contacter notre DPO :{" "}
-                <a href="mailto:[EMAIL_DPO]" className="text-primary hover:underline font-semibold">
-                  [EMAIL_DPO]
+                <a href="mailto:privacy@blyssapp.fr" className="text-primary hover:underline font-semibold">
+                  privacy@blyssapp.fr
                 </a>
+                {" "}— Réponse dans un délai de 30 jours (art. 12 RGPD).
               </p>
             </div>
 
@@ -446,9 +484,40 @@ const Legal = () => {
             <div>
               <h3 className={h3Class}>Transferts hors UE</h3>
               <p>
-                Les transferts de données hors de l'Union Européenne (vers Stripe, RevenueCat)
-                sont encadrés par des Clauses Contractuelles Types approuvées par la Commission
-                Européenne conformément à l'article 46 du RGPD.
+                Les transferts de données hors de l'Union Européenne sont encadrés par des
+                Clauses Contractuelles Types (CCT) approuvées par la Commission Européenne
+                conformément à l'article 46 du RGPD. Sous-traitants concernés :
+              </p>
+              <ul className="list-disc list-inside mt-2 space-y-1 ml-2">
+                <li><strong className="text-foreground">Stripe Inc.</strong> (USA) — paiements — CCT + DPA</li>
+                <li><strong className="text-foreground">RevenueCat Inc.</strong> (USA) — abonnements — CCT + DPA</li>
+                <li><strong className="text-foreground">Meta Platforms Ireland Ltd.</strong> (USA) — Instagram OAuth — CCT</li>
+                <li><strong className="text-foreground">Sentry (Functional Software Inc.)</strong> (USA) — monitoring — CCT + DPA</li>
+              </ul>
+              <p className="mt-2">
+                Supabase héberge les données en Europe (Frankfurt, AWS eu-central-1) — pas de transfert hors UE.
+              </p>
+            </div>
+
+            <div>
+              <h3 className={h3Class}>Exercice de vos droits</h3>
+              <p>
+                Vous pouvez exercer vos droits directement depuis l'application (Paramètres → Mes données personnelles)
+                ou en contactant notre DPO à{" "}
+                <a href="mailto:privacy@blyssapp.fr" className="text-primary hover:underline">privacy@blyssapp.fr</a>.
+              </p>
+              <p className="mt-2">
+                En cas de réponse insatisfaisante, vous disposez du droit de déposer une réclamation auprès de la{" "}
+                <strong className="text-foreground">Commission Nationale de l'Informatique et des Libertés (CNIL)</strong> :{" "}
+                <a
+                  href="https://www.cnil.fr/fr/plaintes"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  cnil.fr/fr/plaintes
+                </a>{" "}
+                ou 3 Place de Fontenoy, TSA 80715, 75334 Paris Cedex 07.
               </p>
             </div>
 

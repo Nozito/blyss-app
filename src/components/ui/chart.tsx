@@ -3,6 +3,7 @@ import * as RechartsPrimitive from "recharts";
 
 import { cn } from "@/lib/utils";
 
+// SECURITY: static THEMES only — never pass dynamic/user-controlled values here.
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const;
 
@@ -65,21 +66,28 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     return null;
   }
 
+  // SECURITY: sanitize theme/prefix to prevent CSS injection if THEMES is ever extended.
+  // color values come from ChartConfig which is developer-controlled, not user input.
   return (
     <style
       dangerouslySetInnerHTML={{
         __html: Object.entries(THEMES)
           .map(
-            ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
+            ([theme, prefix]) => {
+              const safeTheme  = theme.replace(/[^a-z0-9-_]/gi, "");
+              const safePrefix = prefix.replace(/[^a-z0-9-. _]/gi, "");
+              return `
+${safePrefix} [data-chart=${id}] {
 ${colorConfig
   .map(([key, itemConfig]) => {
     const color = itemConfig.theme?.[theme as keyof typeof itemConfig.theme] || itemConfig.color;
     return color ? `  --color-${key}: ${color};` : null;
   })
+  .filter(Boolean)
   .join("\n")}
 }
-`,
+`;
+            }
           )
           .join("\n"),
       }}

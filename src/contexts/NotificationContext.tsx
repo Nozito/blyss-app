@@ -17,11 +17,9 @@ const refreshAuthToken = async (): Promise<boolean> => {
         });
 
         if (response.ok) {
-            console.log('✅ Token rafraîchi pour WebSocket');
             return true;
         }
 
-        console.log('❌ Refresh token échoué');
         return false;
     } catch (error) {
         console.error('❌ Erreur refresh token:', error);
@@ -105,7 +103,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
             wsRef.current = ws;
 
             ws.onopen = () => {
-                console.log("✅ WebSocket connecté");
                 setIsConnected(true);
                 // Backend authenticates via the access_token cookie from the upgrade headers.
                 // No need to send token in a message.
@@ -116,7 +113,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                     const message = JSON.parse(event.data);
 
                     if (message.type === "auth_error") {
-                        console.log("🔄 Auth WebSocket échouée, tentative de refresh...");
                         ws.close();
 
                         await new Promise(resolve => setTimeout(resolve, 500));
@@ -124,12 +120,10 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                         const refreshed = await refreshAuthToken();
 
                         if (refreshed) {
-                            console.log('✅ Token rafraîchi, reconnexion...');
                             if (!isUnmounted) {
                                 connectWebSocket();
                             }
                         } else {
-                            console.log('❌ Refresh échoué, redirection login');
                             window.location.href = '/login';
                         }
                         return;
@@ -137,7 +131,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
                     switch (message.type) {
                         case "auth_success":
-                            console.log("✅ WebSocket authentifié");
                             break;
 
                         case "notifications":
@@ -163,11 +156,9 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                             break;
 
                         case "mark_read_success":
-                            console.log("✅ Notification marquée comme lue");
                             break;
 
                         case "mark_all_read_success":
-                            console.log("✅ Toutes les notifications marquées comme lues");
                             break;
                     }
                 } catch (error) {
@@ -181,7 +172,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
             };
 
             ws.onclose = () => {
-                console.log("🔌 WebSocket déconnecté");
                 setIsConnected(false);
 
                 if (!isUnmounted) {
@@ -190,7 +180,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                     }
 
                     reconnectTimeoutRef.current = setTimeout(() => {
-                        console.log('🔄 Tentative de reconnexion WebSocket...');
                         connectWebSocket();
                     }, 3000);
                 }
@@ -275,8 +264,12 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     const readNotifications = notifications.filter((n) => n.is_read);
 
     const hiddenRoutes = [
+        "/",
         "/login",
         "/signup",
+        "/forgot-password",
+        "/reset-password",
+        "/legal",
         "/admin",
         "/onboarding",
         "/pro/subscription",
@@ -317,8 +310,8 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         >
             {children}
 
-            {/* Toasts - Toujours affichés si user connecté */}
-            {user && (
+            {/* Toasts - uniquement sur les pages hors auth */}
+            {user && !hiddenRoutes.includes(currentPath) && (
                 <div
                     className="fixed left-0 right-0 z-[100] flex flex-col pointer-events-none px-4"
                     style={{

@@ -1,5 +1,5 @@
 import { useNavigate, Link } from "react-router-dom";
-import { Sparkles, ArrowRight, Shield, Zap, Heart } from "lucide-react";
+import { ArrowRight, Shield, Zap, Heart } from "lucide-react";
 import logo from "@/assets/logo.png";
 import MobileLayout from "@/components/MobileLayout";
 

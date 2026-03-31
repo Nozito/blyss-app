@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, MapPin, Star, Clock, Heart, Loader2, Instagram, Sparkles, ChevronRight, ShieldCheck, Check, X } from "lucide-react";
+import { ChevronLeft, MapPin, Star, Clock, Heart, Loader2, Instagram, Sparkles, ChevronRight, ShieldCheck, Check, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { favoritesApi, instagramApi, InstagramPhoto, API_URL } from "@/services/api";
 import { ConditionItem } from "./ProPublicProfile";
@@ -407,7 +407,7 @@ const SpecialistProfile = () => {
             className="absolute left-4 top-4 w-10 h-10 rounded-full bg-white/90 backdrop-blur-sm shadow-lg flex items-center justify-center z-30 active:scale-95 transition-transform"
             aria-label="Retour"
           >
-            <ArrowLeft size={20} className="text-foreground" />
+            <ChevronLeft size={20} className="text-foreground" />
           </button>
 
           <button

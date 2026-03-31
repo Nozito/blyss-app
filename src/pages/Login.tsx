@@ -36,7 +36,7 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
   // Redirect already-authenticated users to their dashboard
   useEffect(() => {
     if (!isLoading && isAuthenticated && user) {
-      const isAdmin = (user as any).is_admin;
+      const isAdmin = user.is_admin === true;
       if (isAdmin) {
         // Admins choose their interface — don't auto-redirect, let them use the form
         return;
@@ -214,7 +214,9 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
           setTimeout(() => {
             // Utilise returnUrl stocké (depuis SpecialistProfile, ClientBooking, etc.)
             const rawReturnUrl = localStorage.getItem("returnUrl");
-            const returnUrl = rawReturnUrl && rawReturnUrl.startsWith("/") && !rawReturnUrl.startsWith("//")
+            // SECURITY: whitelist internal paths only — prevent open redirect
+            const ALLOWED_RETURN_PATHS = /^\/(?:client|pro|admin)(?:\/[a-z0-9\-_/]*)?$/i;
+            const returnUrl = rawReturnUrl && ALLOWED_RETURN_PATHS.test(rawReturnUrl)
               ? rawReturnUrl
               : null;
             if (returnUrl) {

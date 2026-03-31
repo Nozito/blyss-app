@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, forwardRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Eye, EyeOff } from "lucide-react";
+import { ChevronLeft, Eye, EyeOff } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -318,8 +318,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               toast.error(response.message || "Une erreur est survenue");
           }
         }
-      } catch (error) {
-        console.error("Signup error:", error);
+      } catch {
         setError(ERROR_MESSAGES.NETWORK_ERROR);
         toast.error("Erreur de connexion. Vérifie ta connexion internet.");
       }
@@ -948,7 +947,7 @@ const Signup = forwardRef<HTMLDivElement>((_, ref) => {
               disabled={isLoading}
               aria-label={step === 1 ? "Retour à l'accueil" : "Étape précédente"}
             >
-              <ArrowLeft size={24} className="text-foreground" aria-hidden="true" />
+              <ChevronLeft size={24} className="text-foreground" aria-hidden="true" />
             </button>
             <div
               className="flex-1 h-2 rounded-full bg-muted overflow-hidden"

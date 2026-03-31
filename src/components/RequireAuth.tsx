@@ -13,6 +13,10 @@ interface RequireAuthProps {
  * - Redirige vers /login si l'utilisateur n'est pas connecté.
  * - Si `role` est fourni, redirige vers / si le rôle ne correspond pas.
  * - Préserve l'URL cible dans `state.from` pour rediriger après login.
+ *
+ * SECURITY: This is a UX guard only.
+ * All server endpoints enforce authorization independently via middleware.
+ * Modifying localStorage cannot grant actual server access.
  */
 const RequireAuth = ({ children, role }: RequireAuthProps) => {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -27,16 +31,17 @@ const RequireAuth = ({ children, role }: RequireAuthProps) => {
   }
 
   if (role) {
-    const isAdmin = (user as any)?.is_admin;
+    // UX guard only — authoritative check is server-side (requireAdminMiddleware)
+    const isAdmin = user?.is_admin === true;
     const userRole = user?.role;
 
     const hasAccess =
-      role === "admin" ? Boolean(isAdmin) : userRole === role;
+      role === "admin" ? isAdmin : userRole === role;
 
     if (!hasAccess) {
       const fallback =
-        userRole === "pro" ? "/pro/dashboard" :
-        userRole === "client" ? "/client" :
+        userRole === "pro"    ? "/pro/dashboard" :
+        userRole === "client" ? "/client"        :
         "/";
       return <Navigate to={fallback} replace />;
     }

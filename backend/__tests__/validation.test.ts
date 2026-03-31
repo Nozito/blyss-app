@@ -191,6 +191,8 @@ describe("PATCH /api/pro/prestations/:id — validation Zod", () => {
   });
 
   it("200 avec mise à jour partielle valide (mock DB)", async () => {
+    // requireActiveProSubscription → pro actif
+    mockQuery.mockResolvedValueOnce([[{ pro_status: "active" }]]);
     // ownership check → trouvé
     mockQuery.mockResolvedValueOnce([[{ id: 10 }]]);
     // UPDATE

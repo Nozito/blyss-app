@@ -16,13 +16,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Cropper from "react-easy-crop";
 import getCroppedImg from "@/utils/cropImage";
 import { useAuth } from "@/contexts/AuthContext";
+import { getImageUrl } from "@/utils/imageUrl";
 import { toast } from "sonner";
-
-const API_URL = import.meta.env.VITE_API_URL || "";
 
 const ClientProfile = () => {
   const navigate = useNavigate();
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated, refreshProfile } = useAuth();
   const inputFileRef = useRef<HTMLInputElement>(null);
 
   const profileCompleteness = (() => {
@@ -32,12 +31,7 @@ const ClientProfile = () => {
     return score;
   })();
 
-  const initialPhoto =
-    user?.profile_photo && user.profile_photo.startsWith("http")
-      ? user.profile_photo
-      : user?.profile_photo
-      ? `${API_URL}${user.profile_photo}`
-      : logo;
+  const initialPhoto = getImageUrl(user?.profile_photo ?? null) ?? logo;
 
   const [profileImage, setProfileImage] = useState(initialPhoto);
   const [tempProfileImage, setTempProfileImage] = useState<string | null>(null);
@@ -55,10 +49,8 @@ const ClientProfile = () => {
 
   useEffect(() => {
     if (user?.profile_photo) {
-      const url = user.profile_photo.startsWith("http")
-        ? user.profile_photo
-        : `${API_URL}${user.profile_photo}`;
-      setProfileImage(`${url}?t=${Date.now()}`);
+      const url = getImageUrl(user.profile_photo);
+      if (url) setProfileImage(`${url}?t=${Date.now()}`);
     }
   }, [user?.profile_photo]);
 
@@ -83,48 +75,51 @@ const ClientProfile = () => {
       }
       if (!tempProfileImage || !croppedAreaPixels) return;
 
-      const croppedImageResult = await getCroppedImg(
-        tempProfileImage,
-        croppedAreaPixels
-      );
-      const croppedImageBlob =
-        typeof croppedImageResult === "string"
-          ? await (await fetch(croppedImageResult)).blob()
-          : croppedImageResult;
+      const croppedBase64 = await getCroppedImg(tempProfileImage, croppedAreaPixels);
+      const blob = await fetch(croppedBase64).then((r) => r.blob());
 
       const formData = new FormData();
-      formData.append("photo", croppedImageBlob, "profile.jpg");
-      formData.append("userId", String(user.id));
+      formData.append("photo", blob, "profile.jpg");
 
-      const response = await fetch(
-        `${API_URL}/api/users/upload-photo`,
-        {
-          method: "POST",
-          credentials: "include",
-          body: formData,
-        }
-      );
+      const API_URL = import.meta.env.VITE_API_URL || "";
+      const response = await fetch(`${API_URL}/api/users/upload-photo`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
 
       if (!response.ok) {
-        throw new Error("Upload failed");
+        if (response.status === 401) {
+          toast.error("Session expirée. Reconnectez-vous.");
+          navigate("/login");
+          return;
+        }
+        if (response.status === 413) {
+          toast.error("L'image est trop volumineuse. Compresse-la à moins de 10 Mo.");
+          return;
+        }
+        const errData = await response.json().catch(() => ({}));
+        toast.error(errData?.message || "Erreur lors de l'upload. Réessaie dans un instant.");
+        return;
       }
 
       const data = await response.json();
 
       if (data?.photo) {
-        const url = `${API_URL}${data.photo}`;
-        setProfileImage(`${url}?t=${Date.now()}`);
+        // Aperçu immédiat
+        const previewUrl = URL.createObjectURL(blob);
+        setProfileImage(previewUrl);
         setShowCropModal(false);
         setTempProfileImage(null);
         toast.success("Photo de profil mise à jour");
+        // Mettre à jour le contexte auth pour que la photo persiste
+        await refreshProfile();
       } else {
-        throw new Error("URL de la photo non reçue");
+        toast.error("Erreur lors de la réception de la photo. Réessaie.");
       }
     } catch (error) {
-      toast.error(
-        (error as Error).message ||
-          "Erreur lors de la mise à jour de la photo"
-      );
+      console.error("Upload photo error:", error);
+      toast.error("Erreur lors de l'upload. Vérifiez votre connexion.");
     }
   };
 

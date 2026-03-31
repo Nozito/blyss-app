@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mail, ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
+import { Mail, ChevronLeft, CheckCircle2, Loader2 } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
-import { toast } from "sonner";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
@@ -18,21 +17,16 @@ const ForgotPassword = () => {
 
     setIsSending(true);
     try {
-      const res = await fetch(`${API_URL}/api/auth/forgot-password`, {
+      // Envoi de la demande — on affiche toujours le succès pour ne pas révéler
+      // si l'adresse email est associée à un compte (bonne pratique de sécurité)
+      await fetch(`${API_URL}/api/auth/forgot-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim().toLowerCase() }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setSent(true);
-      } else {
-        toast.error("Une erreur est survenue. Réessaie dans quelques instants.");
-      }
-    } catch {
-      toast.error("Impossible de contacter le serveur.");
+      }).catch(() => {});
     } finally {
       setIsSending(false);
+      setSent(true);
     }
   };
 
@@ -44,7 +38,7 @@ const ForgotPassword = () => {
             onClick={() => navigate(-1)}
             className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
-            <ArrowLeft size={16} />
+            <ChevronLeft size={16} />
             Retour
           </button>
 

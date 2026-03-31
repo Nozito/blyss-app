@@ -68,7 +68,7 @@ export const RevenueCatProvider: React.FC<RevenueCatProviderProps> = ({
         setBackendSubscription(null);
       }
     } catch {
-      console.error("Failed to fetch backend subscription");
+      // Non-blocking — UI will show no active plan
     }
   }, []);
 
@@ -110,8 +110,8 @@ export const RevenueCatProvider: React.FC<RevenueCatProviderProps> = ({
         setOfferings(offeringsResult);
         setCustomerInfo(customerInfoResult);
         setRcActivePlan(getActivePlan(customerInfoResult));
-      } catch (error) {
-        console.error("RevenueCat init error:", error);
+      } catch {
+        // RC unavailable — fallback to backend subscription
       } finally {
         setIsLoading(false);
       }
@@ -128,8 +128,8 @@ export const RevenueCatProvider: React.FC<RevenueCatProviderProps> = ({
       ]);
       setCustomerInfo(info);
       setRcActivePlan(getActivePlan(info));
-    } catch (error) {
-      console.error("RefreshCustomerInfo error:", error);
+    } catch {
+      // Silently ignore — caller handles stale UI state
     }
   }, [fetchBackendSubscription]);
 
@@ -152,8 +152,7 @@ export const RevenueCatProvider: React.FC<RevenueCatProviderProps> = ({
       setRcActivePlan(getActivePlan(info));
       await fetchBackendSubscription();
     } catch (error) {
-      console.error("RestorePurchases error:", error);
-      throw error;
+      throw error; // Re-throw — caller (UI) handles the error message
     }
   }, [fetchBackendSubscription]);
 

@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, X, Star, MapPin, Sparkles, ChevronLeft, Heart, Loader2, SlidersHorizontal } from "lucide-react";
+import { Search, X, Star, MapPin, Sparkles, ChevronLeft, Heart, Loader2, SlidersHorizontal, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import MobileLayout from "@/components/MobileLayout";
@@ -33,7 +33,7 @@ const ClientSpecialists = () => {
   const [ratingFilter, setRatingFilter] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
 
-  const { data: specialists = [], isLoading } = useQuery<Specialist[]>({
+  const { data: specialists = [], isLoading, isError } = useQuery<Specialist[]>({
     queryKey: ["specialists"],
     queryFn: async () => {
       const res = await specialistsApi.getPros();
@@ -121,6 +121,26 @@ const ClientSpecialists = () => {
             <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">Chargement...</p>
           </motion.div>
+        </div>
+      </MobileLayout>
+    );
+  }
+
+  if (isError) {
+    return (
+      <MobileLayout>
+        <div className="min-h-[60vh] flex flex-col items-center justify-center px-6 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-destructive/10 flex items-center justify-center mb-4">
+            <AlertTriangle size={28} className="text-destructive" />
+          </div>
+          <h2 className="text-lg font-bold text-foreground mb-2">Impossible de charger les expertes</h2>
+          <p className="text-sm text-muted-foreground mb-6">Vérifie ta connexion et réessaie.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-3 rounded-xl bg-primary text-white font-semibold text-sm active:scale-95 transition-all"
+          >
+            Réessayer
+          </button>
         </div>
       </MobileLayout>
     );

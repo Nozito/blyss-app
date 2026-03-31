@@ -5,7 +5,7 @@ import {
   Calendar,
   ChevronRight,
   Sparkles,
-  ArrowLeft,
+  ChevronLeft,
   Zap,
   Heart,
   RefreshCw,
@@ -144,7 +144,7 @@ const ProSubscriptionSettings = () => {
               className="w-10 h-10 rounded-xl bg-muted/70 hover:bg-muted flex items-center justify-center active:scale-95 transition-all duration-200"
               aria-label="Retour"
             >
-              <ArrowLeft size={20} className="text-foreground" />
+              <ChevronLeft size={20} className="text-foreground" />
             </button>
             <div className="flex-1">
               <h1 className="text-xl font-bold text-foreground">

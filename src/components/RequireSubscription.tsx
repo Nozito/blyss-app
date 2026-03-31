@@ -27,7 +27,7 @@ const RequireSubscription = ({ children }: RequireSubscriptionProps) => {
   const location = useLocation();
 
   // Admin bypass — accès complet sans restriction de plan
-  if ((user as any)?.is_admin) return <>{children}</>;
+  if (user?.is_admin === true) return <>{children}</>;
 
   // Attendre la résolution de l'auth et de l'abonnement
   if (authLoading || subLoading) {

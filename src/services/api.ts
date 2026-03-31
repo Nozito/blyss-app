@@ -129,11 +129,9 @@ type UpdateServicePayload = Partial<{
 
 const USER_KEY = "user";
 
-function setSession(_accessToken: string, _refreshToken: string, user?: User) {
-  // Tokens are set as HttpOnly cookies by the server — not stored in JS
-  if (user) {
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
-  }
+function setSession(_accessToken: string, _refreshToken: string, _user?: User) {
+  // Tokens are HttpOnly cookies — not accessible from JS.
+  // User caching (safe fields only) is handled by AuthContext.
 }
 
 function clearSession() {
@@ -238,7 +236,6 @@ async function apiCall<T>(a: string, b?: any, c: any = {}): Promise<ApiResponse<
       message: json?.message,
     };
   } catch (error) {
-    console.error("API Error:", error);
     return {
       success: false,
       error:
@@ -314,13 +311,8 @@ export const authApi = {
           error: json.error,
         };
       }
-    } catch (error) {
-      console.error("Signup API error:", error);
-      return {
-        success: false,
-        message: "Network error",
-        error: "server_error",
-      };
+    } catch {
+      return { success: false, message: "Network error", error: "server_error" as const };
     }
   },
 
@@ -339,8 +331,8 @@ export const authApi = {
     try {
       // The refresh_token cookie is sent automatically; server clears both cookies
       await rawApiCall("/api/auth/logout", { method: "POST" });
-    } catch (error) {
-      console.error("Logout API error:", error);
+    } catch {
+      // Ignore — session cleared locally regardless
     } finally {
       clearSession();
     }
@@ -599,7 +591,7 @@ export const proApi = {
       body: JSON.stringify(data),
     }),
 
-  updateSlot: (id: number, data: { status: string }) =>
+  updateSlot: (id: number, data: { status?: string; date?: string; time?: string; duration?: number }) =>
     apiCall(`/api/pro/slots/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -749,7 +741,6 @@ exportFinanceData: async (period: "week" | "month" | "year"): Promise<ApiRespons
       data: blob,
     };
   } catch (error) {
-    console.error("Export error:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Erreur de connexion",

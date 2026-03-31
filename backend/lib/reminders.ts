@@ -14,6 +14,7 @@
 
 import { sendPushToUser } from "./push";
 import { getDb } from "./db";
+import { log } from "./logger";
 
 /**
  * Atomically claims J-1 reminders that have not been sent yet and returns
@@ -119,7 +120,7 @@ async function sendJ1Reminders(): Promise<void> {
   }
 
   if (sent > 0) {
-    console.log(`[reminders] J-1: ${sent} reminder(s) sent`);
+    log.warn("/cron/reminders", `J-1: ${sent} reminder(s) sent`);
   }
 }
 
@@ -139,7 +140,7 @@ async function sendH2Reminders(): Promise<void> {
   }
 
   if (sent > 0) {
-    console.log(`[reminders] H-2: ${sent} reminder(s) sent`);
+    log.warn("/cron/reminders", `H-2: ${sent} reminder(s) sent`);
   }
 }
 
@@ -153,7 +154,7 @@ export async function runReminderCycle(): Promise<void> {
  */
 export function startReminderCron(): void {
   if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
-    console.log("[reminders] VAPID keys not configured — reminders disabled");
+    console.info("[reminders] VAPID keys not configured — push reminders disabled");
     return;
   }
 
@@ -164,7 +165,7 @@ export function startReminderCron(): void {
     try {
       await runReminderCycle();
     } catch (err) {
-      console.error("[reminders] initial run error:", err);
+      log.error("/cron/reminders", err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : undefined);
     }
   }, 30_000);
 
@@ -172,9 +173,9 @@ export function startReminderCron(): void {
     try {
       await runReminderCycle();
     } catch (err) {
-      console.error("[reminders] cycle error:", err);
+      log.error("/cron/reminders", err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : undefined);
     }
   }, INTERVAL_MS);
 
-  console.log("[reminders] cron started (every 15 min)");
+  console.info("[reminders] cron started (every 15 min)");
 }

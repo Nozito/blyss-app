@@ -47,6 +47,7 @@ interface AuthContextType {
   signup: (data: SignupData) => Promise<SignupResponse>;
   logout: () => Promise<void>;
   updateUser: (data: Partial<User>) => Promise<ApiResponse<User>>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -125,8 +126,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
 
       return response;
-    } catch (err) {
-      console.error("Login error (catch):", err);
+    } catch {
       return { success: false, message: "Login failed" };
     } finally {
       setIsLoading(false);
@@ -139,24 +139,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const response = await authApi.signup(data);
 
       if (response.success) {
-        return {
-          success: true,
-          message: response.message || "Account created successfully",
-        };
+        // Le backend pose les cookies d'auth — on fetch le profil pour populer le state
+        const profile = await authApi.getProfile();
+        if (profile.success && profile.data) {
+          _loginSucceeded.current = true;
+          setUser(profile.data);
+          localStorage.setItem(USER_CACHE_KEY, JSON.stringify(toSafeCache(profile.data)));
+        }
+        return { success: true, message: response.message || "Account created successfully" };
       } else {
-        return {
-          success: false,
-          message: response.message,
-          error: response.error as any,
-        };
+        return { success: false, message: response.message, error: response.error as any };
       }
-    } catch (err) {
-      console.error("Signup error (catch):", err);
-      return {
-        success: false,
-        message: "Network error",
-        error: "server_error",
-      };
+    } catch {
+      return { success: false, message: "Network error", error: "server_error" };
     } finally {
       setIsLoading(false);
     }
@@ -165,8 +160,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const logout = async (): Promise<void> => {
     try {
       await authApi.logout(); // Server clears HttpOnly cookies
-    } catch (e) {
-      console.error("Logout error:", e);
+    } catch {
+      // Ignore — cookies are cleared locally regardless
     } finally {
       localStorage.removeItem(USER_CACHE_KEY);
       setUser(null);
@@ -190,6 +185,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return response;
   };
 
+  const refreshProfile = async (): Promise<void> => {
+    try {
+      const response = await authApi.getProfile();
+      if (response.success && response.data) {
+        setUser(response.data);
+        localStorage.setItem(USER_CACHE_KEY, JSON.stringify(toSafeCache(response.data)));
+      }
+    } catch {
+      // silently ignore — caller can handle UI state
+    }
+  };
+
   const value: AuthContextType = {
     user,
     isLoading,
@@ -199,6 +206,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     signup,
     logout,
     updateUser,
+    refreshProfile,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import MobileLayout from "@/components/MobileLayout";
-import { Check, ArrowLeft, Zap, Heart, Sparkles, TrendingDown, Calendar, CheckCircle2, ArrowUpRight, Loader2 } from "lucide-react";
+import { Check, ChevronLeft, Zap, Heart, Sparkles, TrendingDown, Calendar, CheckCircle2, ArrowUpRight, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useRevenueCat } from "@/contexts/RevenueCatContext";
 import { toast } from "sonner";
@@ -27,23 +27,23 @@ const PLAN_DISPLAYS: PlanDisplay[] = [
     icon: Zap,
     commitment: null,
     features: [
-      "Reservation en ligne",
+      "Réservation en ligne",
       "Gestion des rendez-vous",
-      "Notifications clients",
+      "Notifications clientes",
       "Tableau de bord"
     ]
   },
   {
     id: "serenite",
-    name: "Serenite",
+    name: "Sérénité",
     icon: Heart,
     commitment: 3,
-    savings: "Economise 10\u20AC",
+    savings: "Économise 10\u20AC",
     savingsAmount: 10,
     features: [
       "Module finance",
       "Statistiques & Facturation",
-      "Portfolio photos integre",
+      "Portfolio photos intégré",
       "Rappels automatiques",
       "Tout Start inclus"
     ],
@@ -54,13 +54,13 @@ const PLAN_DISPLAYS: PlanDisplay[] = [
     name: "Signature",
     icon: Sparkles,
     commitment: 12,
-    savings: "Economise 50\u20AC",
+    savings: "Économise 50\u20AC",
     savingsAmount: 50,
     features: [
-      "Visibilite premium",
+      "Visibilité premium",
       "Rappels post-prestation",
       "Encaissement en ligne*",
-      "Tout Serenite inclus"
+      "Tout Sérénité inclus"
     ]
   }
 ];
@@ -158,12 +158,13 @@ const ProSubscription = () => {
     try {
       const pkg = getPackageForPlan(selectedPlan);
       if (!pkg) {
-        toast.error("Package non disponible. Reessaye plus tard.");
+        toast.error("Package non disponible. Réessaye plus tard.");
         return;
       }
 
       await purchasePackage(pkg);
       const plan = PLAN_DISPLAYS.find(p => p.id === selectedPlan);
+      const previousPlanDisplay = activePlan ? PLAN_DISPLAYS.find(p => p.id === activePlan) : null;
       navigate("/pro/subscription-success", {
         state: {
           plan: {
@@ -171,6 +172,8 @@ const ProSubscription = () => {
             name: plan?.name ?? selectedPlan,
             price: getRawPrice(selectedPlan) ?? 0,
           },
+          isUpgrade: !!activePlan,
+          previousPlanName: previousPlanDisplay?.name ?? null,
         },
       });
     } catch (error: any) {
@@ -178,7 +181,7 @@ const ProSubscription = () => {
         // User cancelled, do nothing
       } else {
         console.error("Purchase error:", error);
-        toast.error("Erreur lors du paiement. Reessaye.");
+        toast.error("Erreur lors du paiement. Réessaye.");
       }
     } finally {
       setIsPurchasing(false);
@@ -203,7 +206,7 @@ const ProSubscription = () => {
               onClick={() => navigate(-1)}
               className="w-9 h-9 rounded-full bg-muted/50 flex items-center justify-center active:scale-95 transition-transform"
             >
-              <ArrowLeft size={18} className="text-foreground" />
+              <ChevronLeft size={18} className="text-foreground" />
             </button>
             <div className="flex-1">
               <h1 className="text-lg font-semibold text-foreground">
@@ -294,7 +297,7 @@ const ProSubscription = () => {
               >
                 <TrendingDown size={14} className="text-emerald-600" />
                 <span className="text-xs font-semibold text-emerald-700">
-                  Jusqu'a {Number.isInteger(maxSavings) ? maxSavings : maxSavings.toFixed(2)}\u20AC d'economies par an
+                  Jusqu'à {Number.isInteger(maxSavings) ? maxSavings : maxSavings.toFixed(2)}\u20AC d'économies par an
                 </span>
               </div>
             )}
@@ -379,7 +382,7 @@ const ProSubscription = () => {
                             {plan.name}
                           </h3>
                           {plan.popular && !isCurrent && (
-                            <span className="inline-block mt-1 text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full animate-pulse">
+                            <span className="inline-block mt-1 text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
                               POPULAIRE
                             </span>
                           )}
@@ -538,7 +541,7 @@ const ProSubscription = () => {
                               />
                             </div>
                             <span className={`text-xs font-semibold ${isSelected ? "text-emerald-700" : "text-emerald-600"}`}>
-                              Tu economises {Number.isInteger(actualSavings) ? actualSavings : actualSavings?.toFixed(2)}\u20AC sur {plan.commitment} mois
+                              Tu économises {Number.isInteger(actualSavings) ? actualSavings : actualSavings?.toFixed(2)}\u20AC sur {plan.commitment} mois
                             </span>
                           </div>
                         )}
@@ -605,7 +608,7 @@ const ProSubscription = () => {
                 ) : selectedPlan && isCurrentPlan(selectedPlan) ? (
                   <>
                     <CheckCircle2 size={18} />
-                    Gerer mon abonnement
+                    Gérer mon abonnement
                   </>
                 ) : activePlan ? (
                   <>
@@ -618,9 +621,9 @@ const ProSubscription = () => {
               </button>
               <p className="text-xs text-center text-muted-foreground mt-3">
                 {activePlan && selectedPlan && !isCurrentPlan(selectedPlan) && (
-                  <span className="font-medium text-primary">Changement immediat &bull; </span>
+                  <span className="font-medium text-primary">Changement immédiat &bull; </span>
                 )}
-                {isAnnual ? "Paiement unique \u2022 " : ""}Annule a tout moment &bull; Paiement securise via Stripe
+                {isAnnual ? "Paiement unique \u2022 " : ""}Annule à tout moment &bull; Paiement sécurisé via Stripe
               </p>
             </div>
           </div>

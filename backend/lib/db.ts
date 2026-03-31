@@ -66,7 +66,9 @@ function getPool(): Pool {
     if (!url) throw new Error("DATABASE_URL manquante");
     _pool = new Pool({
       connectionString: url,
-      ssl: { rejectUnauthorized: false },
+      ssl: process.env.NODE_ENV === "production"
+        ? { rejectUnauthorized: true }   // validate CA cert in production
+        : { rejectUnauthorized: false },  // dev only (no IPv6/pooler TLS validation)
       connectionTimeoutMillis: 10000,
       idleTimeoutMillis: 30000,
     });
@@ -90,11 +92,12 @@ async function detectMode(): Promise<DbMode> {
   // La Management API est un fallback dev uniquement (machines sans IPv6).
   if (process.env.NODE_ENV === "production") {
     _mode = "pg";
-    console.log("[DB] Mode : connexion pg directe ✅");
+    console.info("[DB] pg direct connection (production)");
     return _mode;
   }
 
   // Test rapide (3s) pour voir si pg est joignable (dev uniquement)
+  // Probe pool is dev-only (we already returned early for production above)
   const probe = new Pool({
     connectionString: url,
     ssl: { rejectUnauthorized: false },
@@ -107,13 +110,13 @@ async function detectMode(): Promise<DbMode> {
     client.release();
     await probe.end();
     _mode = "pg";
-    console.log("[DB] Mode : connexion pg directe ✅");
+    console.info("[DB] pg direct connection (dev)");
   } catch {
     await probe.end().catch(() => {});
     _mode = "management";
     _projectRef = extractProjectRef();
     _mgmtToken = readMgmtToken();
-    console.log("[DB] Mode : Management API Supabase (pg inaccessible — IPv6/pooler) ✅");
+    console.info("[DB] Management API fallback (pg unreachable in dev)");
   }
 
   return _mode;

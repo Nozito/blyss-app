@@ -4,7 +4,7 @@
  */
 
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, Lock, Sparkles, Zap, Heart } from "lucide-react";
+import { ChevronLeft, Lock, Sparkles, Zap, Heart } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
 import { useRevenueCat } from "@/contexts/RevenueCatContext";
 import {
@@ -52,7 +52,7 @@ const ProUpgrade = () => {
               onClick={() => navigate(-1)}
               className="p-2 -ml-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
             >
-              <ArrowLeft size={22} className="text-foreground" />
+              <ChevronLeft size={22} className="text-foreground" />
             </button>
             <h1 className="text-lg font-bold text-foreground">Upgrade requis</h1>
           </div>

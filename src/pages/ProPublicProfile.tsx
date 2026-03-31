@@ -24,7 +24,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useRevenueCat } from "@/contexts/RevenueCatContext";
 import { instagramApi, InstagramStatus } from "@/services/api";
 import { getImageUrl } from "@/utils/imageUrl";
-import { set } from "date-fns";
 
 export interface ConditionItem {
   text: string;

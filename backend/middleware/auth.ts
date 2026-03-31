@@ -17,17 +17,14 @@ export function authMiddleware(
   }
 
   if (!token) {
-    console.log("❌ Auth: No token provided");
     return res.status(401).json({ success: false, message: "Unauthorized" });
   }
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number };
-    console.log("✅ Auth: Token decoded, userId:", decoded.id);
     req.user = { id: decoded.id };
     next();
-  } catch (err) {
-    console.error("❌ Auth: JWT error:", err);
+  } catch {
     return res.status(401).json({ success: false, message: "Invalid token" });
   }
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Lock, Eye, EyeOff, ArrowLeft, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
+import { Lock, Eye, EyeOff, ChevronLeft, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
 import { toast } from "sonner";
 
@@ -76,7 +76,7 @@ const ResetPassword = () => {
               onClick={() => navigate("/login")}
               className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              <ArrowLeft size={16} />
+              <ChevronLeft size={16} />
               Retour à la connexion
             </button>
           )}

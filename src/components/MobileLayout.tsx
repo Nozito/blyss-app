@@ -4,17 +4,40 @@ import { Home, Calendar, Heart, User } from "lucide-react";
 import { useRevenueCat } from "@/contexts/RevenueCatContext";
 import { canAccessRoute } from "@/config/subscriptionConfig";
 
+// Routes where the bottom nav is shown automatically.
+// Everything else hides it unless showNav={true} is passed explicitly.
+const NAV_ROUTES = new Set([
+  "/client",
+  "/client/my-booking",
+  "/client/favorites",
+  "/client/profile",
+  "/pro/dashboard",
+  "/pro/calendar",
+  "/pro/clients",
+  "/pro/profile",
+]);
+
 interface MobileLayoutProps {
   children: React.ReactNode;
+  /**
+   * undefined (default) → auto: nav shown only on NAV_ROUTES
+   * true  → force show
+   * false → force hide
+   */
   showNav?: boolean;
+  /** Force hide regardless of showNav (used for modal states) */
   hideNav?: boolean;
 }
 
 const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
-  ({ children, showNav = true, hideNav }, ref) => {
+  ({ children, showNav, hideNav }, ref) => {
     const location = useLocation();
     const isPro = location.pathname.startsWith("/pro");
     const { activePlan } = useRevenueCat();
+
+    // Auto-detection: show nav only on the main tab routes
+    const isNavRoute = NAV_ROUTES.has(location.pathname);
+    const shouldShowNav = !hideNav && (showNav === undefined ? isNavRoute : showNav);
 
     const allProNavItems = [
       { icon: Home, path: "/pro/dashboard", label: "Accueil" },
@@ -59,7 +82,7 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
           {children}
         </main>
 
-        {showNav && !hideNav && (
+        {shouldShowNav && (
           <nav className="fixed inset-x-0 bottom-0 z-50 flex justify-center pointer-events-none">
             <div
               className="apple-glass-nav pointer-events-auto mb-3 h-[56px] w-full max-w-[280px] md:max-w-[320px] px-3 flex items-center justify-around gap-1.5 rounded-[28px]"

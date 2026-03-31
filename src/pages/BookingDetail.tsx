@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
 import {
-  ArrowLeft, Calendar, Clock, MapPin, Star, MessageSquare,
+  ChevronLeft, Calendar, Clock, MapPin, Star, MessageSquare,
   Euro, Loader2, AlertCircle, CheckCircle2, Phone, CreditCard
 } from "lucide-react";
 import { loadStripe } from "@stripe/stripe-js";
@@ -310,7 +310,7 @@ const BookingDetail = () => {
             "
             aria-label="Retour"
           >
-            <ArrowLeft size={20} className="text-foreground" />
+            <ChevronLeft size={20} className="text-foreground" />
           </button>
           <h1 className="text-2xl font-display font-bold text-foreground">
             Détail réservation

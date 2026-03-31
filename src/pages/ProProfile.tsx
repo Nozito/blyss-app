@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Cropper, { Area } from "react-easy-crop";
 import getCroppedImg from "@/utils/cropImage";
+import { getImageUrl } from "@/utils/imageUrl";
 import { proApi } from "@/services/api";
 import { useRevenueCat } from "@/contexts/RevenueCatContext";
 import { canAccessFeature, PRO_PROFILE_MENU, type FeatureId } from "@/config/subscriptionConfig";
@@ -100,18 +101,12 @@ const calculateProfileCompleteness = (user: any): number => {
 };
 
 const ProProfile = () => {
-  const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const { user, isAuthenticated, isLoading, logout, refreshProfile } = useAuth();
   const { activePlan } = useRevenueCat();
   const navigate = useNavigate();
 
   // STATE
-  const baseUrl = import.meta.env.VITE_API_URL || "";
-  const initialPhoto =
-    user?.profile_photo && user.profile_photo.startsWith("http")
-      ? user.profile_photo
-      : user?.profile_photo
-        ? `${baseUrl}${user.profile_photo}`
-        : logo;
+  const initialPhoto = getImageUrl(user?.profile_photo ?? null) ?? logo;
 
   const [profileImage, setProfileImage] = useState<string>(initialPhoto);
   const [tempProfileImage, setTempProfileImage] = useState<string | null>(null);
@@ -129,12 +124,10 @@ const ProProfile = () => {
 
   useEffect(() => {
     if (user?.profile_photo) {
-      const url = user.profile_photo.startsWith("http")
-        ? user.profile_photo
-        : `${baseUrl}/${user.profile_photo}`;
-      setProfileImage(`${url}?t=${Date.now()}`);
+      const url = getImageUrl(user.profile_photo);
+      if (url) setProfileImage(`${url}?t=${Date.now()}`);
     }
-  }, [user?.profile_photo, baseUrl]);
+  }, [user?.profile_photo]);
 
   // CROP HANDLERS
   const onCropComplete = useCallback(
@@ -192,24 +185,29 @@ const ProProfile = () => {
         body: formData,
       });
       if (!response.ok) {
+        if (response.status === 401) {
+          toast.error("Session expirée. Reconnectez-vous.");
+          navigate("/login");
+          return;
+        }
         if (response.status === 413) {
           toast.error("L'image est trop volumineuse. Compresse-la à moins de 10 Mo.");
-        } else if (response.status === 400) {
-          const errData = await response.json().catch(() => ({}));
-          toast.error(errData?.message || "Format non accepté. Utilise JPG ou PNG.");
-        } else {
-          toast.error("Erreur lors de l'upload. Réessaie dans un instant.");
+          return;
         }
+        const errData = await response.json().catch(() => ({}));
+        toast.error(errData?.message || "Erreur lors de l'upload. Réessaie dans un instant.");
         return;
       }
       const result = await response.json();
       if (result.success) {
         toast.success("Photo de profil mise à jour !");
-        // Immediate preview without page reload
+        // Aperçu immédiat
         const previewUrl = URL.createObjectURL(blob);
         setProfileImage(previewUrl);
         setShowCropModal(false);
         setTempProfileImage(null);
+        // Mettre à jour le contexte auth pour que la photo persiste après navigation
+        await refreshProfile();
       } else {
         toast.error(result.message || "Erreur lors de l'upload");
       }

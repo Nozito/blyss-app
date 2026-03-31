@@ -1,5 +1,6 @@
 import { WebSocket } from "ws";
 import { getDb } from "./db";
+import { log } from "./logger";
 
 export const connectedClients = new Map<number, WebSocket>();
 
@@ -89,18 +90,17 @@ export async function sendNotificationToUser(
 ): Promise<boolean> {
   const hasPermission = await checkNotificationPreference(userId, notification.type);
   if (!hasPermission) {
-    console.log(`⚠️ User ${userId} has disabled ${notification.type} notifications`);
+    log.warn("/ws/notifications", "notification type disabled", { uid: userId, type: notification.type });
     return false;
   }
 
   const ws = connectedClients.get(userId);
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "new_notification", data: notification }));
-    console.log(`📨 Notification sent to user ${userId}`);
     return true;
   }
 
-  console.log(`⚠️ User ${userId} not connected`);
+  // User offline — normal, not an error
   return false;
 }
 
