@@ -18,6 +18,13 @@ import {
   User,
   AuthenticatedRequest,
 } from "../lib/types";
+import { log } from "../lib/logger";
+
+/** Extrait message + stack d'une erreur inconnue pour log structuré */
+function errInfo(e: unknown): [string, string | undefined] {
+  if (e instanceof Error) return [e.message, e.stack];
+  return [String(e), undefined];
+}
 
 const router = express.Router();
 
@@ -192,13 +199,20 @@ router.post(
         // Log without PII: userId only, no email
 
         await connection.commit();
+
+        // Auto-login: pose les cookies d'auth pour éviter une reconnexion manuelle
+        const accessToken = generateAccessToken(userId);
+        const refreshToken = await generateAndStoreRefreshToken(userId);
+        setAuthCookies(res, accessToken, refreshToken);
+
         res.json({ success: true, message: "Account created successfully" });
       } catch (transactionError) {
         await connection.rollback();
         throw transactionError;
       }
     } catch (err: any) {
-      console.error("❌ Signup error:", err);
+      const [msg, stack] = errInfo(err);
+      log.error("/api/auth/signup", msg, stack);
 
       if (err.code === "ER_DUP_ENTRY") {
         return res.status(409).json({
@@ -280,7 +294,7 @@ router.get(
         );
         years_on_blyss = (durationRows as any[])[0]?.years || 0;
       } catch (statsError) {
-        console.warn("⚠️ Erreur calcul stats (non bloquant):", statsError);
+        log.warn("/api/auth/profile", "Stats calculation failed (non-blocking)");
       }
 
       res.json({
@@ -311,7 +325,8 @@ router.get(
         },
       });
     } catch (error) {
-      console.error("❌ Get profile error:", error);
+      const [msg, stack] = errInfo(error);
+      log.error("/api/auth/profile", msg, stack);
       res.status(500).json({
         success: false,
         message: "Erreur serveur",
@@ -351,6 +366,9 @@ router.post(
         return res.status(403).json({ success: false, error: "account_disabled" });
       }
 
+      // Update last_login_at for RGPD data retention cron
+      await db.execute("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
+
       const { password_hash, ...userWithoutPassword } = user;
       const accessToken = generateAccessToken(user.id);
       const refreshToken = await generateAndStoreRefreshToken(user.id);
@@ -362,7 +380,8 @@ router.post(
         data: { accessToken, refreshToken, user: userWithoutPassword },
       });
     } catch (err) {
-      console.error(err);
+      const [msg, stack] = errInfo(err);
+      log.error("/api/auth/login", msg, stack);
       res.status(500).json({ success: false, error: "login_failed" });
     }
   }
@@ -414,7 +433,8 @@ router.post(
         data: { accessToken: newAccessToken, refreshToken: newRefreshToken },
       });
     } catch (err) {
-      console.error("Refresh token error:", err);
+      const [msg, stack] = errInfo(err);
+      log.error("/api/auth/refresh", msg, stack);
       res.status(500).json({ success: false, message: "Erreur serveur" });
     }
   }
@@ -433,7 +453,8 @@ router.post("/logout", async (req: Request, res: Response) => {
     clearAuthCookies(res);
     return res.json({ success: true });
   } catch (err) {
-    console.error("Logout error:", err);
+    const [msg, stack] = errInfo(err);
+    log.error("/api/auth/logout", msg, stack);
     res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
@@ -476,7 +497,8 @@ router.delete(
       return res.json({ success: true, message: "Compte supprimé avec succès" });
     } catch (err) {
       if (connection) await connection.rollback();
-      console.error("❌ Delete account error:", err);
+      const [msg, stack] = errInfo(err);
+      log.error("/api/auth/delete-account", msg, stack);
       return res.status(500).json({ success: false, message: "Erreur serveur" });
     } finally {
       if (connection) connection.release();
@@ -533,7 +555,46 @@ router.get(
         notifications,
       });
     } catch (err) {
-      console.error("❌ Export data error:", err);
+      const [msg, stack] = errInfo(err);
+      log.error("/api/auth/export-data", msg, stack);
+      return res.status(500).json({ success: false, message: "Erreur serveur" });
+    }
+  }
+);
+
+/* PATCH /restrict-account — RGPD Art. 18 (droit à la limitation) */
+router.patch(
+  "/restrict-account",
+  authenticateToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Non authentifié" });
+    try {
+      await getDb().execute(
+        "UPDATE users SET is_restricted = TRUE, restricted_at = NOW() WHERE id = ?",
+        [userId]
+      );
+      return res.json({ success: true, message: "Compte restreint. Vos données ne seront plus utilisées pour des traitements non essentiels." });
+    } catch {
+      return res.status(500).json({ success: false, message: "Erreur serveur" });
+    }
+  }
+);
+
+/* PATCH /unrestrict-account — Lever la limitation */
+router.patch(
+  "/unrestrict-account",
+  authenticateToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Non authentifié" });
+    try {
+      await getDb().execute(
+        "UPDATE users SET is_restricted = FALSE, restricted_at = NULL WHERE id = ?",
+        [userId]
+      );
+      return res.json({ success: true, message: "Restriction levée." });
+    } catch {
       return res.status(500).json({ success: false, message: "Erreur serveur" });
     }
   }
@@ -584,7 +645,8 @@ router.post(
 
       return genericOk();
     } catch (err) {
-      console.error("❌ forgot-password error:", err);
+      const [msg, stack] = errInfo(err);
+      log.error("/api/auth/forgot-password", msg, stack);
       return genericOk(); // Still don't leak info on error
     }
   }
@@ -638,7 +700,8 @@ router.post(
 
       return res.json({ success: true, message: "Mot de passe réinitialisé avec succès." });
     } catch (err) {
-      console.error("❌ reset-password error:", err);
+      const [msg, stack] = errInfo(err);
+      log.error("/api/auth/reset-password", msg, stack);
       return res.status(500).json({ success: false, error: "server_error" });
     }
   }

@@ -1,6 +1,6 @@
 import MobileLayout from "@/components/MobileLayout";
 import { motion } from "framer-motion";
-import { ArrowLeft, User, Lock, Eye, EyeOff, Download, Trash2 } from "lucide-react";
+import { ChevronLeft, User, Lock, Eye, EyeOff, Download, Trash2, Shield } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -159,7 +159,7 @@ const ClientSettings = () => {
           transition={{ duration: 0.5 }}
         >
           <button
-            onClick={() => navigate("/client/profile")}
+            onClick={() => navigate(-1)}
             className="
               w-11 h-11 rounded-2xl bg-card border border-muted
               flex items-center justify-center
@@ -169,7 +169,7 @@ const ClientSettings = () => {
             "
             aria-label="Retour"
           >
-            <ArrowLeft size={20} className="text-foreground" />
+            <ChevronLeft size={20} className="text-foreground" />
           </button>
           <div className="flex-1">
             <h1 className="text-2xl font-display font-bold text-foreground">
@@ -454,6 +454,14 @@ const ClientSettings = () => {
           <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
             Données & confidentialité
           </p>
+
+          <button
+            onClick={() => navigate("/client/rgpd")}
+            className="w-full flex items-center gap-3 py-3 px-4 rounded-xl bg-muted/50 hover:bg-muted transition-colors text-sm font-medium text-foreground active:scale-[0.98]"
+          >
+            <Shield size={16} className="text-primary flex-shrink-0" />
+            Mes droits RGPD
+          </button>
 
           <button
             onClick={handleExportData}

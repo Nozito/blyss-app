@@ -1,5 +1,5 @@
 import MobileLayout from "@/components/MobileLayout";
-import { ChevronLeft, Check, AlertCircle, Eye, EyeOff, Save, Download, Trash2 } from "lucide-react";
+import { ChevronLeft, Check, AlertCircle, Eye, EyeOff, Save, Download, Trash2, Shield } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -378,7 +378,7 @@ const ProSettings = () => {
         <div className="relative -mx-4 px-4 pt-2 pb-6 mb-6 animate-fade-in">
           <div className="flex items-center mb-3">
             <button
-              onClick={() => navigate("/pro/profile")}
+              onClick={() => navigate(-1)}
               className="w-10 h-10 rounded-xl bg-muted hover:bg-muted-foreground/10 flex items-center justify-center active:scale-95 transition-all mr-3"
             >
               <ChevronLeft size={20} className="text-foreground" />
@@ -599,50 +599,19 @@ const ProSettings = () => {
           </div>
         </div>
 
-        {/* Bouton Enregistrer fixe en bas */}
-        <div className={`
-          sticky bottom-0 -mx-4 px-4 pt-4 pb-6 bg-gradient-to-t from-background via-background to-transparent
-          transition-all duration-300
-          ${hasChanges ? "animate-in slide-in-from-bottom-4" : ""}
-        `}>
-          <button
-            onClick={handleSave}
-            disabled={!hasChanges || isSaving}
-            className={`
-              w-full py-4 rounded-2xl font-semibold text-sm
-              transition-all duration-300 ease-out
-              flex items-center justify-center gap-2
-              ${hasChanges && !isSaving
-                ? "bg-blyss-pink text-white shadow-blyss-pink/30 active:scale-[0.97] shadow-lg hover:shadow-xl hover:bg-blyss-pink/90 scale-105"
-                : "bg-muted text-muted-foreground cursor-not-allowed scale-100"
-              }
-            `}
-          >
-            {isSaving ? (
-              <>
-                <div className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent"></div>
-                Enregistrement en cours...
-              </>
-            ) : hasChanges ? (
-              <>
-                <Save size={18} />
-                Enregistrer les modifications
-              </>
-            ) : (
-              <>
-                <Check size={18} />
-                Tout est à jour
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
         {/* Données & confidentialité */}
         <div className="rounded-2xl border border-border bg-card p-5 space-y-3 mb-4">
           <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
             Données & confidentialité
           </p>
+
+          <button
+            onClick={() => navigate("/pro/rgpd")}
+            className="w-full flex items-center gap-3 py-3 px-4 rounded-xl bg-muted/50 hover:bg-muted transition-colors text-sm font-medium text-foreground active:scale-[0.98]"
+          >
+            <Shield size={16} className="text-primary flex-shrink-0" />
+            Mes droits RGPD
+          </button>
 
           <button
             onClick={handleExportData}
@@ -685,6 +654,45 @@ const ProSettings = () => {
             </div>
           )}
         </div>
+
+        {/* Bouton Enregistrer fixe en bas */}
+        <div className={`
+          sticky bottom-0 -mx-4 px-4 pt-4 pb-6 bg-gradient-to-t from-background via-background to-transparent
+          transition-all duration-300
+          ${hasChanges ? "animate-in slide-in-from-bottom-4" : ""}
+        `}>
+          <button
+            onClick={handleSave}
+            disabled={!hasChanges || isSaving}
+            className={`
+              w-full py-4 rounded-2xl font-semibold text-sm
+              transition-all duration-300 ease-out
+              flex items-center justify-center gap-2
+              ${hasChanges && !isSaving
+                ? "bg-blyss-pink text-white shadow-blyss-pink/30 active:scale-[0.97] shadow-lg hover:shadow-xl hover:bg-blyss-pink/90 scale-105"
+                : "bg-muted text-muted-foreground cursor-not-allowed scale-100"
+              }
+            `}
+          >
+            {isSaving ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent"></div>
+                Enregistrement en cours...
+              </>
+            ) : hasChanges ? (
+              <>
+                <Save size={18} />
+                Enregistrer les modifications
+              </>
+            ) : (
+              <>
+                <Check size={18} />
+                Tout est à jour
+              </>
+            )}
+          </button>
+        </div>
+      </div>
 
       <style>{`
         @keyframes fade-in {

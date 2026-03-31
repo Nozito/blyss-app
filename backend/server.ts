@@ -45,6 +45,7 @@ const UPLOADS_DIR = path.resolve(
 import sharp from "sharp";
 import { sendPushToUser } from "./lib/push";
 import { startReminderCron, runReminderCycle } from "./lib/reminders";
+import { startDataRetentionCron } from "./cron/data-retention";
 import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
 import http from "http";
@@ -89,7 +90,7 @@ import {
 // ==========================================
 const envFile = process.env.NODE_ENV === "production" ? ".env.prod" : ".env.dev";
 const envPath = path.resolve(__dirname, "..", envFile);
-console.log("Loading env from:", envPath);
+console.info("Loading env from:", envPath);
 
 dotenv.config({ path: envPath });
 
@@ -164,7 +165,19 @@ app.set("trust proxy", 1);
 // Security headers (before anything else, after Stripe raw-body route)
 app.use(
   helmet({
-    contentSecurityPolicy: false, // Géré côté frontend/CDN
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc:     ["'self'"],
+        scriptSrc:      ["'self'"],
+        styleSrc:       ["'self'", "'unsafe-inline'"],
+        imgSrc:         ["'self'", "data:", "blob:"],
+        connectSrc:     ["'self'"],
+        fontSrc:        ["'self'"],
+        objectSrc:      ["'none'"],
+        frameAncestors: ["'none'"],
+        upgradeInsecureRequests: [],
+      },
+    },
     crossOriginEmbedderPolicy: false, // WebSocket + assets cross-origin
   })
 );
@@ -203,7 +216,7 @@ app.post(
       return res.status(400).json({ error: "Invalid signature" });
     }
 
-    console.log(`[STRIPE_WEBHOOK] Event: ${event.type}, id: ${event.id}`);
+    log.warn("/api/webhooks/stripe", `Event: ${event.type}, id: ${event.id}`);
 
     try {
       switch (event.type) {
@@ -248,12 +261,12 @@ app.post(
           break;
         }
         default:
-          console.log(`[STRIPE_WEBHOOK] Unhandled event type: ${event.type}`);
+          log.warn("/api/webhooks/stripe", `Unhandled event type: ${event.type}`);
       }
 
       return res.status(200).json({ received: true });
     } catch (error) {
-      console.error("[STRIPE_WEBHOOK] Processing error:", error);
+      log.error("/api/webhooks/stripe", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined);
       return res.status(500).json({ error: "Webhook processing failed" });
     }
   }
@@ -334,8 +347,6 @@ async function wsAuthenticate(ws: AuthenticatedWebSocket, token: string): Promis
 }
 
 wss.on("connection", async (ws: AuthenticatedWebSocket, req) => {
-  console.log("🔌 New WebSocket connection");
-
   ws.userId = undefined;
   ws.isAuthenticated = false;
   ws.isAlive = true;
@@ -350,7 +361,6 @@ wss.on("connection", async (ws: AuthenticatedWebSocket, req) => {
   // ✅ Timeout d'authentification : ferme la connexion si pas d'auth dans 10s
   ws.authTimeout = setTimeout(() => {
     if (!ws.isAuthenticated) {
-      console.log("⏱️ Auth timeout, closing connection");
       ws.send(
         JSON.stringify({
           type: "auth_error",
@@ -438,7 +448,7 @@ wss.on("connection", async (ws: AuthenticatedWebSocket, req) => {
       }
 
     } catch (error) {
-      console.error("❌ WebSocket message error:", error);
+      log.error("/ws/message", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined);
       ws.send(
         JSON.stringify({
           type: "error",
@@ -457,13 +467,11 @@ wss.on("connection", async (ws: AuthenticatedWebSocket, req) => {
     if (ws.userId) {
       connectedClients.delete(ws.userId);
       log.info("/ws/disconnect", 0, 0, ws.userId);
-    } else {
-      console.log("🔌 Unauthenticated client disconnected");
     }
   });
 
   ws.on("error", (error) => {
-    console.error("❌ WebSocket error:", error);
+    log.error("/ws/error", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined);
   });
 });
 
@@ -490,10 +498,8 @@ const heartbeatInterval = setInterval(() => {
 // ✅ Nettoyer l'interval quand le serveur se ferme
 wss.on("close", () => {
   clearInterval(heartbeatInterval);
-  console.log("🔌 WebSocket server closed");
 });
 
-console.log("✅ WebSocket server ready with heartbeat");
 
 // ==========================================
 // REVENUECAT WEBHOOK (no auth middleware - uses its own secret)
@@ -579,12 +585,12 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
 
       log.info("/api/webhooks/revenuecat/deactivate", 200, 0, userId);
     } else {
-      console.log(`[RC_WEBHOOK] Unhandled event type: ${eventType}`);
+      log.warn("/api/webhooks/revenuecat", `Unhandled event type: ${eventType}`);
     }
 
     return res.status(200).json({ success: true });
   } catch (error) {
-    console.error("[RC_WEBHOOK] Error:", error);
+    log.error("/api/webhooks/revenuecat", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined);
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
@@ -604,7 +610,7 @@ if (!process.env.IBAN_ENC_KEY) {
   console.error("❌ IBAN_ENC_KEY manquante");
   process.exit(1);
 }
-console.log("✅ Clés de chiffrement IBAN chargées");
+console.info("Clés de chiffrement IBAN chargées");
 
 // ==========================================
 // INTERFACES
@@ -737,12 +743,9 @@ function getProId(req: AuthenticatedRequest): number {
 app.get(
   "/api/users/pros/:proId",
   publicListingLimiter,
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const proId = parseParamToInt(req.params.proId);
-
-      // Ajout d'un log pour vérifier le proId reçu
-      console.log("🔎 proId reçu via params:", req.params.proId, "=>", proId);
 
       if (isNaN(proId)) {
         return res.status(400).json({
@@ -769,15 +772,9 @@ app.get(
         });
       }
 
-      console.log("✅ Pro found:", pro.id);
-
       res.json({ success: true, data: pro });
     } catch (error) {
-      console.error("❌ Error fetching pro:", error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur serveur"
-      });
+      next(error);
     }
   }
 );
@@ -785,7 +782,7 @@ app.get(
 /* GET PRESTATIONS BY PRO (PUBLIC) */
 app.get(
   "/api/prestations/pro/:id",
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const proId = parseParamToInt(req.params.id);
 
@@ -799,11 +796,7 @@ app.get(
 
       res.json({ success: true, data: rows });
     } catch (error) {
-      console.error("Error fetching prestations:", error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur serveur"
-      });
+      next(error);
     }
   }
 );
@@ -815,41 +808,29 @@ app.get(
 // GET: Récupérer les créneaux disponibles pour un pro sur une date donnée
 app.get(
   "/api/slots/available/:proId/:date",
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const proId = parseParamToInt(req.params.proId);
       const dateStr = req.params.date; // Format: YYYY-MM-DD
 
-      const startOfDay = `${dateStr} 00:00:00`;
-      const endOfDay = `${dateStr} 23:59:59`;
-
-      // Récupérer les slots disponibles
+      // Récupérer les slots disponibles pour la date (comparaison date locale stockée)
       const [availableSlots] = await db.query(
-        `SELECT id, start_datetime, end_datetime, duration
+        `SELECT id, TO_CHAR(start_datetime, 'HH24:MI') AS time, duration,
+                start_datetime, end_datetime
          FROM slots
-         WHERE pro_id = ? 
+         WHERE pro_id = ?
          AND status = 'available'
-         AND start_datetime BETWEEN ? AND ?
+         AND start_datetime::date = ?::date
+         AND start_datetime > NOW()
          ORDER BY start_datetime ASC`,
-        [proId, startOfDay, endOfDay]
+        [proId, dateStr]
       );
 
-      // Formater les créneaux horaires uniquement (HH:MM)
-      const formattedSlots = (availableSlots as any[]).map(slot => {
-        const time = new Date(slot.start_datetime).toTimeString().slice(0, 5);
-        return {
-          id: slot.id,
-          time: time,
-          duration: slot.duration,
-          start_datetime: slot.start_datetime,
-          end_datetime: slot.end_datetime
-        };
-      });
+      const formattedSlots = availableSlots as any[];
 
       res.json({ success: true, data: formattedSlots });
     } catch (error) {
-      console.error("Error fetching available slots:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -1022,8 +1003,6 @@ app.get(
 
       const proId = parseInt(proIdParam, 10);
 
-      console.log("🔍 Params reçus:", { proId, month: monthParam });
-
       if (isNaN(proId) || proId <= 0) {
         return res.status(400).json({
           success: false,
@@ -1042,20 +1021,17 @@ app.get(
       const year = parseInt(yearStr, 10);
       const monthNumber = parseInt(monthStr, 10);
 
-      console.log("🔍 Recherche pour:", { year, monthNumber });
-
       const [result] = await db.query(
         `SELECT DISTINCT TO_CHAR(start_datetime, 'YYYY-MM-DD') as available_date
          FROM slots
          WHERE pro_id = ?
          AND status = 'available'
+         AND start_datetime > NOW()
          AND EXTRACT(YEAR FROM start_datetime) = ?
          AND EXTRACT(MONTH FROM start_datetime) = ?
          ORDER BY available_date ASC`,
         [proId, year, monthNumber]
       );
-
-      console.log("📊 Résultats:", (result as any[]).length, "jours");
 
       const dates = (result as any[]).map((row: any) => row.available_date);
 
@@ -1074,8 +1050,29 @@ app.get(
 
 // AUTH ROUTES → routes/auth.routes.ts (monté sur /api/auth)
 
+// ─── Guard abonnement actif — routes prestations uniquement ──────────────────
+// Vérifie en DB que le pro a pro_status = 'active'.
+// NE PAS mettre en router.use() : ça s'appliquerait à TOUS les /api/pro/* (y compris
+// les routes app-level) ce qui casserait les tests et routes sans abonnement.
+async function requireActiveProSubscription(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ success: false, error: "non_authentifie" });
+    return;
+  }
+  const [rows] = await db.query(
+    "SELECT pro_status FROM users WHERE id = ? AND role = 'pro'",
+    [userId]
+  );
+  if ((rows as any[])[0]?.pro_status !== "active") {
+    res.status(403).json({ success: false, error: "subscription_required" });
+    return;
+  }
+  next();
+}
+
 // ===== GET /api/pro/prestations =====
-router.get('/prestations', authMiddleware, async (req: any, res: any) => {
+router.get('/prestations', authMiddleware, requireActiveProSubscription, async (req: any, res: any) => {
   try {
     const [rows] = await db.query(
       `SELECT id, pro_id, name, description, price, duration_minutes, active, created_at
@@ -1092,7 +1089,7 @@ router.get('/prestations', authMiddleware, async (req: any, res: any) => {
 });
 
 // ===== POST /api/pro/prestations =====
-router.post('/prestations', authMiddleware, validate(prestationSchema), async (req: any, res: any) => {
+router.post('/prestations', authMiddleware, validate(prestationSchema), requireActiveProSubscription, async (req: any, res: any) => {
   try {
     const { name, description, price, duration_minutes, active } = req.body;
     const [result] = await db.query(
@@ -1113,7 +1110,7 @@ router.post('/prestations', authMiddleware, validate(prestationSchema), async (r
 });
 
 // ===== PATCH /api/pro/prestations/:id =====
-router.patch('/prestations/:id', authMiddleware, validate(prestationPatchSchema), async (req: any, res: any) => {
+router.patch('/prestations/:id', authMiddleware, validate(prestationPatchSchema), requireActiveProSubscription, async (req: any, res: any) => {
   try {
     const { id } = req.params;
     const { name, description, price, duration_minutes, active } = req.body;
@@ -1170,7 +1167,7 @@ router.patch('/prestations/:id', authMiddleware, validate(prestationPatchSchema)
 });
 
 // ===== DELETE /api/pro/prestations/:id =====
-router.delete('/prestations/:id', authMiddleware, async (req: any, res: any) => {
+router.delete('/prestations/:id', authMiddleware, requireActiveProSubscription, async (req: any, res: any) => {
   try {
     const { id } = req.params;
     // Delete and check if existed
@@ -1189,7 +1186,7 @@ router.delete('/prestations/:id', authMiddleware, async (req: any, res: any) => 
 });
 
 // ===== POST /api/pro/prestations/:id/duplicate =====
-router.post('/prestations/:id/duplicate', authMiddleware, async (req: any, res: any) => {
+router.post('/prestations/:id/duplicate', authMiddleware, requireActiveProSubscription, async (req: any, res: any) => {
   try {
     const { id } = req.params;
     // Récupère la prestation originale
@@ -1247,10 +1244,8 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
     );
 
     const user = userRows?.[0];
-    console.log(`[FINANCE_STATS][${rid}] userRow=`, user);
 
     if (!user || user.role !== "pro" || user.pro_status !== "active") {
-      console.log(`[FINANCE_STATS][${rid}] BLOCK: pro not active`);
       return res.status(403).json({
         success: false,
         error: "Accès réservé aux professionnels actifs",
@@ -1264,10 +1259,8 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
     );
 
     const subscription = subscriptionRows?.[0];
-    console.log(`[FINANCE_STATS][${rid}] subscriptionRow=`, subscription);
 
     if (!subscription || subscription.status !== "active") {
-      console.log(`[FINANCE_STATS][${rid}] BLOCK: no active subscription`);
       return res.status(403).json({
         success: false,
         error: "Aucun abonnement actif",
@@ -1275,7 +1268,6 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
     }
 
     if (subscription.plan !== "signature") {
-      console.log(`[FINANCE_STATS][${rid}] BLOCK: wrong plan`, subscription.plan);
       return res.status(403).json({
         success: false,
         error: `Fonctionnalité réservée à l'abonnement Signature (actuel : ${subscription.plan})`,
@@ -1373,10 +1365,7 @@ app.put("/api/pro/finance/objective", authenticateToken, validate(financeObjecti
     );
     const user = userRows?.[0];
 
-    console.log(`[FINANCE_OBJECTIVE][${rid}] userRow=`, user);
-
     if (!user || user.role !== "pro" || user.pro_status !== "active") {
-      console.log(`[FINANCE_OBJECTIVE][${rid}] BLOCK: pro not active`);
       return res.status(403).json({
         success: false,
         error: "Accès réservé aux professionnels actifs",
@@ -1390,15 +1379,11 @@ app.put("/api/pro/finance/objective", authenticateToken, validate(financeObjecti
     );
     const subscription = subscriptionRows?.[0];
 
-    console.log(`[FINANCE_OBJECTIVE][${rid}] subscriptionRow=`, subscription);
-
     if (!subscription || subscription.status !== "active") {
-      console.log(`[FINANCE_OBJECTIVE][${rid}] BLOCK: no active subscription`);
       return res.status(403).json({ success: false, error: "Aucun abonnement actif" });
     }
 
     if (subscription.plan !== "signature") {
-      console.log(`[FINANCE_OBJECTIVE][${rid}] BLOCK: wrong plan`, subscription.plan);
       return res.status(403).json({
         success: false,
         error: `Fonctionnalité réservée à l'abonnement Signature (actuel : ${subscription.plan})`,
@@ -1410,8 +1395,6 @@ app.put("/api/pro/finance/objective", authenticateToken, validate(financeObjecti
       Math.round(objective),
       userId,
     ]);
-
-    console.log(`[FINANCE_OBJECTIVE][${rid}] OK updated objective=`, Math.round(objective));
 
     return res.json({
       success: true,
@@ -1442,7 +1425,6 @@ app.get("/api/pro/finance/export", authenticateToken, async (req: any, res) => {
     );
 
     const subscription = subRows?.[0];
-    console.log(`[FINANCE_EXPORT][${rid}] subscriptionRow=`, subscription);
 
     if (!subscription || subscription.plan !== "signature") {
       return res.status(403).json({
@@ -2227,7 +2209,7 @@ app.get(
       const proId = parseParamToInt(req.params.proId);
 
       if (isNaN(proId) || proId <= 0) {
-        console.warn(`⚠️ ID invalide reçu: ${req.params.proId}`);
+        log.warn("/api/reviews/pro/:proId", `ID invalide reçu: ${req.params.proId}`);
         return res.status(400).json({
           success: false,
           message: "ID du professionnel invalide"
@@ -3463,31 +3445,14 @@ app.post(
       }
 
       const startDatetime = `${date} ${time}:00`;
+      const dur = Math.abs(parseInt(String(duration), 10)) || 60;
 
       connection = await db.getConnection();
 
-      console.log("Creating slot:", { proId, startDatetime, duration });
-
       await connection.query(
-        `
-        INSERT INTO slots (
-          pro_id, 
-          start_datetime, 
-          end_datetime, 
-          duration, 
-          status, 
-          created_at
-        )
-        VALUES (
-          ?, 
-          ?, 
-          ? + (? * INTERVAL '1 minute'),
-          ?, 
-          'available', 
-          NOW()
-        )
-        `,
-        [proId, startDatetime, startDatetime, duration, duration]
+        `INSERT INTO slots (pro_id, start_datetime, end_datetime, duration, status, created_at)
+         VALUES (?, ?::timestamptz, ?::timestamptz + (? * INTERVAL '1 minute'), ?, 'available', NOW())`,
+        [proId, startDatetime, startDatetime, dur, dur]
       );
 
       res.json({ success: true, message: "Créneau créé" });
@@ -3523,21 +3488,21 @@ app.get(
           TO_CHAR(start_datetime, 'HH24:MI') AS time,
           duration,
           CASE
-            WHEN start_datetime + (duration * INTERVAL '1 minute') < NOW() THEN 'past'
+            WHEN start_datetime + (ABS(duration) * INTERVAL '1 minute') < NOW() THEN 'past'
             ELSE status
           END AS computed_status,
           status AS original_status,
           CASE
-            WHEN start_datetime + (duration * INTERVAL '1 minute') < NOW() THEN 0
+            WHEN start_datetime + (ABS(duration) * INTERVAL '1 minute') < NOW() THEN 0
             WHEN status = 'available' THEN 1
             ELSE 0
-          END AS isActive,
+          END AS is_active,
           CASE
-            WHEN start_datetime + (duration * INTERVAL '1 minute') < NOW() THEN 0
+            WHEN start_datetime + (ABS(duration) * INTERVAL '1 minute') < NOW() THEN 0
             WHEN status = 'available' THEN 1
             WHEN status = 'booked' THEN 0
             ELSE 1
-          END AS isAvailable
+          END AS is_available
         FROM slots
         WHERE pro_id = ?
           AND start_datetime::date = ?
@@ -3565,25 +3530,40 @@ app.patch(
     try {
       const proId = getProId(req);
       const slotId = parseInt(String(req.params.id));
-      const { status } = req.body;
-
-      if (!status || !['available', 'blocked'].includes(status)) {
-        return res.status(400).json({
-          success: false,
-          error: "Status invalide"
-        });
-      }
+      const { status, date, time, duration } = req.body;
 
       connection = await db.getConnection();
 
-      await connection.query(
-        `
-        UPDATE slots 
-        SET status = ?
-        WHERE id = ? AND pro_id = ?
-        `,
-        [status, slotId, proId]
+      // Vérifier que le créneau existe, appartient au pro, et n'est pas passé
+      const [slotRows] = await connection.query(
+        `SELECT id FROM slots WHERE id = ? AND pro_id = ? AND start_datetime + (ABS(duration) * INTERVAL '1 minute') > NOW()`,
+        [slotId, proId]
       );
+      if ((slotRows as any[]).length === 0) {
+        return res.status(400).json({ success: false, error: "Ce créneau est passé ou n'existe pas" });
+      }
+
+      if (time && date) {
+        // Modification de l'heure/durée
+        const dur = Math.abs(parseInt(String(duration), 10)) || 60;
+        const newStart = `${date} ${time}:00`;
+        await connection.query(
+          `UPDATE slots
+           SET start_datetime = ?::timestamptz,
+               end_datetime   = ?::timestamptz + (? * INTERVAL '1 minute'),
+               duration       = ?
+           WHERE id = ? AND pro_id = ?`,
+          [newStart, newStart, dur, dur, slotId, proId]
+        );
+      } else if (status && ['available', 'blocked'].includes(status)) {
+        // Modification du statut uniquement
+        await connection.query(
+          `UPDATE slots SET status = ? WHERE id = ? AND pro_id = ?`,
+          [status, slotId, proId]
+        );
+      } else {
+        return res.status(400).json({ success: false, error: "Paramètres invalides" });
+      }
 
       res.json({ success: true, message: "Créneau mis à jour" });
     } catch (err) {
@@ -3607,11 +3587,20 @@ app.delete(
 
       connection = await db.getConnection();
 
+      // Refuser la suppression d'un créneau réservé
+      const [slotCheck] = await connection.query(
+        `SELECT status FROM slots WHERE id = ? AND pro_id = ?`,
+        [slotId, proId]
+      );
+      if ((slotCheck as any[]).length === 0) {
+        return res.status(404).json({ success: false, error: "Créneau introuvable" });
+      }
+      if ((slotCheck as any[])[0].status === 'booked') {
+        return res.status(400).json({ success: false, error: "Impossible de supprimer un créneau réservé" });
+      }
+
       await connection.query(
-        `
-        DELETE FROM slots 
-        WHERE id = ? AND pro_id = ?
-        `,
+        `DELETE FROM slots WHERE id = ? AND pro_id = ?`,
         [slotId, proId]
       );
 
@@ -4363,8 +4352,6 @@ app.get('/api/client/my-booking', authenticateToken, async (req: AuthenticatedRe
   try {
     const clientId = req.user?.id;
 
-    console.log(`🔍 Récupération réservations pour client ${clientId}`);
-
     const [rows] = await db.query(
       `SELECT 
         r.id,
@@ -4387,8 +4374,6 @@ app.get('/api/client/my-booking', authenticateToken, async (req: AuthenticatedRe
       ORDER BY r.start_datetime DESC`,
       [clientId]
     );
-
-    console.log(`✅ ${(rows as any[]).length} réservations trouvées`);
 
     res.json({
       success: true,
@@ -4663,7 +4648,7 @@ app.patch(
         );
       }
 
-      console.log(`✅ Réservation ${bookingId} annulée par le client ${clientId}`);
+      log.info("/api/client/bookings/cancel", 200, 0, clientId);
 
       res.json({
         success: true,
@@ -5477,8 +5462,8 @@ function requirePlan(minPlan: "start" | "serenite" | "signature") {
 
       next();
     } catch (err) {
-      console.error("[requirePlan] DB error:", err);
-      return res.status(500).json({ success: false, error: "Cannot verify subscription" });
+      log.error("/requirePlan", err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : undefined);
+      return next(err);
     }
   };
 }
@@ -5487,7 +5472,7 @@ function requirePlan(minPlan: "start" | "serenite" | "signature") {
 let instagramService: InstagramService;
 try {
   instagramService = new InstagramService(db);
-  console.log("✅ InstagramService initialized");
+  console.info("InstagramService initialized");
 } catch (err: any) {
   console.warn("⚠️  InstagramService not initialized:", err.message);
 }
@@ -5503,7 +5488,7 @@ app.get(
       const { url } = instagramService.buildAuthUrl(req.user!.id);
       res.json({ success: true, data: { authUrl: url } });
     } catch (err) {
-      console.error("[Instagram] buildAuthUrl error:", err);
+      log.error("/api/instagram/connect", err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : undefined);
       res.status(500).json({ success: false, error: "Cannot build auth URL" });
     }
   }
@@ -5579,11 +5564,11 @@ app.get("/api/instagram/callback", instagramLimiter, async (req: Request, res: R
     // Sync immédiate des photos (fire & forget si lente)
     instagramService
       .fetchAndCachePhotos(proId)
-      .catch((e) => console.error("[Instagram] Initial sync error:", e));
+      .catch((e: unknown) => log.error("/api/instagram/callback", e instanceof Error ? e.message : String(e), e instanceof Error ? e.stack : undefined));
 
     res.redirect(`${FRONTEND_URL}/pro/public-profile?ig_connected=true`);
   } catch (err: any) {
-    console.error("[Instagram] OAuth callback error:", err.message);
+    log.error("/api/instagram/callback", err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : undefined);
     res.redirect(`${FRONTEND_URL}/pro/public-profile?ig_error=server_error`);
   }
 });
@@ -5599,7 +5584,7 @@ app.get(
       const status = await instagramService.getConnectionStatus(req.user!.id);
       res.json({ success: true, data: status });
     } catch (err) {
-      console.error("[Instagram] Status error:", err);
+      log.error("/api/instagram/status", err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : undefined);
       res.status(500).json({ success: false, error: "Cannot fetch status" });
     }
   }
@@ -5616,7 +5601,7 @@ app.delete(
       await instagramService.disconnect(req.user!.id);
       res.json({ success: true });
     } catch (err) {
-      console.error("[Instagram] Disconnect error:", err);
+      log.error("/api/instagram/disconnect", err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : undefined);
       res.status(500).json({ success: false, error: "Cannot disconnect" });
     }
   }
@@ -5647,7 +5632,7 @@ app.post(
       const ok = await instagramService.fetchAndCachePhotos(proId);
       res.json({ success: ok });
     } catch (err) {
-      console.error("[Instagram] Manual sync error:", err);
+      log.error("/api/instagram/sync", err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : undefined);
       res.status(500).json({ success: false, error: "Sync failed" });
     }
   }
@@ -5702,7 +5687,7 @@ app.get(
         instagramService
           .refreshTokenIfNeeded(proId)
           .then(() => instagramService.fetchAndCachePhotos(proId))
-          .catch((e) => console.error("[Instagram] Background sync error:", e));
+          .catch((e: unknown) => log.error("/api/public/pro/instagram", e instanceof Error ? e.message : String(e), e instanceof Error ? e.stack : undefined));
       }
 
       return res.json({
@@ -5714,7 +5699,7 @@ app.get(
         },
       });
     } catch (err) {
-      console.error("[Instagram] Public endpoint error:", err);
+      log.error("/api/public/pro/instagram", err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : undefined);
       // Fallback silencieux : ne pas exposer d'erreur interne
       return res.json({ success: true, data: { photos: [], connected: false } });
     }
@@ -5725,9 +5710,9 @@ app.get(
 // Refresh des tokens qui expirent bientôt (toutes les 6h)
 setInterval(async () => {
   if (!instagramService) return;
-  console.log("[Instagram CRON] Starting token refresh batch...");
-  await instagramService.batchRefreshExpiringTokens().catch((e) =>
-    console.error("[Instagram CRON] Refresh error:", e)
+  log.warn("/cron/instagram", "Starting token refresh batch...");
+  await instagramService.batchRefreshExpiringTokens().catch((e: unknown) =>
+    log.error("/cron/instagram", "Refresh error", e instanceof Error ? e.stack : String(e))
   );
 }, 6 * 60 * 60 * 1000);
 
@@ -5735,9 +5720,9 @@ setInterval(async () => {
 setTimeout(() => {
   setInterval(async () => {
     if (!instagramService) return;
-    console.log("[Instagram CRON] Starting photo sync batch...");
-    await instagramService.batchSyncPhotos(100).catch((e) =>
-      console.error("[Instagram CRON] Sync error:", e)
+    log.warn("/cron/instagram", "Starting photo sync batch...");
+    await instagramService.batchSyncPhotos(100).catch((e: unknown) =>
+      log.error("/cron/instagram", "Sync error", e instanceof Error ? e.stack : String(e))
     );
   }, 6 * 60 * 60 * 1000);
 }, 30 * 60 * 1000);
@@ -5779,9 +5764,9 @@ const PORT = process.env.PORT || 3001;
 // Ne pas démarrer le serveur en mode test (permet l'import par supertest)
 if (process.env.NODE_ENV !== "test") {
   server.listen(PORT, () => {
-    console.log(`🚀 Backend running on http://localhost:${PORT}`);
-    console.log(`🔌 WebSocket server ready on ws://localhost:${PORT}`);
+    console.info(`Backend running on http://localhost:${PORT}`);
     startReminderCron();
+    startDataRetentionCron();
   });
 }
 

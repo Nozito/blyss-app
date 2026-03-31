@@ -35,6 +35,7 @@ const ProCalendar = lazy(() => import("./pages/ProCalendar"));
 const ProClients = lazy(() => import("./pages/ProClients"));
 const ProProfile = lazy(() => import("./pages/ProProfile"));
 const ProSettings = lazy(() => import("./pages/ProSettings"));
+const RGPDCenter = lazy(() => import("./pages/RGPDCenter"));
 const ProNotifications = lazy(() => import("./pages/ProNotifications"));
 const ProHelp = lazy(() => import("./pages/ProHelp"));
 const ProPayments = lazy(() => import("./pages/ProPayements"));
@@ -127,6 +128,8 @@ const AppInner = () => {
           <Route path="/client/notifications" element={<RequireAuth role="client"><ClientNotifications /></RequireAuth>} />
           <Route path="/client/payments" element={<RequireAuth role="client"><ClientPayements /></RequireAuth>} />
           <Route path="/client/settings" element={<RequireAuth role="client"><ClientSettings /></RequireAuth>} />
+          <Route path="/client/rgpd" element={<RequireAuth role="client"><RGPDCenter /></RequireAuth>} />
+          <Route path="/pro/rgpd" element={<RequireAuth role="pro"><RGPDCenter /></RequireAuth>} />
           <Route path="/client/booking/:id" element={<RequireAuth role="client"><ClientBooking /></RequireAuth>} />
           <Route path="/client/specialists" element={<RequireAuth role="client"><ClientSpecialists /></RequireAuth>} />
           <Route path="/client/payment-methods" element={<RequireAuth role="client"><ClientPayements /></RequireAuth>} />

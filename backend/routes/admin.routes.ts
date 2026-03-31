@@ -1,7 +1,8 @@
-import express, { Response } from "express";
+import express, { Response, NextFunction } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { authenticateToken } from "../middleware/auth";
+import { requireAdminMiddleware } from "../middleware/requireAdmin";
 import { adminLimiter } from "../middleware/rate-limits";
 import { getDb } from "../lib/db";
 import { sendNotificationToUser } from "../lib/notifications";
@@ -11,31 +12,20 @@ import { runReminderCycle } from "../lib/reminders";
 
 const router = express.Router();
 
-// ── Helper: check admin or return 403 ────────────────────────────────────────
-async function requireAdmin(
-  req: AuthenticatedRequest,
-  res: Response
-): Promise<boolean> {
-  const adminId = req.user?.id;
-  const [rows] = await getDb().query(
-    "SELECT is_admin FROM users WHERE id = ?",
-    [adminId]
-  );
-  if ((rows as any[]).length === 0 || !(rows as any[])[0].is_admin) {
-    res.status(403).json({ success: false, message: "Accès réservé aux admins" });
-    return false;
-  }
-  return true;
-}
+// All admin routes require authentication + admin check
+router.use(authenticateToken, requireAdminMiddleware);
+
+// SECURITY: Table name derived from role — whitelisted, never interpolated from user input
+const NOTIFICATION_TABLES: Record<string, string> = {
+  pro:    "pro_notification_settings",
+  client: "client_notification_settings",
+};
 
 /* GET /users/:userId/notification-settings */
 router.get(
   "/users/:userId/notification-settings",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const db = getDb();
       const userId = parseParamToInt(req.params.userId);
 
@@ -48,8 +38,10 @@ router.get(
       }
 
       const role = (userRows as any[])[0].role;
-      const table =
-        role === "pro" ? "pro_notification_settings" : "client_notification_settings";
+      const table = NOTIFICATION_TABLES[role];
+      if (!table) {
+        return res.status(400).json({ success: false, message: "Rôle non supporté" });
+      }
 
       const [settings] = await db.query(
         `SELECT * FROM ${table} WHERE user_id = ?`,
@@ -78,8 +70,7 @@ router.get(
 
       res.json({ success: true, data: (settings as any[])[0] });
     } catch (error) {
-      console.error("Get notification settings error:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -87,11 +78,8 @@ router.get(
 /* POST /notifications/create */
 router.post(
   "/notifications/create",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const { user_id, type, title, message, data } = req.body;
 
       if (!user_id || !type || !title || !message) {
@@ -125,8 +113,7 @@ router.post(
         data: { id: notificationId },
       });
     } catch (error) {
-      console.error("Create notification error:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -134,12 +121,9 @@ router.post(
 /* GET /users */
 router.get(
   "/users",
-  authenticateToken,
   adminLimiter,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
       const offset = (page - 1) * limit;
@@ -160,8 +144,7 @@ router.get(
 
       res.json({ success: true, data: users, meta: { page, limit, total } });
     } catch (error) {
-      console.error("❌ Error fetching users:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -169,11 +152,8 @@ router.get(
 /* GET /dashboard/counts */
 router.get(
   "/dashboard/counts",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const adminId = req.user?.id;
       const db = getDb();
 
@@ -191,7 +171,7 @@ router.get(
         );
         unreadNotifications = (unreadNotifRows as any[])[0]?.count || 0;
       } catch {
-        console.log("Notifications table not found, defaulting to 0");
+        // notifications table may not exist in all environments
       }
 
       res.json({
@@ -199,8 +179,7 @@ router.get(
         counts: { totalUsers, totalBookings, unreadNotifications },
       });
     } catch (error) {
-      console.error("Error fetching counts:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -208,11 +187,8 @@ router.get(
 /* GET /dashboard/stats */
 router.get(
   "/dashboard/stats",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const db = getDb();
 
       const [totalUsersRows] = await db.query("SELECT COUNT(*) as count FROM users");
@@ -292,8 +268,7 @@ router.get(
         })),
       });
     } catch (error) {
-      console.error("Error fetching admin dashboard stats:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -301,11 +276,8 @@ router.get(
 /* POST /users/create */
 router.post(
   "/users/create",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const {
         first_name, last_name, phone_number, email, birth_date, role, is_admin,
         activity_name, city, instagram_account, profile_photo, banner_photo,
@@ -365,8 +337,7 @@ router.post(
 
       res.json({ success: true, message: "Utilisateur créé avec succès" });
     } catch (error) {
-      console.error("Error creating user:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -374,11 +345,8 @@ router.post(
 /* PUT /users/:id */
 router.put(
   "/users/:id",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const userId = req.params.id;
       const {
         first_name, last_name, phone_number, email, birth_date, role, is_admin,
@@ -443,8 +411,7 @@ router.put(
 
       res.json({ success: true, message: "Utilisateur modifié avec succès" });
     } catch (error) {
-      console.error("Error updating user:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -452,11 +419,8 @@ router.put(
 /* DELETE /users/:id */
 router.delete(
   "/users/:id",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const db = getDb();
       const userId = req.params.id;
 
@@ -478,8 +442,7 @@ router.delete(
 
       res.json({ success: true, message: "Utilisateur supprimé avec succès" });
     } catch (error) {
-      console.error("Error deleting user:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -487,11 +450,8 @@ router.delete(
 /* PATCH /users/:id/deactivate */
 router.patch(
   "/users/:id/deactivate",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const userId = req.params.id;
       const [result] = await getDb().query(
         "UPDATE users SET is_active = FALSE WHERE id = ?",
@@ -502,8 +462,7 @@ router.patch(
       }
       res.json({ success: true, message: "Compte désactivé" });
     } catch (error) {
-      console.error("Error deactivating user:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -511,11 +470,8 @@ router.patch(
 /* PATCH /users/:id/reactivate */
 router.patch(
   "/users/:id/reactivate",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const userId = req.params.id;
       const [result] = await getDb().query(
         "UPDATE users SET is_active = TRUE WHERE id = ?",
@@ -526,8 +482,7 @@ router.patch(
       }
       res.json({ success: true, message: "Compte réactivé" });
     } catch (error) {
-      console.error("Error reactivating user:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -535,11 +490,8 @@ router.patch(
 /* GET /bookings */
 router.get(
   "/bookings",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
       const offset = (page - 1) * limit;
@@ -562,8 +514,7 @@ router.get(
 
       res.json({ success: true, data: bookings, meta: { page, limit, total } });
     } catch (error) {
-      console.error("Error fetching bookings:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -571,11 +522,8 @@ router.get(
 /* POST /bookings/create */
 router.post(
   "/bookings/create",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const { client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price } = req.body;
 
       if (!client_id || !pro_id || !prestation_id || !start_datetime || !end_datetime || !price) {
@@ -593,8 +541,7 @@ router.post(
 
       res.json({ success: true, message: "Réservation créée avec succès" });
     } catch (error) {
-      console.error("Error creating booking:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -602,11 +549,8 @@ router.post(
 /* PUT /bookings/:id */
 router.put(
   "/bookings/:id",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const bookingId = req.params.id;
       const { client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price } = req.body;
 
@@ -627,8 +571,7 @@ router.put(
 
       res.json({ success: true, message: "Réservation modifiée avec succès" });
     } catch (error) {
-      console.error("Error updating booking:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -636,11 +579,8 @@ router.put(
 /* DELETE /bookings/:id */
 router.delete(
   "/bookings/:id",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
-
       const bookingId = req.params.id;
       const [result] = await getDb().query("DELETE FROM reservations WHERE id = ?", [bookingId]);
 
@@ -650,8 +590,7 @@ router.delete(
 
       res.json({ success: true, message: "Réservation supprimée avec succès" });
     } catch (error) {
-      console.error("Error deleting booking:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      next(error);
     }
   }
 );
@@ -659,15 +598,12 @@ router.delete(
 /* POST /reminders/trigger — manual trigger for testing (dev only) */
 router.post(
   "/reminders/trigger",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      if (!(await requireAdmin(req, res))) return;
       await runReminderCycle();
       res.json({ success: true, message: "Reminder cycle triggered" });
-    } catch (err) {
-      console.error("Error triggering reminders:", err);
-      res.status(500).json({ success: false, error: "Erreur serveur" });
+    } catch (error) {
+      next(error);
     }
   }
 );
