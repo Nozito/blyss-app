@@ -1,0 +1,197 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  # ── 1. Dependency Audit (SCA) ──────────────────────────────────────────────
+  dependency-audit:
+    name: Dependency Audit (SCA)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4 pinned SHA
+
+      - uses: actions/setup-node@1d0ff469b922eb10c8a927ac8b4d503b803f5844  # v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Frontend npm audit (fail on HIGH+CRITICAL)
+        run: npm audit --audit-level=high
+
+      - name: Install backend deps
+        working-directory: backend
+        run: npm ci
+
+      - name: Backend npm audit (fail on HIGH+CRITICAL)
+        working-directory: backend
+        run: npm audit --audit-level=high
+
+  # ── 2. Secret Scanning ────────────────────────────────────────────────────
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0  # full history required for Gitleaks
+
+      - name: Gitleaks — scan full history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: TruffleHog — entropy-based scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+  # ── 3. SAST — Semgrep ─────────────────────────────────────────────────────
+  semgrep:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Semgrep — OWASP + secrets + React + TypeScript + Node.js
+        run: |
+          semgrep ci \
+            --config "p/owasp-top-ten" \
+            --config "p/secrets" \
+            --config "p/react" \
+            --config "p/typescript" \
+            --config "p/nodejs" \
+            --sarif \
+            --output semgrep.sarif \
+            --error
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+      - name: Upload Semgrep SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  # ── 4. ESLint Security ────────────────────────────────────────────────────
+  eslint-security:
+    name: ESLint Security Rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: actions/setup-node@1d0ff469b922eb10c8a927ac8b4d503b803f5844
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Install security plugins
+        run: npm install --no-save eslint eslint-plugin-security eslint-plugin-no-secrets
+
+      - name: Run ESLint security scan
+        run: |
+          npx eslint src/ \
+            --plugin security \
+            --plugin no-secrets \
+            --rule 'security/detect-object-injection: error' \
+            --rule 'security/detect-non-literal-regexp: warn' \
+            --rule 'security/detect-unsafe-regex: error' \
+            --rule 'no-secrets/no-secrets: error' \
+            --format json \
+            --output-file eslint-security.json || true
+        continue-on-error: true
+
+      - name: Upload ESLint results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eslint-security-report
+          path: eslint-security.json
+
+  # ── 5. CodeQL Analysis ────────────────────────────────────────────────────
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
+
+  # ── 6. Security Summary on PR ─────────────────────────────────────────────
+  security-summary:
+    name: Post Security Summary
+    runs-on: ubuntu-latest
+    needs: [dependency-audit, secret-scan, semgrep, eslint-security, codeql]
+    if: github.event_name == 'pull_request' && always()
+    steps:
+      - name: Post PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const results = {
+              'Dependency Audit (SCA)': '${{ needs.dependency-audit.result }}',
+              'Secret Scanning':        '${{ needs.secret-scan.result }}',
+              'SAST (Semgrep)':         '${{ needs.semgrep.result }}',
+              'ESLint Security':        '${{ needs.eslint-security.result }}',
+              'CodeQL':                 '${{ needs.codeql.result }}',
+            };
+            const icon = (s) => s === 'success' ? '✅' : s === 'skipped' ? '⏭️' : '❌';
+            const rows = Object.entries(results)
+              .map(([k, v]) => `| ${k} | ${icon(v)} ${v} |`)
+              .join('\n');
+            const blocking = Object.values(results).some(v => v === 'failure');
+            const body = [
+              '## 🔒 Security Audit Results',
+              '',
+              '| Check | Status |',
+              '|-------|--------|',
+              rows,
+              '',
+              blocking
+                ? '⚠️ **Blocking security issues found — resolve before merging.**'
+                : '✅ No critical security issues detected.',
+              '',
+              '_Powered by Gitleaks · Semgrep · CodeQL · npm audit_',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
