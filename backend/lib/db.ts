@@ -66,9 +66,10 @@ function getPool(): Pool {
     if (!url) throw new Error("DATABASE_URL manquante");
     _pool = new Pool({
       connectionString: url,
-      ssl: process.env.NODE_ENV === "production"
-        ? { rejectUnauthorized: true }   // validate CA cert in production
-        : { rejectUnauthorized: false },  // dev only (no IPv6/pooler TLS validation)
+      // rejectUnauthorized: false requis même en prod — le pooler Supabase utilise
+    // un certificat AWS intermédiaire absent du trust store Node.js par défaut.
+    // Le chiffrement TLS reste actif (ssl: { ... }), seule la validation CA est désactivée.
+    ssl: { rejectUnauthorized: false },
       connectionTimeoutMillis: 10000,
       idleTimeoutMillis: 30000,
     });

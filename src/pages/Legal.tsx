@@ -65,16 +65,12 @@ const Legal = () => {
             <div>
               <h3 className={h3Class}>Éditeur du site</h3>
               <p>
-                <strong className="text-foreground">[NOM_EDITEUR]</strong><br />
-                [FORME_JURIDIQUE] au capital de [CAPITAL]<br />
-                Siège social : [ADRESSE_COMPLETE]<br />
-                SIRET : [SIRET]<br />
-                RCS : [RCS]<br />
-                N° TVA intracommunautaire : [TVA_INTRACOM]<br />
-                Directeur de la publication : [NOM_DIRECTEUR]<br />
+                <strong className="text-foreground">Blyss</strong><br />
+                Siège social : Annecy, 74000, France<br />
+                Directeur de la publication : Noah Dekeyzer<br />
                 Contact :{" "}
-                <a href="mailto:[EMAIL_CONTACT]" className="text-primary hover:underline">
-                  [EMAIL_CONTACT]
+                <a href="mailto:contact@blyssapp.fr" className="text-primary hover:underline">
+                  contact@blyssapp.fr
                 </a>
               </p>
             </div>
@@ -83,8 +79,7 @@ const Legal = () => {
               <h3 className={h3Class}>Hébergement</h3>
               <p>
                 <strong className="text-foreground">Base de données &amp; stockage :</strong><br />
-                Supabase Inc. — 970 Toa Payoh North, Singapour<br />
-                Infrastructure EU : Frankfurt, Allemagne (AWS eu-central-1)<br />
+                Supabase Inc. — Infrastructure EU : Frankfurt, Allemagne (AWS eu-central-1)<br />
                 <a
                   href="https://supabase.com/privacy"
                   target="_blank"
@@ -94,10 +89,6 @@ const Legal = () => {
                   Politique de confidentialité Supabase →
                 </a>
               </p>
-              <p className="mt-2">
-                <strong className="text-foreground">Serveur applicatif :</strong><br />
-                [NOM_HEBERGEUR_SERVEUR] — [ADRESSE_HEBERGEUR]
-              </p>
             </div>
 
             <div>
@@ -105,16 +96,7 @@ const Legal = () => {
               <p>
                 L'ensemble du contenu de la plateforme Blyss (textes, images, logo, interface graphique)
                 est protégé par le droit d'auteur et le droit des marques. Toute reproduction ou utilisation
-                sans autorisation écrite préalable de [NOM_EDITEUR] est strictement interdite.
-              </p>
-            </div>
-
-            <div>
-              <h3 className={h3Class}>Médiation de la consommation</h3>
-              <p>
-                Conformément à l'article L. 616-1 du Code de la consommation, en cas de litige
-                non résolu amiablement, vous pouvez recourir gratuitement au service de médiation :{" "}
-                [NOM_MEDIATEUR] — [URL_MEDIATEUR]
+                sans autorisation écrite préalable est strictement interdite.
               </p>
             </div>
           </div>
@@ -130,27 +112,28 @@ const Legal = () => {
               <p>
                 Les présentes Conditions Générales d'Utilisation (CGU) et Conditions Générales de Vente (CGV)
                 régissent l'accès et l'utilisation de la plateforme{" "}
-                <strong className="text-foreground">Blyss</strong>, éditée par [NOM_EDITEUR],
-                accessible à l'adresse <strong className="text-foreground">app.blyssapp.fr</strong>.
+                <strong className="text-foreground">Blyss</strong>, accessible à l'adresse{" "}
+                <strong className="text-foreground">app.blyssapp.fr</strong>.
               </p>
               <p className="mt-2">
                 L'inscription sur Blyss vaut acceptation pleine et entière des présentes conditions.
-                Si vous n'acceptez pas ces conditions, vous ne pouvez pas utiliser la plateforme.
               </p>
             </div>
 
             <div>
               <h3 className={h3Class}>2. Description du service</h3>
               <p>
-                Blyss est une plateforme SaaS de gestion d'activité destinée aux prothésistes ongulaires
-                (ci-après « Pros ») et à leur clientèle (ci-après « Clients »). Elle permet notamment :
+                Blyss est une application de gestion tout-en-un dédiée aux prothésistes ongulaires
+                indépendantes et aux salons d'onglerie (ci-après « Pros ») ainsi qu'à leur clientèle
+                (ci-après « Clientes »). Elle permet notamment :
               </p>
               <ul className="list-disc list-inside mt-2 space-y-1 ml-2">
-                <li>La gestion des réservations et de l'agenda professionnel</li>
+                <li>La gestion des réservations en ligne et de l'agenda</li>
                 <li>La présentation des prestations et des tarifs</li>
-                <li>Le traitement des paiements en ligne via Stripe</li>
-                <li>La gestion des abonnements via RevenueCat</li>
-                <li>Les notifications et la communication entre Pros et Clients</li>
+                <li>Le traitement des paiements sécurisés via Stripe</li>
+                <li>La gestion des acomptes pour réduire les no-shows</li>
+                <li>Les notifications automatiques aux clientes</li>
+                <li>La gestion des abonnements professionnels via RevenueCat</li>
               </ul>
             </div>
 
@@ -158,34 +141,33 @@ const Legal = () => {
               <h3 className={h3Class}>3. Conditions d'accès</h3>
               <p>
                 L'utilisation de Blyss est réservée aux personnes physiques âgées de 16 ans ou plus.
-                L'inscription est gratuite. Certaines fonctionnalités avancées sont conditionnées
-                à la souscription d'un abonnement payant.
+                L'inscription est gratuite. Les fonctionnalités avancées sont conditionnées
+                à la souscription d'un abonnement payant (voir section 6).
               </p>
               <p className="mt-2">
                 Chaque compte est strictement personnel et ne peut être partagé.
-                L'utilisateur s'engage à fournir des informations exactes lors de son inscription
-                et à les maintenir à jour.
+                L'utilisateur s'engage à fournir des informations exactes et à les maintenir à jour.
               </p>
             </div>
 
             <div>
-              <h3 className={h3Class}>4. Obligations des Professionnels</h3>
+              <h3 className={h3Class}>4. Obligations des Professionnelles</h3>
               <p>Les Pros s'engagent à :</p>
               <ul className="list-disc list-inside mt-2 space-y-1 ml-2">
-                <li>Proposer des prestations conformes à la réglementation française en vigueur</li>
-                <li>Honorer les réservations confirmées ou prévenir les Clients dans les meilleurs délais</li>
+                <li>Proposer des prestations conformes à la réglementation française</li>
+                <li>Honorer les réservations confirmées ou prévenir les clientes dans les meilleurs délais</li>
                 <li>Maintenir leurs informations de profil et leurs tarifs à jour</li>
-                <li>Se conformer à leurs obligations fiscales et sociales</li>
-                <li>Compléter le processus d'onboarding Stripe pour recevoir des paiements</li>
+                <li>Respecter leurs obligations fiscales et sociales en tant qu'indépendantes</li>
+                <li>Compléter l'onboarding Stripe pour activer les paiements en ligne</li>
               </ul>
             </div>
 
             <div>
-              <h3 className={h3Class}>5. Obligations des Clients</h3>
-              <p>Les Clients s'engagent à :</p>
+              <h3 className={h3Class}>5. Obligations des Clientes</h3>
+              <p>Les Clientes s'engagent à :</p>
               <ul className="list-disc list-inside mt-2 space-y-1 ml-2">
-                <li>Honorer les réservations effectuées ou les annuler dans les délais prévus</li>
-                <li>Régler les prestations selon les modalités convenues avec le Pro</li>
+                <li>Honorer les réservations effectuées ou les annuler dans les délais prévus par la Pro</li>
+                <li>Régler les prestations selon les modalités convenues</li>
                 <li>Ne pas effectuer de fausses réservations ni de faux avis</li>
               </ul>
             </div>
@@ -195,37 +177,36 @@ const Legal = () => {
               <p>Blyss propose trois formules d'abonnement pour les Pros :</p>
               <ul className="list-disc list-inside mt-2 space-y-1 ml-2">
                 <li>
-                  <strong className="text-foreground">Start</strong> — Accès aux fonctionnalités essentielles
+                  <strong className="text-foreground">Start — 49,90 €/mois</strong> (sans engagement){" "}
+                  — Accès aux fonctionnalités essentielles de gestion
                 </li>
                 <li>
-                  <strong className="text-foreground">Sérénité</strong> — Réservations en ligne,
-                  paiements, agenda complet
+                  <strong className="text-foreground">Sérénité — 39,90 €/mois</strong> (engagement 3 mois){" "}
+                  — Réservations en ligne, paiements, agenda complet
                 </li>
                 <li>
-                  <strong className="text-foreground">Signature</strong> — Accès complet : Instagram sync,
-                  analytics avancés, support prioritaire
+                  <strong className="text-foreground">Signature — 29,90 €/mois</strong> (engagement 12 mois){" "}
+                  — Accès complet : synchronisation Instagram, analytics, support prioritaire
                 </li>
               </ul>
               <p className="mt-2">
-                Les tarifs sont affichés TTC et peuvent être modifiés moyennant un préavis de 30 jours.
-                Les abonnements sont gérés via RevenueCat et facturés mensuellement ou annuellement
-                selon l'option choisie.
+                Les tarifs sont affichés TTC. Les abonnements sont gérés via RevenueCat.
+                Toute modification tarifaire sera communiquée avec un préavis de 30 jours.
               </p>
             </div>
 
             <div>
               <h3 className={h3Class}>7. Droit de rétractation et résiliation</h3>
               <p>
-                Conformément à l'article L. 221-18 du Code de la consommation, vous disposez d'un délai
-                de 14 jours pour vous rétracter après la souscription d'un abonnement, sauf si vous avez
-                demandé l'exécution immédiate du service avant l'expiration de ce délai.
+                Conformément à l'article L. 221-18 du Code de la consommation, un délai de rétractation
+                de 14 jours s'applique après la souscription, sauf si l'exécution du service a débuté
+                avec votre accord avant l'expiration de ce délai.
               </p>
               <p className="mt-2">
-                La résiliation d'un abonnement prend effet à la fin de la période en cours.
-                Elle peut être effectuée depuis « Mon abonnement » dans vos paramètres, ou en contactant
-                le support à{" "}
-                <a href="mailto:[EMAIL_CONTACT]" className="text-primary hover:underline">
-                  [EMAIL_CONTACT]
+                La résiliation prend effet à la fin de la période en cours.
+                Elle s'effectue depuis « Mon abonnement » dans vos paramètres, ou en contactant{" "}
+                <a href="mailto:contact@blyssapp.fr" className="text-primary hover:underline">
+                  contact@blyssapp.fr
                 </a>.
               </p>
             </div>
@@ -233,44 +214,42 @@ const Legal = () => {
             <div>
               <h3 className={h3Class}>8. Paiements</h3>
               <p>
-                Les paiements entre Clients et Pros sont intégralement traités par{" "}
+                Les paiements entre Clientes et Pros sont intégralement traités par{" "}
                 <strong className="text-foreground">Stripe</strong>, prestataire certifié PCI-DSS.
                 Blyss n'a jamais accès aux données de carte bancaire.
-                Des acomptes configurables (0 %, 30 %, 50 % ou 100 % du montant) peuvent être mis en place
-                par chaque Pro.
+                Les Pros peuvent configurer des acomptes (0 %, 30 %, 50 % ou 100 %) pour sécuriser leurs réservations.
               </p>
             </div>
 
             <div>
               <h3 className={h3Class}>9. Responsabilités</h3>
               <p>
-                Blyss est une plateforme d'intermédiation. [NOM_EDITEUR] ne saurait être tenu responsable
-                des prestations réalisées entre Pros et Clients, ni des litiges commerciaux en résultant.
+                Blyss est une plateforme d'intermédiation technologique. Blyss ne saurait être tenu
+                responsable des prestations réalisées entre Pros et Clientes, ni des litiges commerciaux
+                en résultant. Chaque Pro exerce son activité en toute indépendance.
               </p>
               <p className="mt-2">
-                [NOM_EDITEUR] s'engage à maintenir la disponibilité de la plateforme dans la mesure du
-                possible, sans garantir une disponibilité ininterrompue. Des maintenances planifiées
-                peuvent entraîner des interruptions temporaires.
+                Blyss s'engage à maintenir la disponibilité de la plateforme dans la mesure du possible.
+                Des maintenances planifiées peuvent entraîner des interruptions temporaires.
               </p>
             </div>
 
             <div>
-              <h3 className={h3Class}>10. Droit applicable et juridiction compétente</h3>
+              <h3 className={h3Class}>10. Droit applicable</h3>
               <p>
                 Les présentes CGU sont soumises au{" "}
-                <strong className="text-foreground">droit français</strong>. Tout litige relatif
-                à leur interprétation ou à leur exécution sera porté devant les tribunaux compétents
-                du ressort du siège social de [NOM_EDITEUR], sauf disposition légale contraire
-                applicable aux consommateurs.
+                <strong className="text-foreground">droit français</strong>. Tout litige sera porté
+                devant les tribunaux compétents du ressort du siège social de Blyss (Annecy, France),
+                sauf disposition légale contraire applicable aux consommateurs.
               </p>
             </div>
 
             <div>
               <h3 className={h3Class}>11. Modification des CGU</h3>
               <p>
-                [NOM_EDITEUR] se réserve le droit de modifier les présentes conditions. Les utilisateurs
-                seront informés par email et/ou notification in-app au moins 15 jours avant toute
-                modification substantielle entrant en vigueur.
+                Blyss se réserve le droit de modifier les présentes conditions. Les utilisateurs
+                seront informés par notification in-app au moins 15 jours avant toute modification
+                substantielle.
               </p>
             </div>
           </div>
@@ -284,13 +263,13 @@ const Legal = () => {
             <div>
               <h3 className={h3Class}>Responsable du traitement</h3>
               <p>
-                [NOM_EDITEUR] — [ADRESSE_COMPLETE]<br />
-                Délégué à la Protection des Données (DPO) :{" "}
+                Blyss — Annecy, 74000, France<br />
+                Contact données personnelles :{" "}
                 <a href="mailto:privacy@blyssapp.fr" className="text-primary hover:underline">
                   privacy@blyssapp.fr
                 </a>
                 <br />
-                Pour signaler une faille de sécurité :{" "}
+                Signaler une faille de sécurité :{" "}
                 <a href="mailto:security@blyssapp.fr" className="text-primary hover:underline">
                   security@blyssapp.fr
                 </a>
@@ -313,8 +292,8 @@ const Legal = () => {
                     {[
                       ["Nom, prénom", "Identification, affichage profil", "Contrat", "Durée du compte + 3 ans"],
                       ["Email", "Connexion, notifications", "Contrat", "Durée du compte + 3 ans"],
-                      ["Téléphone", "Contact Pro/Client", "Contrat", "Durée du compte"],
-                      ["Date de naissance", "Vérification âge (16+ ans)", "Obligation légale", "Durée du compte"],
+                      ["Téléphone", "Contact Pro/Cliente", "Contrat", "Durée du compte"],
+                      ["Date de naissance", "Vérification âge (16+)", "Obligation légale", "Durée du compte"],
                       ["IBAN (chiffré AES-256-GCM)", "Virements via Stripe Connect", "Contrat", "Durée du compte + 5 ans"],
                       ["Photos (profil, bannière)", "Affichage public du profil", "Consentement", "Jusqu'à suppression"],
                       ["Réservations", "Gestion de l'activité Pro", "Contrat", "5 ans"],
@@ -337,195 +316,85 @@ const Legal = () => {
               <h3 className={h3Class}>Cookies</h3>
               <p>
                 Blyss utilise uniquement des cookies techniques strictement nécessaires au fonctionnement
-                du service (authentification via cookies HttpOnly sécurisés, session). Aucun cookie
-                publicitaire ni de tracking tiers n'est déposé sans votre consentement explicite.
+                du service (authentification via cookies HttpOnly sécurisés, SameSite Strict). Aucun cookie
+                publicitaire ni de tracking tiers n'est déposé.
               </p>
             </div>
 
             <div>
-              <h3 className={h3Class}>Sous-traitants (art. 28 RGPD)</h3>
+              <h3 className={h3Class}>Sous-traitants</h3>
               <div className="space-y-3">
-                <div className="p-4 rounded-xl bg-muted/40 border border-border">
-                  <p className="font-semibold text-foreground mb-1">Stripe Inc.</p>
-                  <p>
-                    Traitement des paiements en ligne. Accord de traitement des données (DPA) signé.
-                    Transfert vers les USA encadré par les Clauses Contractuelles Types (CCT) de la
-                    Commission Européenne.
-                  </p>
-                  <a
-                    href="https://stripe.com/fr/privacy"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline text-xs mt-1 inline-block"
-                  >
-                    Politique de confidentialité Stripe →
-                  </a>
-                </div>
-                <div className="p-4 rounded-xl bg-muted/40 border border-border">
-                  <p className="font-semibold text-foreground mb-1">RevenueCat Inc.</p>
-                  <p>
-                    Gestion des abonnements. DPA disponible sur demande.
-                    Transfert vers les USA encadré par les CCT.
-                  </p>
-                  <a
-                    href="https://www.revenuecat.com/privacy"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline text-xs mt-1 inline-block"
-                  >
-                    Politique de confidentialité RevenueCat →
-                  </a>
-                </div>
-                <div className="p-4 rounded-xl bg-muted/40 border border-border">
-                  <p className="font-semibold text-foreground mb-1">Supabase Inc.</p>
-                  <p>
-                    Hébergement de la base de données et du stockage des fichiers.
-                    Infrastructure EU (Frankfurt, Allemagne). DPA signé. Conformité RGPD.
-                  </p>
-                  <a
-                    href="https://supabase.com/privacy"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline text-xs mt-1 inline-block"
-                  >
-                    Politique de confidentialité Supabase →
-                  </a>
-                </div>
-                <div className="p-4 rounded-xl bg-muted/40 border border-border">
-                  <p className="font-semibold text-foreground mb-1">Meta Platforms Ireland Ltd.</p>
-                  <p>
-                    Intégration Instagram (synchronisation du portfolio photo).
-                    Traitement vers les USA encadré par les Clauses Contractuelles Types (CCT).
-                    DPA disponible via Meta Business Terms.
-                  </p>
-                  <a
-                    href="https://www.facebook.com/legal/terms/dataprocessing"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline text-xs mt-1 inline-block"
-                  >
-                    Data Processing Terms Meta →
-                  </a>
-                </div>
-                <div className="p-4 rounded-xl bg-muted/40 border border-border">
-                  <p className="font-semibold text-foreground mb-1">Functional Software Inc. (Sentry)</p>
-                  <p>
-                    Monitoring des erreurs applicatives (logs anonymisés, sans PII).
-                    Transfert vers les USA encadré par les CCT. DPA signé.
-                    Aucune donnée personnelle identifiable (email, nom, token) n'est transmise à Sentry.
-                  </p>
-                  <a
-                    href="https://sentry.io/legal/dpa/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline text-xs mt-1 inline-block"
-                  >
-                    DPA Sentry →
-                  </a>
-                </div>
+                {[
+                  {
+                    name: "Stripe Inc.",
+                    desc: "Traitement des paiements en ligne. Accord de traitement des données (DPA) signé. Transferts USA encadrés par les Clauses Contractuelles Types (CCT).",
+                    url: "https://stripe.com/fr/privacy",
+                    label: "Politique de confidentialité Stripe →",
+                  },
+                  {
+                    name: "RevenueCat Inc.",
+                    desc: "Gestion des abonnements. Transferts USA encadrés par les CCT.",
+                    url: "https://www.revenuecat.com/privacy",
+                    label: "Politique de confidentialité RevenueCat →",
+                  },
+                  {
+                    name: "Supabase Inc.",
+                    desc: "Hébergement de la base de données. Infrastructure EU (Frankfurt, Allemagne). DPA signé. Conformité RGPD.",
+                    url: "https://supabase.com/privacy",
+                    label: "Politique de confidentialité Supabase →",
+                  },
+                  {
+                    name: "Meta Platforms Ireland Ltd.",
+                    desc: "Intégration Instagram (portfolio photo). Transferts USA encadrés par les CCT.",
+                    url: "https://www.facebook.com/legal/terms/dataprocessing",
+                    label: "Data Processing Terms Meta →",
+                  },
+                  {
+                    name: "Functional Software Inc. (Sentry)",
+                    desc: "Monitoring des erreurs applicatives (logs anonymisés, sans données personnelles). Transferts USA encadrés par les CCT.",
+                    url: "https://sentry.io/legal/dpa/",
+                    label: "DPA Sentry →",
+                  },
+                ].map((st) => (
+                  <div key={st.name} className="p-4 rounded-xl bg-muted/40 border border-border">
+                    <p className="font-semibold text-foreground mb-1">{st.name}</p>
+                    <p>{st.desc}</p>
+                    <a href={st.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs mt-1 inline-block">
+                      {st.label}
+                    </a>
+                  </div>
+                ))}
               </div>
             </div>
 
             <div>
-              <h3 className={h3Class}>Vos droits RGPD</h3>
-              <p>
-                Conformément au RGPD (règlement UE 2016/679) et à la loi Informatique et Libertés,
-                vous disposez des droits suivants :
-              </p>
+              <h3 className={h3Class}>Vos droits</h3>
+              <p>Conformément au RGPD, vous disposez des droits suivants :</p>
               <ul className="list-disc list-inside mt-2 space-y-2 ml-2">
-                <li>
-                  <strong className="text-foreground">Accès et portabilité</strong> — Exporter
-                  l'ensemble de vos données depuis vos paramètres (export JSON)
-                </li>
-                <li>
-                  <strong className="text-foreground">Rectification</strong> — Modifier vos
-                  informations personnelles depuis vos paramètres
-                </li>
-                <li>
-                  <strong className="text-foreground">Effacement (« droit à l'oubli »)</strong> —
-                  Supprimer votre compte et toutes vos données depuis vos paramètres
-                </li>
-                <li>
-                  <strong className="text-foreground">Opposition et limitation</strong> — Sur
-                  demande auprès de notre DPO
-                </li>
-                <li>
-                  <strong className="text-foreground">Réclamation</strong> — Auprès de la CNIL :{" "}
-                  <a
-                    href="https://www.cnil.fr"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline"
-                  >
-                    cnil.fr
-                  </a>
+                <li><strong className="text-foreground">Accès et portabilité</strong> — Export JSON depuis vos paramètres</li>
+                <li><strong className="text-foreground">Rectification</strong> — Modification depuis vos paramètres</li>
+                <li><strong className="text-foreground">Effacement</strong> — Suppression du compte depuis vos paramètres</li>
+                <li><strong className="text-foreground">Opposition et limitation</strong> — Sur demande à{" "}
+                  <a href="mailto:privacy@blyssapp.fr" className="text-primary hover:underline">privacy@blyssapp.fr</a>
                 </li>
               </ul>
-              <p className="mt-4 p-3 rounded-xl bg-primary/5 border border-primary/20 text-xs">
-                Pour exercer vos droits ou contacter notre DPO :{" "}
-                <a href="mailto:privacy@blyssapp.fr" className="text-primary hover:underline font-semibold">
-                  privacy@blyssapp.fr
-                </a>
-                {" "}— Réponse dans un délai de 30 jours (art. 12 RGPD).
-              </p>
             </div>
 
             <div>
               <h3 className={h3Class}>Sécurité des données</h3>
               <p>
-                Nous mettons en œuvre des mesures techniques et organisationnelles appropriées :
-                chiffrement des données sensibles (IBAN en AES-256-GCM, tokens en AES-256-GCM),
-                authentification par cookies HttpOnly sécurisés (SameSite: Strict),
-                communications chiffrées TLS, contrôle d'accès par rôle (RBAC),
+                Chiffrement des données sensibles (IBAN en AES-256-GCM, tokens Instagram en AES-256-GCM),
+                authentification par cookies HttpOnly (SameSite: Strict),
+                communications TLS, contrôle d'accès par rôle (RBAC),
                 Row-Level Security (RLS) Supabase.
               </p>
             </div>
 
             <div>
-              <h3 className={h3Class}>Transferts hors UE</h3>
+              <h3 className={h3Class}>Modifications</h3>
               <p>
-                Les transferts de données hors de l'Union Européenne sont encadrés par des
-                Clauses Contractuelles Types (CCT) approuvées par la Commission Européenne
-                conformément à l'article 46 du RGPD. Sous-traitants concernés :
-              </p>
-              <ul className="list-disc list-inside mt-2 space-y-1 ml-2">
-                <li><strong className="text-foreground">Stripe Inc.</strong> (USA) — paiements — CCT + DPA</li>
-                <li><strong className="text-foreground">RevenueCat Inc.</strong> (USA) — abonnements — CCT + DPA</li>
-                <li><strong className="text-foreground">Meta Platforms Ireland Ltd.</strong> (USA) — Instagram OAuth — CCT</li>
-                <li><strong className="text-foreground">Sentry (Functional Software Inc.)</strong> (USA) — monitoring — CCT + DPA</li>
-              </ul>
-              <p className="mt-2">
-                Supabase héberge les données en Europe (Frankfurt, AWS eu-central-1) — pas de transfert hors UE.
-              </p>
-            </div>
-
-            <div>
-              <h3 className={h3Class}>Exercice de vos droits</h3>
-              <p>
-                Vous pouvez exercer vos droits directement depuis l'application (Paramètres → Mes données personnelles)
-                ou en contactant notre DPO à{" "}
-                <a href="mailto:privacy@blyssapp.fr" className="text-primary hover:underline">privacy@blyssapp.fr</a>.
-              </p>
-              <p className="mt-2">
-                En cas de réponse insatisfaisante, vous disposez du droit de déposer une réclamation auprès de la{" "}
-                <strong className="text-foreground">Commission Nationale de l'Informatique et des Libertés (CNIL)</strong> :{" "}
-                <a
-                  href="https://www.cnil.fr/fr/plaintes"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline"
-                >
-                  cnil.fr/fr/plaintes
-                </a>{" "}
-                ou 3 Place de Fontenoy, TSA 80715, 75334 Paris Cedex 07.
-              </p>
-            </div>
-
-            <div>
-              <h3 className={h3Class}>Modifications de cette politique</h3>
-              <p>
-                Toute modification substantielle fera l'objet d'une notification par email et/ou
-                notification in-app au moins 15 jours avant son entrée en vigueur.
+                Toute modification substantielle fera l'objet d'une notification in-app
+                au moins 15 jours avant son entrée en vigueur.
               </p>
             </div>
           </div>
@@ -533,8 +402,8 @@ const Legal = () => {
 
         {/* ── Pied de page ─────────────────────────────────────────── */}
         <div className="text-center text-xs text-muted-foreground py-8 border-t border-border space-y-1">
-          <p>© {new Date().getFullYear()} [NOM_EDITEUR] — Tous droits réservés</p>
-          <p>Blyss — La plateforme tout-en-un pour prothésistes ongulaires</p>
+          <p>© {new Date().getFullYear()} Blyss — Tous droits réservés</p>
+          <p>La plateforme tout-en-un pour prothésistes ongulaires</p>
           <Link to="/" className="text-primary hover:underline">
             Retour à l'accueil
           </Link>

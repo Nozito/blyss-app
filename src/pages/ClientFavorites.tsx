@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
+import PullToRefresh from "@/components/PullToRefresh";
 import { MapPin, Star, ChevronRight, Heart, Sparkles, AlertCircle } from "lucide-react";
 import { favoritesApi } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -37,7 +38,7 @@ const ClientFavorites = () => {
   const { isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data: favorites = [], isLoading, error: queryError } = useQuery<FavoriteWithDetails[]>({
+  const { data: favorites = [], isLoading, error: queryError, refetch } = useQuery<FavoriteWithDetails[]>({
     queryKey: ["favorites"],
     queryFn: async () => {
       const response = await favoritesApi.getAll();
@@ -135,6 +136,7 @@ const ClientFavorites = () => {
 
   return (
     <MobileLayout>
+      <PullToRefresh onRefresh={() => refetch()}>
       <div className="min-h-screen bg-background pb-24">
         <motion.div
           className="pt-6 pb-6 text-center px-6"
@@ -284,6 +286,7 @@ const ClientFavorites = () => {
           </div>
         )}
       </div>
+      </PullToRefresh>
     </MobileLayout>
   );
 };

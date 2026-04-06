@@ -972,6 +972,35 @@ export const clientApi = {
     apiCall(`/api/client/booking-detail/${id}`),
   cancelBooking: (id: number): Promise<ApiResponse<void>> =>
     apiCall(`/api/client/my-booking/${id}/cancel`, { method: "PATCH" }),
+
+  /**
+   * Annule une réservation via la politique d'annulation côté serveur.
+   * Retourne error = "cancellation_window_expired" + deadline si hors délai.
+   */
+  cancelReservationWithPolicy: (
+    reservationId: number
+  ): Promise<ApiResponse<{ reservation_id: number; deadline?: string }>> =>
+    apiCall(`/api/reservations/${reservationId}/cancel`, { method: "POST" }),
+};
+
+export interface CancellationPolicyResponse {
+  success: boolean;
+  cancellation_notice_hours: number;
+}
+
+export const cancellationApi = {
+  /** Pro : lire le délai d'annulation configuré. */
+  getPolicy: (): Promise<ApiResponse<CancellationPolicyResponse>> =>
+    apiCall("/api/pro/settings/cancellation-policy"),
+
+  /** Pro : mettre à jour le délai d'annulation. */
+  updatePolicy: (
+    hours: 0 | 2 | 4 | 6 | 12 | 24 | 48 | 72
+  ): Promise<ApiResponse<CancellationPolicyResponse>> =>
+    apiCall("/api/pro/settings/cancellation-policy", {
+      method: "PATCH",
+      body: JSON.stringify({ cancellation_notice_hours: hours }),
+    }),
 };
 
 // =====================

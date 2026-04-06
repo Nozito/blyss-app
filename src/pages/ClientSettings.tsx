@@ -159,7 +159,7 @@ const ClientSettings = () => {
           transition={{ duration: 0.5 }}
         >
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate("/client")}
             className="
               w-11 h-11 rounded-2xl bg-card border border-muted
               flex items-center justify-center
@@ -482,10 +482,7 @@ const ClientSettings = () => {
             </button>
           ) : (
             <div className="rounded-xl border-2 border-destructive/30 bg-destructive/5 p-4 space-y-3">
-              <p className="text-sm font-semibold text-destructive">Supprimer définitivement ?</p>
-              <p className="text-xs text-muted-foreground">
-                Cette action est irréversible. Toutes tes données seront effacées.
-              </p>
+              <p className="text-sm font-semibold text-destructive">Supprimer le compte</p>
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowDeleteConfirm(false)}

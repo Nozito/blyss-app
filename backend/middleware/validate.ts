@@ -174,6 +174,29 @@ export const reservationStatusSchema = z.object({
   }),
 });
 
+// ── Cancellation policy ────────────────────────────────────────────────────
+
+/** Valeurs de délai autorisées — doit rester en sync avec ALLOWED_NOTICE_HOURS */
+const NOTICE_HOURS_VALUES = [0, 2, 4, 6, 12, 24, 48, 72] as const;
+
+export const cancellationPolicySchema = z.object({
+  cancellation_notice_hours: z.union(
+    NOTICE_HOURS_VALUES.map((h) => z.literal(h)) as [
+      z.ZodLiteral<0>,
+      z.ZodLiteral<2>,
+      z.ZodLiteral<4>,
+      z.ZodLiteral<6>,
+      z.ZodLiteral<12>,
+      z.ZodLiteral<24>,
+      z.ZodLiteral<48>,
+      z.ZodLiteral<72>,
+    ],
+    {
+      message: `Délai invalide — valeurs autorisées : ${NOTICE_HOURS_VALUES.join(", ")} heures`,
+    }
+  ),
+});
+
 export const forgotPasswordSchema = z.object({
   email: z.string().email("Email invalide").max(255),
 });

@@ -3,6 +3,8 @@ import { useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
+import PullToRefresh from "@/components/PullToRefresh";
+import CancelAppointmentButton from "@/components/client/CancelAppointmentButton";
 import {
   Calendar, Clock, XCircle, ChevronRight, ChevronLeft,
   Sparkles, CheckCircle2, AlertCircle, CalendarClock, Loader2
@@ -37,6 +39,7 @@ interface Booking {
   activity_name: string | null;
   profile_photo: string | null;
   city: string | null;
+  cancellation_notice_hours: number;
 }
 
 // ── Mini Calendar ────────────────────────────────────────────────────────────
@@ -294,7 +297,6 @@ const RescheduleModal = ({ booking, onClose, onConfirm }: RescheduleModalProps) 
 const ClientMyBooking = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [confirmId, setConfirmId] = useState<number | null>(null);
   const [rescheduleBooking, setRescheduleBooking] = useState<Booking | null>(null);
 
   const { data: bookings = [], isLoading, error: queryError, refetch } = useQuery<Booking[]>({
@@ -322,6 +324,7 @@ const ClientMyBooking = () => {
         activity_name: b.pro?.activity_name || null,
         profile_photo: b.pro?.profile_photo || null,
         city: b.pro?.city || null,
+        cancellation_notice_hours: b.pro?.cancellation_notice_hours ?? 24,
       }));
     },
     staleTime: 30_000,
@@ -334,30 +337,6 @@ const ClientMyBooking = () => {
 
   const error = queryError ? (queryError as Error).message : null;
 
-  const handleCancelBooking = useCallback(async (bookingId: number) => {
-    // Snapshot for rollback
-    const snapshot = queryClient.getQueryData<Booking[]>(["client-bookings"]);
-    // Optimistic: update cache + close modal immediately
-    queryClient.setQueryData<Booking[]>(["client-bookings"], (prev = []) =>
-      prev.map((b) => (b.id === bookingId ? { ...b, status: "cancelled" as const } : b))
-    );
-    setConfirmId(null);
-    try {
-      const response = await fetchWithCredentials(`${API_BASE_URL}/api/client/my-booking/${bookingId}/cancel`, { method: 'PATCH' });
-      if (!response.ok) throw new Error(`Erreur ${response.status}`);
-      const data = await response.json();
-      if (!data.success) throw new Error(data?.message || "Erreur");
-      toast.success("Réservation annulée");
-    } catch (err) {
-      // Rollback
-      if (snapshot) queryClient.setQueryData(["client-bookings"], snapshot);
-      if (err instanceof Error && err.message === 'REFRESH_FAILED') {
-        navigate('/login', { replace: true, state: { message: 'Session expirée' } });
-        return;
-      }
-      toast.error("Erreur lors de l'annulation");
-    }
-  }, [navigate, queryClient]);
 
   const handleReschedule = useCallback(async (bookingId: number, startDt: string, endDt: string, slotId: number | null) => {
     // Snapshot for rollback
@@ -443,6 +422,7 @@ const ClientMyBooking = () => {
 
   return (
     <MobileLayout>
+      <PullToRefresh onRefresh={() => refetch()}>
       <div className="min-h-screen bg-background pb-32">
         <motion.div className="pt-6 pb-6 text-center px-6" initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
           <h1 className="text-3xl font-display font-bold text-foreground mb-2">Mes réservations</h1>
@@ -478,7 +458,6 @@ const ClientMyBooking = () => {
                 formatDate={formatDate}
                 formatTime={formatTime}
                 onNavigate={navigate}
-                onCancel={setConfirmId}
                 onReschedule={setRescheduleBooking}
                 getImageUrl={getImageUrl}
                 isUpcoming
@@ -500,9 +479,6 @@ const ClientMyBooking = () => {
       </div>
 
       <AnimatePresence>
-        {confirmId !== null && (
-          <CancelModal onClose={() => setConfirmId(null)} onConfirm={() => handleCancelBooking(confirmId)} />
-        )}
         {rescheduleBooking && (
           <RescheduleModal
             booking={rescheduleBooking}
@@ -511,6 +487,7 @@ const ClientMyBooking = () => {
           />
         )}
       </AnimatePresence>
+      </PullToRefresh>
     </MobileLayout>
   );
 };
@@ -537,13 +514,12 @@ interface BookingSectionProps {
   formatDate: (d: string) => string;
   formatTime: (d: string) => string;
   onNavigate: (path: string) => void;
-  onCancel?: (id: number) => void;
   onReschedule?: (booking: Booking) => void;
   getImageUrl: (path: string | null) => string | null;
   isUpcoming: boolean;
 }
 
-const BookingSection = ({ title, bookings, formatDate, formatTime, onNavigate, onCancel, onReschedule, getImageUrl, isUpcoming }: BookingSectionProps) => (
+const BookingSection = ({ title, bookings, formatDate, formatTime, onNavigate, onReschedule, getImageUrl, isUpcoming }: BookingSectionProps) => (
   <motion.section className="space-y-3" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }}>
     <div className="flex items-center gap-2">
       {isUpcoming && <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />}
@@ -561,7 +537,6 @@ const BookingSection = ({ title, bookings, formatDate, formatTime, onNavigate, o
           formatDate={formatDate}
           formatTime={formatTime}
           onNavigate={onNavigate}
-          onCancel={onCancel}
           onReschedule={onReschedule}
           getImageUrl={getImageUrl}
           isUpcoming={isUpcoming}
@@ -577,13 +552,12 @@ interface BookingCardProps {
   formatDate: (d: string) => string;
   formatTime: (d: string) => string;
   onNavigate: (path: string) => void;
-  onCancel?: (id: number) => void;
   onReschedule?: (booking: Booking) => void;
   getImageUrl: (path: string | null) => string | null;
   isUpcoming: boolean;
 }
 
-const BookingCard = ({ booking, index, formatDate, formatTime, onNavigate, onCancel, onReschedule, getImageUrl, isUpcoming }: BookingCardProps) => {
+const BookingCard = ({ booking, index, formatDate, formatTime, onNavigate, onReschedule, getImageUrl, isUpcoming }: BookingCardProps) => {
   const proName = booking.activity_name || `${booking.pro_first_name} ${booking.pro_last_name}`.trim() || 'Professionnel';
   const avatarUrl = getImageUrl(booking.profile_photo);
   const isCompleted = booking.status === 'completed';
@@ -632,7 +606,7 @@ const BookingCard = ({ booking, index, formatDate, formatTime, onNavigate, onCan
           </div>
         </button>
 
-        {(onCancel || onReschedule) && (
+        {onReschedule && (
           <div className="flex border-t border-muted">
             <button
               onClick={() => onNavigate(`/client/booking-detail/${booking.id}`)}
@@ -641,26 +615,23 @@ const BookingCard = ({ booking, index, formatDate, formatTime, onNavigate, onCan
               <Calendar size={14} />
               Détails
             </button>
-            {onReschedule && (
-              <button
-                onClick={() => onReschedule(booking)}
-                className="flex-1 px-4 py-3 flex items-center justify-center gap-1.5 text-xs font-semibold text-primary hover:bg-primary/10 transition-all duration-300 active:scale-95 border-r border-muted"
-              >
-                <CalendarClock size={14} />
-                Reporter
-              </button>
-            )}
-            {onCancel && (
-              <button
-                onClick={() => onCancel(booking.id)}
-                className="flex-1 px-4 py-3 flex items-center justify-center gap-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10 transition-all duration-300 active:scale-95"
-              >
-                <XCircle size={14} />
-                Annuler
-              </button>
-            )}
+            <button
+              onClick={() => onReschedule(booking)}
+              className="flex-1 px-4 py-3 flex items-center justify-center gap-1.5 text-xs font-semibold text-primary hover:bg-primary/10 transition-all duration-300 active:scale-95"
+            >
+              <CalendarClock size={14} />
+              Reporter
+            </button>
           </div>
         )}
+        <div className="px-4 pb-4 pt-2 border-t border-muted">
+          <CancelAppointmentButton
+            reservationId={booking.id}
+            appointmentStartAt={booking.start_datetime}
+            cancellationNoticeHours={booking.cancellation_notice_hours}
+            queryKeyToInvalidate={["client-bookings"]}
+          />
+        </div>
       </motion.div>
     );
   }

@@ -123,7 +123,7 @@ const ClientHelp = () => {
         {/* Header aligné comme ClientPaymentMethods */}
         <div className="flex items-center mb-2">
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate("/client")}
             className="w-10 h-10 rounded-xl bg-muted hover:bg-muted-foreground/10 flex items-center justify-center active:scale-95 transition-all"
           >
             <ChevronLeft size={20} className="text-foreground" />

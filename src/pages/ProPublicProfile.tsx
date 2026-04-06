@@ -24,6 +24,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useRevenueCat } from "@/contexts/RevenueCatContext";
 import { instagramApi, InstagramStatus } from "@/services/api";
 import { getImageUrl } from "@/utils/imageUrl";
+import CancellationPolicySettings from "@/components/pro/CancellationPolicySettings";
 
 export interface ConditionItem {
   text: string;
@@ -1303,8 +1304,21 @@ const ProPublicProfile = () => {
           )}
         </div>
 
-        {/* SECTION : Réseaux sociaux */}
+        {/* SECTION : Politique d'annulation */}
         <div className="space-y-4 mb-6 animate-slide-up" style={{ animationDelay: "0.4s" }}>
+          <div className="flex items-center gap-2 px-1">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+            <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              Politique d'annulation
+            </h2>
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
+          </div>
+
+          <CancellationPolicySettings />
+        </div>
+
+        {/* SECTION : Réseaux sociaux */}
+        <div className="space-y-4 mb-6 animate-slide-up" style={{ animationDelay: "0.45s" }}>
           <div className="flex items-center gap-2 px-1">
             <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border to-transparent" />
             <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">

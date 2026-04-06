@@ -140,7 +140,7 @@ const ProSubscriptionSettings = () => {
         <div className="sticky top-0 bg-background/80 backdrop-blur-xl z-10 -mx-4 px-4 py-4 mb-6 border-b border-border/40 shadow-sm">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate(-1)}
+              onClick={() => navigate("/pro/dashboard")}
               className="w-10 h-10 rounded-xl bg-muted/70 hover:bg-muted flex items-center justify-center active:scale-95 transition-all duration-200"
               aria-label="Retour"
             >

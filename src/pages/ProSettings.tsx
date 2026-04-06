@@ -378,7 +378,7 @@ const ProSettings = () => {
         <div className="relative -mx-4 px-4 pt-2 pb-6 mb-6 animate-fade-in">
           <div className="flex items-center mb-3">
             <button
-              onClick={() => navigate(-1)}
+              onClick={() => navigate("/pro/dashboard")}
               className="w-10 h-10 rounded-xl bg-muted hover:bg-muted-foreground/10 flex items-center justify-center active:scale-95 transition-all mr-3"
             >
               <ChevronLeft size={20} className="text-foreground" />
@@ -632,10 +632,7 @@ const ProSettings = () => {
             </button>
           ) : (
             <div className="rounded-xl border-2 border-destructive/30 bg-destructive/5 p-4 space-y-3">
-              <p className="text-sm font-semibold text-destructive">Supprimer définitivement ?</p>
-              <p className="text-xs text-muted-foreground">
-                Cette action est irréversible. Toutes tes données, prestations et réservations seront effacées.
-              </p>
+              <p className="text-sm font-semibold text-destructive">Supprimer le compte</p>
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowDeleteConfirm(false)}

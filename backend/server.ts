@@ -78,6 +78,7 @@ import {
 import { validate, userUpdateSchema, financeObjectiveSchema, prestationSchema, prestationPatchSchema, slotCreateSchema, reservationSchema, reviewSchema, depositSchema, paymentIntentSchema, favoriteSchema, unavailabilitySchema, reservationStatusSchema } from "./middleware/validate";
 import authRouter from "./routes/auth.routes";
 import adminRouter from "./routes/admin.routes";
+import cancellationRouter from "./routes/cancellation.routes";
 import {
   encryptSensitiveData,
   decryptSensitiveData,
@@ -281,6 +282,7 @@ app.use(cookieParser());
 app.use("/api/auth", authRouter);
 app.use("/api/admin", adminLimiter, adminRouter);
 app.use("/api/pro", router);
+app.use("/api", cancellationRouter);
 
 // ── Health check (no auth) ──────────────────────────────────────────────────
 app.get("/api/health", async (_req: Request, res: Response) => {
@@ -4366,7 +4368,8 @@ app.get('/api/client/my-booking', authenticateToken, async (req: AuthenticatedRe
         u.last_name AS pro_last_name,
         u.activity_name,
         u.profile_photo,
-        u.city
+        u.city,
+        u.cancellation_notice_hours
       FROM reservations r
       JOIN prestations p ON r.prestation_id = p.id
       JOIN users u ON r.pro_id = u.id
@@ -4393,7 +4396,8 @@ app.get('/api/client/my-booking', authenticateToken, async (req: AuthenticatedRe
           last_name: row.pro_last_name,
           name: row.activity_name,
           profile_photo: row.profile_photo,
-          city: row.city
+          city: row.city,
+          cancellation_notice_hours: row.cancellation_notice_hours ?? 24
         }
       }))
     });

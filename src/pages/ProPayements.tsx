@@ -109,7 +109,7 @@ const ProPayments = () => {
         <div className="relative -mx-4 px-4 pt-2 pb-6 mb-6">
           <div className="flex items-center mb-3">
             <button
-              onClick={() => navigate(-1)}
+              onClick={() => navigate("/pro/dashboard")}
               className="w-10 h-10 rounded-xl bg-muted hover:bg-muted-foreground/10 flex items-center justify-center active:scale-95 transition-all mr-3"
             >
               <ChevronLeft size={20} className="text-foreground" />

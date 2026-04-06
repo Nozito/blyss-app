@@ -61,7 +61,7 @@ const RoleSelectionModal = ({
             className="relative w-full max-w-md"
           >
             {/* Container principal - fond plus opaque */}
-            <div className="relative bg-background backdrop-blur-sm rounded-[2rem] p-8 shadow-2xl border border-border overflow-hidden">
+            <div className="relative bg-card rounded-[2rem] p-8 shadow-2xl border border-border overflow-hidden">
               {/* Gradient overlay très subtil */}
               <div className="absolute inset-0 bg-gradient-to-br from-primary/3 via-transparent to-orange-500/3 pointer-events-none" />
               

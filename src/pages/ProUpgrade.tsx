@@ -49,7 +49,7 @@ const ProUpgrade = () => {
         <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
           <div className="px-4 py-4 flex items-center gap-3">
             <button
-              onClick={() => navigate(-1)}
+              onClick={() => navigate("/pro/dashboard")}
               className="p-2 -ml-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
             >
               <ChevronLeft size={22} className="text-foreground" />

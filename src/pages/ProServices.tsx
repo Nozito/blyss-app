@@ -401,7 +401,7 @@ const ProServices = () => {
       <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/10 pb-20">
         {/* Header */}
         <div className="relative pt-6 pb-5 px-4 mb-6">
-          <motion.button initial={{ opacity: 0, x: -18 }} animate={{ opacity: 1, x: 0 }} whileTap={{ scale: 0.95 }} onClick={() => navigate(-1)} className="absolute left-4 top-6 w-10 h-10 rounded-xl bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl border border-white/20 shadow-sm flex items-center justify-center">
+          <motion.button initial={{ opacity: 0, x: -18 }} animate={{ opacity: 1, x: 0 }} whileTap={{ scale: 0.95 }} onClick={() => navigate("/pro/dashboard")} className="absolute left-4 top-6 w-10 h-10 rounded-xl bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl border border-white/20 shadow-sm flex items-center justify-center">
             <ChevronLeft size={20} className="text-foreground" />
           </motion.button>
 

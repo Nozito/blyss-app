@@ -128,6 +128,19 @@ export const passwordResetLimiter = rateLimit({
   },
 });
 
+// 10 annulations par heure par IP (anti-abus)
+export const cancellationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de tentatives d'annulation, réessayez dans 1 heure.",
+  },
+});
+
 // Instagram OAuth & sync — 30 requêtes par 15 min par IP (inclut syncs manuels)
 export const instagramLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

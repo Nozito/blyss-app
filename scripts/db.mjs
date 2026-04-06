@@ -20,6 +20,21 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
+
+// Charge .env.dev si présent (variables non encore définies dans le process)
+const envFile = join(ROOT, ".env.dev");
+if (existsSync(envFile)) {
+  const lines = readFileSync(envFile, "utf8").split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed.slice(eq + 1).trim();
+    if (key && !(key in process.env)) process.env[key] = val;
+  }
+}
 const MIGRATIONS_DIR = join(ROOT, "supabase", "migrations");
 const SEED_FILE = join(ROOT, "supabase", "seed.sql");
 
