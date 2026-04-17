@@ -20,8 +20,9 @@ import {
   LayoutList,
   Lock,
   Pencil,
+  UserX,
 } from "lucide-react";
-import api from "@/services/api";
+import api, { nailTechApi } from "@/services/api";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -501,6 +502,19 @@ const ProCalendar = () => {
     } catch {
       setAppointments((prev) => prev.map((a) => (a.id === apt.id ? { ...a, status: apt.status } : a)));
       notify("Erreur lors de l'annulation", "error");
+    }
+  };
+
+  const handleNoShow = async (apt: any) => {
+    setShowActionsModal(false);
+    setAppointments((prev) => prev.map((a) => (a.id === apt.id ? { ...a, status: "cancelled" } : a)));
+    try {
+      const res = await nailTechApi.markNoShow(apt.id);
+      if (!res.success) throw new Error(res.message);
+      notify("Absence enregistrée — acompte conservé");
+    } catch (e: any) {
+      setAppointments((prev) => prev.map((a) => (a.id === apt.id ? { ...a, status: apt.status } : a)));
+      notify(e?.message || "Erreur lors de l'enregistrement", "error");
     }
   };
 
@@ -1173,6 +1187,12 @@ const ProCalendar = () => {
                       <button onClick={() => handleCompleteAppointment(selectedAppointment)} className="w-full p-4 rounded-xl bg-emerald-500/10 border border-emerald-200 hover:bg-emerald-500/20 active:scale-95 transition-all flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center"><CheckCircle2 size={20} className="text-white" strokeWidth={2} /></div>
                         <div className="text-left"><p className="text-sm font-bold text-foreground">Marquer comme terminé</p><p className="text-xs text-muted-foreground">La prestation a été réalisée</p></div>
+                      </button>
+                    )}
+                    {s.status === "past_pending" && (
+                      <button onClick={() => handleNoShow(selectedAppointment)} className="w-full p-4 rounded-xl bg-amber-500/10 border border-amber-200 hover:bg-amber-500/20 active:scale-95 transition-all flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center"><UserX size={20} className="text-white" strokeWidth={2} /></div>
+                        <div className="text-left"><p className="text-sm font-bold text-foreground">Absence (no-show)</p><p className="text-xs text-muted-foreground">Cliente non présentée — acompte conservé</p></div>
                       </button>
                     )}
                     {s.canCancel && (

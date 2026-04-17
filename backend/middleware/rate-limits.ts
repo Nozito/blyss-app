@@ -153,3 +153,29 @@ export const instagramLimiter = rateLimit({
     message: "Trop de requêtes Instagram, réessayez dans 15 minutes.",
   },
 });
+
+// 20 inscriptions liste d'attente par heure par IP (anti-spam notifications)
+export const waitingListLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de requêtes, réessayez dans 1 heure.",
+  },
+});
+
+// 60 écritures nail-tech par heure par IP (notes, blocages, no-show)
+export const nailTechWriteLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de requêtes, réessayez dans 1 heure.",
+  },
+});

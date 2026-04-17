@@ -156,7 +156,9 @@ describe("POST /api/reservations — logique métier", () => {
 
   it("409 si le créneau est déjà réservé (slot_id fourni)", async () => {
     // Prestation check → OK
-    mockQuery.mockResolvedValueOnce([[{ id: 10 }]]);
+    mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
+    // Blacklist check → non bloquée
+    mockQuery.mockResolvedValueOnce([[]]);
     // Slot check → status = 'booked'
     mockQuery.mockResolvedValueOnce([[{ status: "booked" }]]);
 
@@ -171,7 +173,9 @@ describe("POST /api/reservations — logique métier", () => {
 
   it("409 si chevauchement de réservation détecté", async () => {
     // Prestation check → OK
-    mockQuery.mockResolvedValueOnce([[{ id: 10 }]]);
+    mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
+    // Blacklist check → non bloquée
+    mockQuery.mockResolvedValueOnce([[]]);
     // (pas de slot_id) Overlap check → conflit trouvé
     mockQuery.mockResolvedValueOnce([[{ id: 99 }]]);
 
@@ -186,7 +190,9 @@ describe("POST /api/reservations — logique métier", () => {
 
   it("404 si le pro n'existe pas en DB", async () => {
     // Prestation check → OK
-    mockQuery.mockResolvedValueOnce([[{ id: 10 }]]);
+    mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
+    // Blacklist check → non bloquée
+    mockQuery.mockResolvedValueOnce([[]]);
     // Overlap check → aucun conflit
     mockQuery.mockResolvedValueOnce([[]]);
     // Pro query → vide
@@ -203,13 +209,16 @@ describe("POST /api/reservations — logique métier", () => {
 
   it("200 et retourne l'id de la réservation créée", async () => {
     // Prestation check → OK
-    mockQuery.mockResolvedValueOnce([[{ id: 10 }]]);
+    mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
+    // Blacklist check → non bloquée
+    mockQuery.mockResolvedValueOnce([[]]);
     // Overlap check → aucun conflit
     mockQuery.mockResolvedValueOnce([[]]);
     // Pro query → deposit 30%
     mockQuery.mockResolvedValueOnce([[{ deposit_percentage: 30, stripe_onboarding_complete: 1 }]]);
     // INSERT reservations
     mockExecute.mockResolvedValueOnce([{ insertId: 55 }]);
+    // (notification queries sont dans un try/catch — si non mockées, elles échouent silencieusement)
 
     const res = await request(app)
       .post("/api/reservations")

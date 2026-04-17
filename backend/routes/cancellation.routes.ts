@@ -22,6 +22,8 @@ import {
 } from "../lib/cancellation";
 import { sendNotificationToUser } from "../lib/notifications";
 import { parseParamToInt } from "../lib/helpers";
+import { initiateClientCancellationRefunds } from "../lib/refunds";
+import { notifyWaitingList } from "./nail-tech.routes";
 import type { AuthenticatedRequest } from "../lib/types";
 
 const router = express.Router();
@@ -178,7 +180,7 @@ router.post(
       // ── 1. Charger la réservation + la politique du pro en une seule requête
       const [rows] = await db.query(
         `SELECT r.id, r.client_id, r.pro_id, r.status,
-                r.start_datetime, r.slot_id,
+                r.start_datetime, r.slot_id, r.payment_status, r.deposit_amount,
                 u.cancellation_notice_hours
          FROM reservations r
          JOIN users u ON u.id = r.pro_id
@@ -193,6 +195,8 @@ router.post(
         status: string;
         start_datetime: Date | string;
         slot_id: number | null;
+        payment_status: string;
+        deposit_amount: string | number | null;
         cancellation_notice_hours: number;
       }>;
 
@@ -246,7 +250,7 @@ router.post(
 
       // ── 5. Annulation en base
       await db.query(
-        `UPDATE reservations SET status = 'cancelled' WHERE id = ?`,
+        `UPDATE reservations SET status = 'cancelled', cancelled_by = 'client' WHERE id = ?`,
         [reservationId]
       );
 
@@ -257,7 +261,37 @@ router.post(
         );
       }
 
-      // ── 6. Notification au professionnel (best-effort)
+      // ── Notifier la liste d'attente (best-effort) ─────────────────────────
+      notifyWaitingList(reservation.pro_id, startAt).catch(() => {});
+
+      // ── 6. Remboursement partiel si le client avait payé en ligne (best-effort)
+      //       Règle : l'acompte reste au pro (compensation pour la réservation bloquée).
+      //       Seul le solde ou la portion non-acompte d'un paiement 'full' est remboursée.
+      let refundInfo: { refunded: boolean; totalRefunded: number } = {
+        refunded: false,
+        totalRefunded: 0,
+      };
+      if (
+        reservation.payment_status === "deposit_paid" ||
+        reservation.payment_status === "fully_paid"
+      ) {
+        try {
+          refundInfo = await initiateClientCancellationRefunds(
+            reservationId,
+            reservation.deposit_amount !== null ? Number(reservation.deposit_amount) : null
+          );
+          if (refundInfo.refunded) {
+            log.warn("reservations/cancel", "Partial refund initiated after client cancellation", {
+              reservationId,
+              totalRefunded: refundInfo.totalRefunded,
+            });
+          }
+        } catch (refundErr) {
+          log.error("reservations/cancel", "Refund initiation failed (non-fatal)", errStack(refundErr));
+        }
+      }
+
+      // ── 7. Notification au professionnel (best-effort)
       try {
         const [notifRows] = await db.query(
           `INSERT INTO notifications (user_id, type, title, message, data)
@@ -291,12 +325,26 @@ router.post(
         reservationId,
         clientId,
         proId: reservation.pro_id,
+        refunded: refundInfo.refunded,
+        totalRefunded: refundInfo.totalRefunded,
       });
 
       res.json({
         success: true,
         message: "Réservation annulée avec succès.",
         reservation_id: reservationId,
+        refund: refundInfo.refunded
+          ? {
+              initiated: true,
+              amount: refundInfo.totalRefunded,
+              message: `Un remboursement de ${refundInfo.totalRefunded.toFixed(2)}€ a été initié (5 à 10 jours ouvrés). L'acompte reste acquis au professionnel.`,
+            }
+          : reservation.payment_status === "deposit_paid"
+          ? {
+              initiated: false,
+              message: "L'acompte versé reste acquis au professionnel.",
+            }
+          : { initiated: false },
       });
     } catch (e) {
       if (e instanceof CancellationWindowExpiredError) {

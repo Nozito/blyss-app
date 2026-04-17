@@ -399,10 +399,27 @@ export const bookingsApi = {
 
 export const specialistsApi = {
   /** Liste publique des pros (endpoint réel du backend) */
-  getPros: async (params?: { page?: number; limit?: number }): Promise<ApiResponse<any[]>> => {
+  getPros: async (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    city?: string;
+    min_rating?: number;
+    lat?: number;
+    lng?: number;
+    radius?: number;
+    nearby?: boolean;
+  }): Promise<ApiResponse<any[]>> => {
     const q = new URLSearchParams();
     if (params?.page) q.set("page", String(params.page));
     if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.search) q.set("search", params.search);
+    if (params?.city) q.set("city", params.city);
+    if (params?.min_rating) q.set("min_rating", String(params.min_rating));
+    if (params?.lat != null) q.set("lat", String(params.lat));
+    if (params?.lng != null) q.set("lng", String(params.lng));
+    if (params?.radius) q.set("radius", String(params.radius));
+    if (params?.nearby) q.set("nearby", "1");
     const qs = q.toString() ? `?${q}` : "";
     return apiCall(`/api/users/pros${qs}`);
   },
@@ -866,6 +883,7 @@ export const stripePaymentsApi = {
     end_datetime: string;
     price: number;
     slot_id?: number | null;
+    payment_method: "online" | "on_site";
   }): Promise<ApiResponse<{
     id: number;
     deposit_percentage: number;
@@ -1004,6 +1022,99 @@ export const cancellationApi = {
 };
 
 // =====================
+// NAIL-TECH API
+// =====================
+
+export interface ClientNote {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string | null;
+  notes: string | null;
+  allergies: string | null;
+  preferred_shape: string | null;
+  preferred_style: string | null;
+  patch_test_done: boolean;
+  patch_test_date: string | null;
+  updated_at?: string;
+}
+
+export interface BlockedClient {
+  id: number;
+  client_id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  profile_photo: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface WaitingListEntry {
+  id: number;
+  pro_id: number;
+  prestation_id: number | null;
+  preferred_date: string | null;
+  note: string | null;
+  created_at: string;
+  pro_name: string;
+  pro_photo: string | null;
+  prestation_name: string | null;
+}
+
+export const nailTechApi = {
+  /** Pro: marquer une cliente comme absente (no-show). */
+  markNoShow: (reservationId: number): Promise<ApiResponse<void>> =>
+    apiCall(`/api/pro/reservations/${reservationId}/no-show`, { method: "PATCH" }),
+
+  /** Pro: lire la fiche enrichie d'une cliente. */
+  getClientNotes: (clientId: number): Promise<ApiResponse<ClientNote>> =>
+    apiCall(`/api/pro/clients/${clientId}/notes`),
+
+  /** Pro: mettre à jour la fiche d'une cliente. */
+  updateClientNotes: (
+    clientId: number,
+    data: Partial<Omit<ClientNote, "first_name" | "last_name" | "email" | "phone_number" | "updated_at">>
+  ): Promise<ApiResponse<void>> =>
+    apiCall(`/api/pro/clients/${clientId}/notes`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  /** Pro: bloquer une cliente. */
+  blockClient: (clientId: number, reason?: string): Promise<ApiResponse<void>> =>
+    apiCall(`/api/pro/clients/${clientId}/block`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+
+  /** Pro: débloquer une cliente. */
+  unblockClient: (clientId: number): Promise<ApiResponse<void>> =>
+    apiCall(`/api/pro/clients/${clientId}/block`, { method: "DELETE" }),
+
+  /** Pro: liste des clientes bloquées. */
+  getBlockedClients: (): Promise<ApiResponse<BlockedClient[]>> =>
+    apiCall("/api/pro/blocked-clients"),
+
+  /** Client: s'inscrire sur la liste d'attente d'un pro. */
+  joinWaitingList: (data: {
+    pro_id: number;
+    prestation_id?: number;
+    preferred_date?: string;
+    note?: string;
+  }): Promise<ApiResponse<void>> =>
+    apiCall("/api/waiting-list", { method: "POST", body: JSON.stringify(data) }),
+
+  /** Client: se retirer de la liste d'attente d'un pro. */
+  leaveWaitingList: (proId: number): Promise<ApiResponse<void>> =>
+    apiCall(`/api/waiting-list/${proId}`, { method: "DELETE" }),
+
+  /** Client: liste d'attente du client connecté. */
+  getMyWaitingList: (): Promise<ApiResponse<WaitingListEntry[]>> =>
+    apiCall("/api/client/waiting-list"),
+};
+
+// =====================
 // DEFAULT EXPORT
 // =====================
 
@@ -1022,4 +1133,5 @@ export default {
   instagram: instagramApi,
   users: usersApi,
   client: clientApi,
+  nailTech: nailTechApi,
 };

@@ -51,6 +51,7 @@ const J1_CLAIM_QUERY = `
     c.client_id,
     c.rdv_time,
     COALESCE(p.name, 'Soin') AS prestation_name,
+    p.preparation_instructions,
     COALESCE(
       NULLIF(TRIM(u_pro.activity_name), ''),
       u_pro.first_name || ' ' || u_pro.last_name
@@ -110,9 +111,13 @@ async function sendJ1Reminders(): Promise<void> {
 
   let sent = 0;
   for (const row of rows as any[]) {
+    let body = `Ton RDV à ${row.rdv_time} avec ${row.pro_name} (${row.prestation_name}) est demain !`;
+    if (row.preparation_instructions) {
+      body += ` Préparation : ${row.preparation_instructions}`;
+    }
     await sendPushToUser(row.client_id, {
       title: "Rappel rendez-vous demain ✨",
-      body: `Ton RDV à ${row.rdv_time} avec ${row.pro_name} (${row.prestation_name}) est demain !`,
+      body,
       url: "/client/bookings",
       tag: `rdv-j1-${row.id}`,
     });

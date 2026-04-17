@@ -1,16 +1,18 @@
 import { useNavigate } from "react-router-dom";
 import { useState, useMemo, useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
 import PullToRefresh from "@/components/PullToRefresh";
 import CancelAppointmentButton from "@/components/client/CancelAppointmentButton";
 import {
   Calendar, Clock, XCircle, ChevronRight, ChevronLeft,
-  Sparkles, CheckCircle2, AlertCircle, CalendarClock, Loader2
+  Sparkles, CheckCircle2, AlertCircle, CalendarClock, Loader2,
+  Bell, BellOff
 } from "lucide-react";
 import { toast } from "sonner";
 import { getImageUrl } from "@/utils/imageUrl";
+import { nailTechApi, type WaitingListEntry } from "@/services/api";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -476,6 +478,10 @@ const ClientMyBooking = () => {
             )}
           </div>
         )}
+
+        {/* Waiting list section */}
+        <WaitingListSection />
+
       </div>
 
       <AnimatePresence>
@@ -489,6 +495,75 @@ const ClientMyBooking = () => {
       </AnimatePresence>
       </PullToRefresh>
     </MobileLayout>
+  );
+};
+
+// ── WaitingListSection ────────────────────────────────────────────────────────
+
+const WaitingListSection = () => {
+  const queryClient = useQueryClient();
+
+  const { data: entries = [], isLoading } = useQuery<WaitingListEntry[]>({
+    queryKey: ["client-waiting-list"],
+    queryFn: async () => {
+      const res = await nailTechApi.getMyWaitingList();
+      if (!res.success) return [];
+      return res.data ?? [];
+    },
+    staleTime: 60_000,
+  });
+
+  const leaveMutation = useMutation({
+    mutationFn: (proId: number) => nailTechApi.leaveWaitingList(proId),
+    onSuccess: (_, proId) => {
+      queryClient.setQueryData<WaitingListEntry[]>(["client-waiting-list"], (prev = []) =>
+        prev.filter((e) => e.pro_id !== proId)
+      );
+      toast.success("Retirée de la liste d'attente");
+    },
+    onError: () => toast.error("Erreur, réessaie"),
+  });
+
+  if (isLoading || entries.length === 0) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="px-6 mt-6"
+    >
+      <div className="flex items-center gap-2 mb-3">
+        <Bell size={15} className="text-amber-500" />
+        <h2 className="text-base font-bold text-foreground">Listes d'attente</h2>
+        <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-600 text-[10px] font-bold">{entries.length}</span>
+      </div>
+      <div className="space-y-2">
+        {entries.map((entry) => (
+          <div key={entry.id} className="flex items-center gap-3 p-3.5 rounded-2xl bg-card border border-border shadow-sm">
+            {entry.pro_photo ? (
+              <img src={entry.pro_photo} alt="" className="w-10 h-10 rounded-xl object-cover flex-shrink-0" />
+            ) : (
+              <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center flex-shrink-0">
+                <span className="text-white font-bold text-sm">{entry.pro_name.charAt(0)}</span>
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-foreground text-sm">{entry.pro_name}</p>
+              {entry.prestation_name && <p className="text-xs text-muted-foreground">{entry.prestation_name}</p>}
+              {entry.preferred_date && <p className="text-xs text-muted-foreground">Souhaité : {new Date(entry.preferred_date).toLocaleDateString("fr-FR")}</p>}
+            </div>
+            <button
+              onClick={() => leaveMutation.mutate(entry.pro_id)}
+              disabled={leaveMutation.isPending}
+              className="flex-shrink-0 p-2 rounded-xl bg-muted hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 transition-all active:scale-90"
+              title="Se retirer de la liste d'attente"
+            >
+              {leaveMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <BellOff size={14} />}
+            </button>
+          </div>
+        ))}
+      </div>
+    </motion.div>
   );
 };
 

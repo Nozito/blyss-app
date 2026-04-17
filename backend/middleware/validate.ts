@@ -115,6 +115,9 @@ export const reservationSchema = z
     end_datetime: z.string().datetime("end_datetime doit être une date ISO valide"),
     price: z.number("Le prix doit être un nombre").positive("Le prix doit être positif"),
     slot_id: z.number().int().positive().optional(),
+    payment_method: z.enum(["online", "on_site"], {
+      message: "payment_method doit être 'online' ou 'on_site'",
+    }).default("on_site"),
   })
   .refine((d) => new Date(d.start_datetime) < new Date(d.end_datetime), {
     message: "start_datetime doit être antérieur à end_datetime",
@@ -195,6 +198,26 @@ export const cancellationPolicySchema = z.object({
       message: `Délai invalide — valeurs autorisées : ${NOTICE_HOURS_VALUES.join(", ")} heures`,
     }
   ),
+});
+
+const ISO_DATE_SIMPLE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export const clientNotesSchema = z.object({
+  notes: z.string().max(2000, "Notes trop longues (max 2000 caractères)").nullable().optional(),
+  allergies: z.string().max(500, "Allergies trop longues (max 500 caractères)").nullable().optional(),
+  preferred_shape: z
+    .enum(["round", "square", "oval", "almond", "coffin", "stiletto", "squoval"], {
+      message: "Forme invalide",
+    })
+    .nullable()
+    .optional(),
+  preferred_style: z.string().max(100, "Style trop long (max 100 caractères)").nullable().optional(),
+  patch_test_done: z.boolean().optional(),
+  patch_test_date: z
+    .string()
+    .regex(ISO_DATE_SIMPLE_RE, "Format YYYY-MM-DD attendu")
+    .nullable()
+    .optional(),
 });
 
 export const forgotPasswordSchema = z.object({
