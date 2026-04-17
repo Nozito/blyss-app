@@ -24,9 +24,6 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Upgrade npm to v11
-        run: npm install -g npm@11
-
       - name: Install frontend deps
         run: npm ci
 
