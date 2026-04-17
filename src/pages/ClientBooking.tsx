@@ -330,7 +330,7 @@ const ClientBooking = () => {
   const [selectedPrestation, setSelectedPrestation] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<"online" | "on_site" | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [reservationId, setReservationId] = useState<number | null>(null);
@@ -547,7 +547,7 @@ const ClientBooking = () => {
   const handleBack = () => {
     if (step === 1) {
       navigate(-1);
-    } else if (step === 5 && paymentMethod === "on-site") {
+    } else if (step === 5 && paymentMethod === "on_site") {
       setStep(3);
     } else {
       setStep((prev) => prev - 1);
@@ -601,6 +601,7 @@ const ClientBooking = () => {
         end_datetime: endDateTime.toISOString().slice(0, 19).replace('T', ' '),
         price: selectedPrestationData.price,
         slot_id: selectedSlot?.id || null,
+        payment_method: paymentMethod ?? "on_site",
       });
 
       if (!resaResult.success || !resaResult.data) {
@@ -613,7 +614,7 @@ const ClientBooking = () => {
       setDepositAmount(resaData.deposit_amount);
 
       // 2. If on-site payment, go directly to confirmation
-      if (paymentMethod === "on-site") {
+      if (paymentMethod === "on_site") {
         setStep(5);
         return;
       }
@@ -926,8 +927,8 @@ const ClientBooking = () => {
               <h3 className="font-semibold text-foreground">Mode de paiement</h3>
               <div className="space-y-3">
                 <PaymentChoice
-                  selected={paymentMethod === "on-site"}
-                  onClick={() => setPaymentMethod("on-site")}
+                  selected={paymentMethod === "on_site"}
+                  onClick={() => setPaymentMethod("on_site")}
                   icon={<CreditCard size={20} className="text-primary" />}
                   title="Payer sur place"
                   subtitle="Espèces, carte bancaire"
@@ -1037,7 +1038,7 @@ const ClientBooking = () => {
               <SummaryRow
                 label="Paiement"
                 value={
-                  paymentMethod === "on-site"
+                  paymentMethod === "on_site"
                     ? "Sur place"
                     : depositPercentage < 100
                     ? `Acompte payé (${Number(depositAmount || 0).toFixed(2)}€)`
@@ -1120,7 +1121,7 @@ const ClientBooking = () => {
                   Confirmation...
                 </>
               ) : (
-                step === 3 && paymentMethod === "on-site" ? "Confirmer" : "Continuer"
+                step === 3 && paymentMethod === "on_site" ? "Confirmer" : "Continuer"
               )}
             </button>
           </footer>

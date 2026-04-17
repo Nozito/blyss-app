@@ -4,7 +4,7 @@ import { Eye, EyeOff, Mail, Lock, Sparkles } from "lucide-react";
 import logo from "@/assets/logo.png";
 import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from "@/contexts/AuthContext";
-import RoleSelectionModal from "@/components/RoleSelectionModal";
+import RoleSelectionModal, { type AdminRole } from "@/components/RoleSelectionModal";
 import { toast } from "sonner";
 
 // ✅ Constantes de validation centralisées [web:82]
@@ -137,24 +137,25 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
     setShowPassword(prev => !prev);
   }, []);
 
-  // ✅ Gestion de la sélection du rôle dans la modal
-  const handleRoleSelection = useCallback((selectedRole: 'pro' | 'admin') => {
+  // ✅ Gestion de la sélection du rôle dans la modal (3 options : client / pro / admin)
+  const handleRoleSelection = useCallback((selectedRole: AdminRole) => {
     setShowRoleModal(false);
 
-    // Navigation selon le rôle sélectionné
-    const targetRoute = selectedRole === 'admin' 
-      ? '/admin/dashboard' 
-      : '/pro/dashboard';
+    const routes: Record<AdminRole, string> = {
+      client: "/client",
+      pro: "/pro/dashboard",
+      admin: "/admin/dashboard",
+    };
 
-    navigate(targetRoute, { replace: true });
+    navigate(routes[selectedRole], { replace: true });
   }, [navigate]);
 
-  // ✅ Fermeture de la modal (redirection par défaut vers Pro)
+  // ✅ Fermeture de la modal → redirection vers le dashboard natif de l'utilisateur
   const handleCloseModal = useCallback(() => {
     setShowRoleModal(false);
 
-    const targetRoute = loggedUserRole === "pro" 
-      ? "/pro/dashboard" 
+    const targetRoute = loggedUserRole === "pro"
+      ? "/pro/dashboard"
       : "/client";
 
     navigate(targetRoute, { replace: true });
