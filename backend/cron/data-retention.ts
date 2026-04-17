@@ -102,9 +102,10 @@ async function deleteInactiveAccounts(): Promise<number> {
 }
 
 async function purgeRevokedInstagramTokens(): Promise<number> {
+  // Table is instagram_connections (not instagram_tokens); revoked rows have is_active = FALSE
   const [result] = await getDb().execute(
-    `DELETE FROM instagram_tokens
-     WHERE revoked = TRUE
+    `DELETE FROM instagram_connections
+     WHERE is_active = FALSE
        AND updated_at < NOW() - INTERVAL '${INSTAGRAM_TOKEN_DAYS} days'`,
     []
   );
