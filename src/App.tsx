@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import * as Sentry from "@sentry/react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -71,6 +71,25 @@ const AdminAnalytics = lazy(() => import("./pages/AdminAnalytics"));
 const AdminPayments = lazy(() => import("./pages/AdminPayments"));
 const AdminLayout = lazy(() => import("./components/AdminLayout"));
 
+// ── Offline banner ────────────────────────────────────────────────────────────
+const OfflineBanner = () => {
+  const [offline, setOffline] = useState(!navigator.onLine);
+  useEffect(() => {
+    const on = () => setOffline(false);
+    const off = () => setOffline(true);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
+  if (!offline) return null;
+  return (
+    <div className="fixed top-0 inset-x-0 z-[99999] flex items-center justify-center gap-2 bg-gray-900 text-white text-sm py-2 px-4">
+      <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+      Pas de connexion — certaines fonctionnalités sont indisponibles
+    </div>
+  );
+};
+
 // ── Shared fallback ───────────────────────────────────────────────────────────
 const PageLoader = () => (
   <div className="flex items-center justify-center min-h-screen bg-cream">
@@ -91,6 +110,7 @@ const AppInner = () => {
 
   return (
     <>
+      <OfflineBanner />
       <ScrollToTop />
 
       {/* Splash au-dessus de tout — attend que l'auth soit prête */}

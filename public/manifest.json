@@ -1,0 +1,25 @@
+{
+  "name": "Blyss",
+  "short_name": "Blyss",
+  "description": "Beauté. Business. Sérénité.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#E91E8C",
+  "orientation": "portrait",
+  "categories": ["beauty", "lifestyle"],
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

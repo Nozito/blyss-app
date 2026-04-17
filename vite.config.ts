@@ -32,6 +32,10 @@ export default defineConfig(({ mode }) => ({
     },
   },
 
+  esbuild: {
+    drop: mode === "production" ? ["console", "debugger"] : [],
+  },
+
   optimizeDeps: {
     exclude: [".git"],
   },
