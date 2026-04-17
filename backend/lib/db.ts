@@ -42,19 +42,29 @@ function extractProjectRef(): string {
 /** Lit le token Management API (env var ou keychain macOS). */
 function readMgmtToken(): string {
   if (process.env.SUPABASE_ACCESS_TOKEN) return process.env.SUPABASE_ACCESS_TOKEN;
-  try {
-    const raw = execSync(
-      'security find-generic-password -s "Supabase CLI" -w 2>/dev/null',
-      { stdio: ["pipe", "pipe", "pipe"] }
-    ).toString().trim();
-    if (raw.startsWith("go-keyring-base64:")) {
-      return Buffer.from(raw.replace("go-keyring-base64:", ""), "base64").toString();
-    }
-    if (raw.length > 10) return raw;
-  } catch { /* not on macOS or keychain not set up */ }
+
+  // Supabase CLI stocke le token sous différents noms selon la version et l'OS.
+  // go-keyring (macOS) : service = "supabase" (versions récentes) ou "Supabase CLI" (anciennes).
+  const serviceNames = ["supabase", "Supabase CLI"];
+  for (const svc of serviceNames) {
+    try {
+      const raw = execSync(
+        `security find-generic-password -s "${svc}" -w 2>/dev/null`,
+        { stdio: ["pipe", "pipe", "pipe"] }
+      ).toString().trim();
+      if (!raw || raw.length < 10) continue;
+      if (raw.startsWith("go-keyring-base64:")) {
+        const decoded = Buffer.from(raw.replace("go-keyring-base64:", ""), "base64").toString().trim();
+        if (decoded.length > 10) return decoded;
+        continue;
+      }
+      return raw;
+    } catch { /* not macOS or this service name not found */ }
+  }
+
   throw new Error(
     "Token Supabase introuvable. " +
-    "Définissez SUPABASE_ACCESS_TOKEN dans .env.dev ou lancez `supabase login`."
+    "Lancez `supabase login` ou définissez SUPABASE_ACCESS_TOKEN dans .env.dev."
   );
 }
 
