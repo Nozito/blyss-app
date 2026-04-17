@@ -45,7 +45,12 @@ const UPLOADS_DIR = path.resolve(
 import sharp from "sharp";
 import { sendPushToUser } from "./lib/push";
 import { startReminderCron, runReminderCycle } from "./lib/reminders";
+import { geocodeCity, haversineKm } from "./lib/geocoding";
 import { startDataRetentionCron } from "./cron/data-retention";
+import { startPaymentCleanupCron } from "./cron/payment-cleanup";
+import { initiateRefundsForReservation } from "./lib/refunds";
+import { startRecallCron } from "./cron/recall";
+import nailTechRouter, { notifyWaitingList } from "./routes/nail-tech.routes";
 import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
 import http from "http";
@@ -248,16 +253,98 @@ app.post(
             `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE stripe_payment_intent_id = ?`,
             [pi.id]
           );
+          // Notify client that payment failed so they can retry
+          const [failedPayRows] = await db.query(
+            `SELECT client_id, reservation_id FROM payments WHERE stripe_payment_intent_id = ?`,
+            [pi.id]
+          );
+          const failedPay = (failedPayRows as any[])[0];
+          if (failedPay) {
+            try {
+              const [notifRows] = await db.query(
+                `INSERT INTO notifications (user_id, type, title, message, data)
+                 VALUES (?, 'payment_failed', 'Paiement échoué', ?, ?)
+                 RETURNING id, created_at`,
+                [
+                  failedPay.client_id,
+                  "Votre paiement a été refusé. Veuillez réessayer avec une autre carte.",
+                  JSON.stringify({ reservation_id: failedPay.reservation_id }),
+                ]
+              );
+              const notif = (notifRows as any[])[0];
+              if (notif) {
+                await sendNotificationToUser(failedPay.client_id, {
+                  id: notif.id,
+                  type: "payment_failed",
+                  title: "Paiement échoué",
+                  message: "Votre paiement a été refusé. Veuillez réessayer avec une autre carte.",
+                  data: { reservation_id: failedPay.reservation_id },
+                  created_at: notif.created_at,
+                });
+              }
+            } catch (notifErr) {
+              log.warn("/api/webhooks/stripe", "payment_failed notification error (non-fatal)", { piId: pi.id });
+            }
+          }
           break;
         }
         case "charge.refunded": {
           const charge = event.data.object as Stripe.Charge;
           const piId = charge.payment_intent as string;
           if (piId) {
+            // Mark payment as refunded (may already be set by initiateRefundsForReservation, idempotent)
             await db.execute(
-              `UPDATE payments SET status = 'refunded', updated_at = NOW() WHERE stripe_payment_intent_id = ?`,
+              `UPDATE payments
+               SET status = 'refunded', refund_amount = COALESCE(refund_amount, amount), updated_at = NOW()
+               WHERE stripe_payment_intent_id = ? AND status != 'refunded'`,
               [piId]
             );
+            // Check if all payments for the reservation are now refunded → reset payment_status
+            const [chargePayRows] = await db.query(
+              `SELECT reservation_id, client_id FROM payments WHERE stripe_payment_intent_id = ?`,
+              [piId]
+            );
+            const chargePay = (chargePayRows as any[])[0];
+            if (chargePay) {
+              const [pendingRows] = await db.query(
+                `SELECT COUNT(*) AS cnt FROM payments
+                 WHERE reservation_id = ? AND status = 'succeeded'`,
+                [chargePay.reservation_id]
+              );
+              const remainingSucceeded = Number((pendingRows as any[])[0]?.cnt ?? 0);
+              if (remainingSucceeded === 0) {
+                await db.execute(
+                  `UPDATE reservations SET payment_status = 'unpaid', total_paid = 0 WHERE id = ?`,
+                  [chargePay.reservation_id]
+                );
+              }
+              // Notify client of the refund (best-effort)
+              try {
+                const [notifRows] = await db.query(
+                  `INSERT INTO notifications (user_id, type, title, message, data)
+                   VALUES (?, 'payment_refunded', 'Remboursement initié', ?, ?)
+                   RETURNING id, created_at`,
+                  [
+                    chargePay.client_id,
+                    "Votre remboursement a bien été initié. Il apparaîtra sous 5 à 10 jours ouvrés.",
+                    JSON.stringify({ reservation_id: chargePay.reservation_id }),
+                  ]
+                );
+                const notif = (notifRows as any[])[0];
+                if (notif) {
+                  await sendNotificationToUser(chargePay.client_id, {
+                    id: notif.id,
+                    type: "payment_refunded",
+                    title: "Remboursement initié",
+                    message: "Votre remboursement a bien été initié. Il apparaîtra sous 5 à 10 jours ouvrés.",
+                    data: { reservation_id: chargePay.reservation_id },
+                    created_at: notif.created_at,
+                  });
+                }
+              } catch (notifErr) {
+                log.warn("/api/webhooks/stripe", "charge.refunded notification error (non-fatal)", { piId });
+              }
+            }
           }
           break;
         }
@@ -283,6 +370,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/admin", adminLimiter, adminRouter);
 app.use("/api/pro", router);
 app.use("/api", cancellationRouter);
+app.use("/api", nailTechRouter);
 
 // ── Health check (no auth) ──────────────────────────────────────────────────
 app.get("/api/health", async (_req: Request, res: Response) => {
@@ -1942,9 +2030,20 @@ app.put(
               : null
           : null;
 
+      // Geocode city when it changes for pro profiles (non-blocking)
+      let geoLat: number | null = null;
+      let geoLng: number | null = null;
+      if (user.role === "pro" && updatedCity && updatedCity !== user.city) {
+        const coords = await geocodeCity(updatedCity);
+        if (coords) { geoLat = coords.lat; geoLng = coords.lng; }
+      } else if (user.role === "pro" && updatedCity === user.city) {
+        geoLat = (user as any).latitude ?? null;
+        geoLng = (user as any).longitude ?? null;
+      }
+
       await db.execute(
         `UPDATE users
-         SET first_name = ?, last_name = ?, activity_name = ?, city = ?, instagram_account = ?, bio = ?, acceptance_conditions = ?::jsonb, password_hash = ?
+         SET first_name = ?, last_name = ?, activity_name = ?, city = ?, instagram_account = ?, bio = ?, acceptance_conditions = ?::jsonb, password_hash = ?, latitude = ?, longitude = ?
          WHERE id = ?`,
         [
           updatedFirstName,
@@ -1955,6 +2054,8 @@ app.put(
           updatedBio,
           updatedAcceptanceConditions,
           passwordHash,
+          geoLat,
+          geoLng,
           req.user!.id,
         ]
       );
@@ -2131,19 +2232,25 @@ app.get(
     let connection;
     try {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
-      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
       const offset = (page - 1) * limit;
 
       const search = ((req.query.search as string) || "").trim();
       const cityFilter = ((req.query.city as string) || "").trim();
       const minRating = parseFloat(req.query.min_rating as string) || 0;
 
-      const whereParts: string[] = ["u.role = 'pro'", "u.pro_status = 'active'"];
+      // Geolocation params
+      const userLat = parseFloat(req.query.lat as string);
+      const userLng = parseFloat(req.query.lng as string);
+      const hasGeo = !isNaN(userLat) && !isNaN(userLng);
+      const maxKm = parseFloat(req.query.radius as string) || 50;
+
+      const whereParts: string[] = ["u.role = 'pro'", "u.pro_status = 'active'", "u.is_active = TRUE"];
       const whereParams: any[] = [];
 
       if (search) {
-        whereParts.push("(u.activity_name ILIKE ? OR u.first_name ILIKE ? OR u.last_name ILIKE ?)");
-        whereParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+        whereParts.push("(u.activity_name ILIKE ? OR u.first_name ILIKE ? OR u.last_name ILIKE ? OR u.city ILIKE ?)");
+        whereParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
       }
       if (cityFilter) {
         whereParts.push("u.city ILIKE ?");
@@ -2172,6 +2279,7 @@ app.get(
         `SELECT
           u.id, u.first_name, u.last_name, u.activity_name, u.city,
           u.instagram_account, u.profile_photo, u.banner_photo, u.bio, u.pro_status,
+          u.latitude, u.longitude,
           COALESCE(AVG(r.rating), 0) as avg_rating,
           COUNT(DISTINCT r.id) as reviews_count
         FROM users u
@@ -2184,9 +2292,32 @@ app.get(
         [...whereParams, ...havingParams, limit, offset]
       );
 
+      // Compute distance client-side friendly: attach distance_km to each pro
+      let pros = rows as any[];
+      if (hasGeo) {
+        pros = pros.map((p) => {
+          if (p.latitude != null && p.longitude != null) {
+            const dist = haversineKm(userLat, userLng, Number(p.latitude), Number(p.longitude));
+            return { ...p, distance_km: Math.round(dist * 10) / 10 };
+          }
+          return { ...p, distance_km: null };
+        });
+        // Filter by radius (only when geo is requested)
+        if (req.query.nearby === "1") {
+          pros = pros.filter((p) => p.distance_km === null || p.distance_km <= maxKm);
+        }
+        // Sort by distance when geo is active
+        pros.sort((a, b) => {
+          if (a.distance_km === null && b.distance_km === null) return 0;
+          if (a.distance_km === null) return 1;
+          if (b.distance_km === null) return -1;
+          return a.distance_km - b.distance_km;
+        });
+      }
+
       res.json({
         success: true,
-        data: rows,
+        data: pros,
         meta: { page, limit, total },
       });
     } catch (error) {
@@ -3635,7 +3766,7 @@ app.patch(
       connection = await db.getConnection();
 
       const [rows] = await connection.query(
-        "SELECT id, status, slot_id FROM reservations WHERE id = ? AND pro_id = ?",
+        "SELECT id, status, slot_id, client_id, payment_status, start_datetime FROM reservations WHERE id = ? AND pro_id = ?",
         [reservationId, proId]
       );
 
@@ -3649,16 +3780,81 @@ app.patch(
         return res.status(400).json({ success: false, error: "Réservation déjà finalisée" });
       }
 
-      await connection.query(
-        "UPDATE reservations SET status = ? WHERE id = ?",
-        [status, reservationId]
-      );
-
-      // Free the slot when cancelling
-      if (status === "cancelled" && reservation.slot_id) {
+      if (status === "cancelled") {
         await connection.query(
-          "UPDATE slots SET status = 'available' WHERE id = ?",
-          [reservation.slot_id]
+          "UPDATE reservations SET status = 'cancelled', cancelled_by = 'pro' WHERE id = ?",
+          [reservationId]
+        );
+
+        // Free the slot
+        if (reservation.slot_id) {
+          await connection.query(
+            "UPDATE slots SET status = 'available' WHERE id = ?",
+            [reservation.slot_id]
+          );
+        }
+
+        // Initiate refund if client had paid online (best-effort — outside connection to avoid lock)
+        connection.release();
+        connection = undefined;
+
+        if (
+          reservation.payment_status === "deposit_paid" ||
+          reservation.payment_status === "fully_paid"
+        ) {
+          try {
+            const refundResult = await initiateRefundsForReservation(reservationId);
+            if (refundResult.refunded) {
+              log.warn("/api/pro/reservations/:id/status", "Refund initiated after pro cancellation", {
+                reservationId,
+                totalRefunded: refundResult.totalRefunded,
+              });
+            }
+          } catch (refundErr) {
+            log.error("/api/pro/reservations/:id/status", "Refund initiation failed (non-fatal)", refundErr instanceof Error ? refundErr.stack : String(refundErr));
+          }
+        }
+
+        // Notify client of pro cancellation (best-effort)
+        try {
+          const startAt = reservation.start_datetime instanceof Date
+            ? reservation.start_datetime
+            : new Date(reservation.start_datetime);
+          const [notifRows] = await db.query(
+            `INSERT INTO notifications (user_id, type, title, message, data)
+             VALUES (?, 'booking_cancelled', 'RDV annulé par le professionnel', ?, ?)
+             RETURNING id, created_at`,
+            [
+              reservation.client_id,
+              `Votre rendez-vous du ${startAt.toLocaleDateString("fr-FR")} a été annulé par le professionnel.`,
+              JSON.stringify({ reservation_id: reservationId }),
+            ]
+          );
+          const notif = (notifRows as any[])[0];
+          if (notif) {
+            await sendNotificationToUser(reservation.client_id, {
+              id: notif.id,
+              type: "booking_cancelled",
+              title: "RDV annulé par le professionnel",
+              message: `Votre rendez-vous du ${startAt.toLocaleDateString("fr-FR")} a été annulé par le professionnel.`,
+              data: { reservation_id: reservationId },
+              created_at: notif.created_at,
+            });
+          }
+        } catch (notifErr) {
+          log.warn("/api/pro/reservations/:id/status", "client notification failed (non-fatal)", { reservationId });
+        }
+
+        // Notify waiting-list clients that a slot is now available (best-effort)
+        const startAt2 = reservation.start_datetime instanceof Date
+          ? reservation.start_datetime
+          : new Date(reservation.start_datetime);
+        notifyWaitingList(reservation.pro_id, startAt2).catch(() => {});
+      } else {
+        // status === "completed"
+        await connection.query(
+          "UPDATE reservations SET status = ? WHERE id = ?",
+          [status, reservationId]
         );
       }
 
@@ -5133,15 +5329,26 @@ app.put("/api/pro/stripe/deposit", authenticateToken, validate(depositSchema), a
 app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reservationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user?.id;
-    const { pro_id, prestation_id, start_datetime, end_datetime, price: parsedPrice, slot_id } = req.body;
+    const { pro_id, prestation_id, start_datetime, end_datetime, price: parsedPrice, slot_id, payment_method } = req.body;
+    const paidOnline = payment_method === "online";
 
-    // Verify prestation belongs to the given pro
+    // Verify prestation belongs to the given pro + get its name and buffer for notification + overlap
     const [prestationRows] = await db.query(
-      `SELECT id FROM prestations WHERE id = ? AND pro_id = ?`,
+      `SELECT id, name, buffer_after_minutes FROM prestations WHERE id = ? AND pro_id = ?`,
       [prestation_id, pro_id]
     );
     if ((prestationRows as any[]).length === 0) {
       return res.status(403).json({ success: false, message: "Prestation invalide pour ce professionnel" });
+    }
+    const prestationName = (prestationRows as any[])[0].name as string;
+
+    // Guard: client must not be blacklisted by this pro
+    const [blockedRows] = await db.query(
+      `SELECT id FROM blocked_clients WHERE pro_id = ? AND client_id = ?`,
+      [pro_id, clientId]
+    );
+    if ((blockedRows as any[]).length > 0) {
+      return res.status(403).json({ success: false, message: "Réservation impossible avec ce professionnel." });
     }
 
     // If a slot_id is provided, verify it is still available (owned by pro)
@@ -5156,13 +5363,20 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
       }
     }
 
-    // Prevent overlapping reservations with the same pro
+    // Prevent overlapping reservations with the same pro.
+    // Also respects buffer_after_minutes of existing prestations:
+    // if an existing appointment ends at T with a 15-min buffer, the new one cannot start before T+15.
     const [overlapRows] = await db.query(
-      `SELECT id FROM reservations WHERE pro_id = ? AND status NOT IN ('cancelled', 'rejected') AND start_datetime < ? AND end_datetime > ?`,
+      `SELECT r.id FROM reservations r
+       LEFT JOIN prestations prev_p ON prev_p.id = r.prestation_id
+       WHERE r.pro_id = ?
+         AND r.status NOT IN ('cancelled', 'rejected')
+         AND r.start_datetime < ?
+         AND (r.end_datetime + COALESCE(prev_p.buffer_after_minutes, 0) * INTERVAL '1 minute') > ?`,
       [pro_id, end_datetime, start_datetime]
     );
     if ((overlapRows as any[]).length > 0) {
-      return res.status(409).json({ success: false, message: "Ce créneau est déjà réservé" });
+      return res.status(409).json({ success: false, message: "Ce créneau est déjà réservé ou trop proche d'un autre rendez-vous" });
     }
 
     // Get pro's deposit percentage
@@ -5178,9 +5392,9 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
     const depositAmount = depositPct > 0 ? Math.round(parsedPrice * depositPct) / 100 : null;
 
     const [result] = await db.execute(
-      `INSERT INTO reservations (client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, payment_status, deposit_amount, slot_id, created_at)
-       VALUES (?, ?, ?, ?, ?, 'confirmed', ?, 'unpaid', ?, ?, NOW())`,
-      [clientId, pro_id, prestation_id, start_datetime, end_datetime, parsedPrice, depositAmount, slot_id || null]
+      `INSERT INTO reservations (client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, payment_status, deposit_amount, paid_online, slot_id, created_at)
+       VALUES (?, ?, ?, ?, ?, 'confirmed', ?, 'unpaid', ?, ?, ?, NOW())`,
+      [clientId, pro_id, prestation_id, start_datetime, end_datetime, parsedPrice, depositAmount, paidOnline, slot_id || null]
     );
 
     const insertId = (result as unknown as { insertId: number }).insertId;
@@ -5191,6 +5405,62 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
         `UPDATE slots SET status = 'booked' WHERE id = ?`,
         [slot_id]
       );
+    }
+
+    // ── Notify pro of new booking with full details (best-effort) ─────────────
+    try {
+      // Fetch client name
+      const [clientRows] = await db.query(
+        `SELECT first_name, last_name FROM users WHERE id = ?`,
+        [clientId]
+      );
+      const client = (clientRows as any[])[0];
+      const clientName = client ? `${client.first_name} ${client.last_name}` : "Un client";
+
+      const startAt = new Date(start_datetime);
+      const dateStr = startAt.toLocaleDateString("fr-FR", {
+        weekday: "long", day: "numeric", month: "long", year: "numeric",
+      });
+      const timeStr = startAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+      const paymentLabel = paidOnline
+        ? depositAmount
+          ? `En ligne — acompte ${depositAmount.toFixed(2)}€ / total ${parsedPrice.toFixed(2)}€`
+          : `En ligne — ${parsedPrice.toFixed(2)}€`
+        : `Sur place — ${parsedPrice.toFixed(2)}€`;
+
+      const notifMessage = `${clientName} a réservé « ${prestationName} » le ${dateStr} à ${timeStr}. Paiement : ${paymentLabel}.`;
+
+      const [notifRows] = await db.query(
+        `INSERT INTO notifications (user_id, type, title, message, data)
+         VALUES (?, 'new_booking', 'Nouveau rendez-vous', ?, ?)
+         RETURNING id, created_at`,
+        [
+          pro_id,
+          notifMessage,
+          JSON.stringify({
+            reservation_id: insertId,
+            prestation: prestationName,
+            date: dateStr,
+            time: timeStr,
+            price: parsedPrice,
+            deposit_amount: depositAmount,
+            payment_method: payment_method ?? "on_site",
+          }),
+        ]
+      );
+      const notif = (notifRows as any[])[0];
+      if (notif) {
+        await sendNotificationToUser(pro_id, {
+          id: notif.id,
+          type: "new_booking",
+          title: "Nouveau rendez-vous",
+          message: notifMessage,
+          data: { reservation_id: insertId },
+          created_at: notif.created_at,
+        });
+      }
+    } catch (notifErr) {
+      log.warn("[RESERVATION_CREATE]", "Pro notification failed (non-fatal)", { reservationId: insertId });
     }
 
     return res.json({
@@ -5316,6 +5586,14 @@ app.post("/api/payments/create-intent", authenticateToken, paymentIntentLimiter,
       return res.status(400).json({ success: false, message: "Le professionnel n'a pas configuré ses paiements Stripe" });
     }
 
+    // Guard: reject if already fully paid or if deposit already paid when requesting deposit
+    if (reservation.payment_status === "fully_paid" || reservation.payment_status === "paid_on_site") {
+      return res.status(409).json({ success: false, message: "Cette réservation est déjà entièrement payée" });
+    }
+    if (type === "deposit" && reservation.payment_status === "deposit_paid") {
+      return res.status(409).json({ success: false, message: "L'acompte a déjà été payé pour cette réservation" });
+    }
+
     // Calculate amount based on type
     let amount: number;
     if (type === "deposit") {
@@ -5327,7 +5605,7 @@ app.post("/api/payments/create-intent", authenticateToken, paymentIntentLimiter,
     }
 
     if (amount <= 0) {
-      return res.status(400).json({ success: false, message: "Montant invalide" });
+      return res.status(400).json({ success: false, message: "Montant invalide ou déjà payé" });
     }
 
     // Amount in cents for Stripe
@@ -5771,6 +6049,8 @@ if (process.env.NODE_ENV !== "test") {
     console.info(`Backend running on http://localhost:${PORT}`);
     startReminderCron();
     startDataRetentionCron();
+    startPaymentCleanupCron();
+    startRecallCron();
   });
 }
 
