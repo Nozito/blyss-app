@@ -200,7 +200,7 @@ const ClientSpecialists = () => {
   const [geoError, setGeoError] = useState<string | null>(null);
   const [nearbyMode, setNearbyMode] = useState(false);
 
-  const requestLocation = useCallback((onSuccess?: () => void) => {
+  const requestLocation = useCallback((onSuccess?: () => void, enableNearby = true) => {
     if (!navigator.geolocation) {
       setGeoError("Géolocalisation non disponible sur cet appareil.");
       return;
@@ -210,7 +210,7 @@ const ClientSpecialists = () => {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setNearbyMode(true);
+        if (enableNearby) setNearbyMode(true);
         setGeoLoading(false);
         onSuccess?.();
       },
@@ -224,10 +224,11 @@ const ClientSpecialists = () => {
 
   const handleViewModeChange = useCallback((mode: "list" | "map") => {
     setViewMode(mode);
-    if (mode === "map" && !userLocation && !geoLoading) requestLocation();
+    // Get location to centre the map, but do NOT activate the nearby filter
+    if (mode === "map" && !userLocation && !geoLoading) requestLocation(undefined, false);
   }, [userLocation, geoLoading, requestLocation]);
 
-  const effectiveNearby = nearbyMode || (viewMode === "map" && !!userLocation);
+  const effectiveNearby = nearbyMode;
 
   // ── Data ─────────────────────────────────────────────────────────────────
   const { data: specialists = [], isLoading, isError, isFetching } = useQuery<Specialist[]>({
