@@ -102,7 +102,7 @@ router.post(
       res.json({
         success: true,
         message: "Notification créée et envoyée",
-        data: { id: notificationId },
+        data: { id: notification?.id },
       });
     } catch (error) {
       next(error);
