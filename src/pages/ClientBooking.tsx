@@ -591,10 +591,10 @@ const ClientBooking = () => {
       const resaResult = await stripePaymentsApi.createReservation({
         pro_id: Number(id),
         prestation_id: selectedPrestation,
-        start_datetime: startDateTime.toISOString().slice(0, 19).replace('T', ' '),
-        end_datetime: endDateTime.toISOString().slice(0, 19).replace('T', ' '),
+        start_datetime: startDateTime.toISOString(),
+        end_datetime: endDateTime.toISOString(),
         price: selectedPrestationData.price,
-        slot_id: selectedSlot?.id || null,
+        slot_id: selectedSlot?.id || undefined,
         payment_method: paymentMethod ?? "on_site",
       });
 
