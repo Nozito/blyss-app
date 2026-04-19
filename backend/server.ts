@@ -2237,6 +2237,7 @@ app.get(
 
       const search = ((req.query.search as string) || "").trim();
       const cityFilter = ((req.query.city as string) || "").trim();
+      const serviceFilter = ((req.query.service as string) || "").trim();
       const minRating = parseFloat(req.query.min_rating as string) || 0;
 
       // Geolocation params
@@ -2249,12 +2250,16 @@ app.get(
       const whereParams: any[] = [];
 
       if (search) {
-        whereParts.push("(u.activity_name ILIKE ? OR u.first_name ILIKE ? OR u.last_name ILIKE ? OR u.city ILIKE ?)");
-        whereParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+        whereParts.push("(u.activity_name ILIKE ? OR u.first_name ILIKE ? OR u.last_name ILIKE ? OR u.city ILIKE ? OR u.specialty ILIKE ?)");
+        whereParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
       }
       if (cityFilter) {
         whereParts.push("u.city ILIKE ?");
         whereParams.push(`%${cityFilter}%`);
+      }
+      if (serviceFilter) {
+        whereParts.push("EXISTS (SELECT 1 FROM prestations p2 WHERE p2.pro_id = u.id AND p2.name ILIKE ? AND p2.active = TRUE)");
+        whereParams.push(`%${serviceFilter}%`);
       }
 
       const whereClause = whereParts.join(" AND ");
@@ -2279,7 +2284,7 @@ app.get(
         `SELECT
           u.id, u.first_name, u.last_name, u.activity_name, u.city,
           u.instagram_account, u.profile_photo, u.banner_photo, u.bio, u.pro_status,
-          u.latitude, u.longitude,
+          u.latitude, u.longitude, u.specialty, u.geo_precision,
           COALESCE(AVG(r.rating), 0) as avg_rating,
           COUNT(DISTINCT r.id) as reviews_count
         FROM users u

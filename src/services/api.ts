@@ -404,6 +404,7 @@ export const specialistsApi = {
     limit?: number;
     search?: string;
     city?: string;
+    service?: string;
     min_rating?: number;
     lat?: number;
     lng?: number;
@@ -415,6 +416,7 @@ export const specialistsApi = {
     if (params?.limit) q.set("limit", String(params.limit));
     if (params?.search) q.set("search", params.search);
     if (params?.city) q.set("city", params.city);
+    if (params?.service) q.set("service", params.service);
     if (params?.min_rating) q.set("min_rating", String(params.min_rating));
     if (params?.lat != null) q.set("lat", String(params.lat));
     if (params?.lng != null) q.set("lng", String(params.lng));
