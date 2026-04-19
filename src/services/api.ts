@@ -588,6 +588,10 @@ export const proApi = {
     monthlyPrice: number;
     totalPrice?: number | null;
     commitmentMonths?: number | null;
+    startDate?: string;
+    endDate?: string | null;
+    status?: string;
+    paymentId?: string;
   }) =>
     apiCall("/api/subscriptions", {
       method: "POST",

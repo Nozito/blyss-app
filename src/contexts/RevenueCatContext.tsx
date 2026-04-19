@@ -16,6 +16,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { proApi } from "@/services/api";
 import { getActivePlan, type PlanId } from "@/services/revenuecat";
 
+type PlanIdType = PlanId;
+
 interface BackendSubscription {
   id: number;
   plan: PlanId;
@@ -35,6 +37,7 @@ interface RevenueCatContextType {
   backendSubscription: BackendSubscription | null;
   isLoading: boolean;
   refreshCustomerInfo: () => Promise<void>;
+  refreshBackendSubscription: () => Promise<void>;
   purchasePackage: (pkg: Package) => Promise<CustomerInfo>;
   restorePurchases: () => Promise<void>;
 }
@@ -139,6 +142,33 @@ export const RevenueCatProvider: React.FC<RevenueCatProviderProps> = ({
         await Purchases.getSharedInstance().purchase({ rcPackage: pkg });
       setCustomerInfo(updatedInfo);
       setRcActivePlan(getActivePlan(updatedInfo));
+
+      // Sync to backend immediately — RC webhook may not fire in dev.
+      // Derive plan from package identifier (must match RC identifier naming).
+      try {
+        const id = pkg.identifier.toLowerCase();
+        const planId: PlanIdType | null = id.includes("signature")
+          ? "signature"
+          : id.includes("serenite") || id.includes("serenity")
+          ? "serenite"
+          : id.includes("start")
+          ? "start"
+          : null;
+        if (planId) {
+          const monthlyPrice = pkg.webBillingProduct?.price?.amountMicros
+            ? pkg.webBillingProduct.price.amountMicros / 1_000_000
+            : 0;
+          await proApi.createSubscription({
+            plan: planId,
+            billingType: "monthly",
+            monthlyPrice,
+            paymentId: `rc_frontend_${Date.now()}`,
+          });
+        }
+      } catch {
+        // Non-blocking — RC purchase succeeded even if backend sync fails
+      }
+
       await fetchBackendSubscription();
       return updatedInfo;
     },
@@ -175,6 +205,7 @@ export const RevenueCatProvider: React.FC<RevenueCatProviderProps> = ({
     backendSubscription,
     isLoading: effectiveLoading,
     refreshCustomerInfo,
+    refreshBackendSubscription: fetchBackendSubscription,
     purchasePackage,
     restorePurchases,
   };

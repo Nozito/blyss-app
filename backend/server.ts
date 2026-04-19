@@ -2431,19 +2431,16 @@ app.post(
         paymentId,
       } = req.body;
 
-      if (!plan || !billingType || !monthlyPrice || !startDate) {
+      if (!plan || !billingType || !monthlyPrice) {
         return res.status(400).json({
           success: false,
           message: "Champs requis manquants"
         });
       }
 
-      if (status === "active" && !paymentId) {
-        return res.status(400).json({
-          success: false,
-          message: "ID de paiement requis pour un abonnement actif"
-        });
-      }
+      // startDate defaults to today when omitted
+      const effectiveStartDate = startDate ?? new Date().toISOString().split("T")[0];
+      // paymentId optional — RC webhook will provide it; frontend sync uses synthetic ID
 
       connection = await db.getConnection();
       await connection.beginTransaction();
@@ -2473,7 +2470,7 @@ app.post(
             monthlyPrice,
             totalPrice ?? null,
             commitmentMonths ?? null,
-            startDate,
+            effectiveStartDate,
             endDate ?? null,
             status || "active",
             paymentId ?? null,

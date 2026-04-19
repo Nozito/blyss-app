@@ -78,9 +78,12 @@ function isMonthlyPackage(pkg: Package): boolean {
   return pkg.identifier.toLowerCase().includes("monthly");
 }
 
+// Fallback prices when RC packages are not available (dev mode / no RC key)
+const FALLBACK_PRICES: Record<PlanId, number> = { start: 29, serenite: 59, signature: 99 };
+
 const ProSubscription = () => {
   const navigate = useNavigate();
-  const { offerings, activePlan, isLoading: rcLoading, purchasePackage } = useRevenueCat();
+  const { offerings, activePlan, isLoading: rcLoading, purchasePackage, refreshBackendSubscription } = useRevenueCat();
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>("monthly");
   const [selectedPlan, setSelectedPlan] = useState<PlanId | null>("serenite");
   const [isPurchasing, setIsPurchasing] = useState(false);
@@ -125,11 +128,11 @@ const ProSubscription = () => {
     return packageMap[`${planId}_${period}`] ?? null;
   };
 
-  // Get formatted price from RC package
+  // Get formatted price from RC package, fallback to hardcoded prices
   const getPrice = (planId: PlanId): string => {
     const pkg = getPackageForPlan(planId);
-    if (!pkg) return "---";
-    return pkg.webBillingProduct?.price?.formattedPrice ?? "---";
+    if (pkg) return pkg.webBillingProduct?.price?.formattedPrice ?? `${FALLBACK_PRICES[planId]} €`;
+    return `${FALLBACK_PRICES[planId]} €`;
   };
 
   // Get raw price number from RC package
@@ -148,29 +151,43 @@ const ProSubscription = () => {
   const handleSubscribe = async () => {
     if (!selectedPlan) return;
 
-    // If it's the current plan, go to dashboard
+    // Already on this plan → go to dashboard
     if (activePlan === selectedPlan) {
       navigate("/pro/dashboard");
       return;
     }
 
     setIsPurchasing(true);
+    const planDisplay = PLAN_DISPLAYS.find(p => p.id === selectedPlan);
+    const previousPlanDisplay = activePlan ? PLAN_DISPLAYS.find(p => p.id === activePlan) : null;
+
     try {
       const pkg = getPackageForPlan(selectedPlan);
-      if (!pkg) {
-        toast.error("Package non disponible. Réessaye plus tard.");
-        return;
+
+      if (pkg) {
+        // ── Normal flow via RevenueCat ──
+        await purchasePackage(pkg); // internally syncs to backend after RC purchase
+      } else {
+        // ── Dev / fallback flow — no RC packages available ──
+        // Create subscription directly in backend (Stripe test card or dev mode)
+        const { proApi } = await import("@/services/api");
+        const price = getRawPrice(selectedPlan) ?? FALLBACK_PRICES[selectedPlan];
+        await proApi.createSubscription({
+          plan: selectedPlan,
+          billingType: isAnnual ? "one_time" : "monthly",
+          monthlyPrice: price,
+          paymentId: `dev_${Date.now()}`,
+        });
+        // Refresh backend subscription state so RequireSubscription sees the new plan
+        await refreshBackendSubscription();
       }
 
-      await purchasePackage(pkg);
-      const plan = PLAN_DISPLAYS.find(p => p.id === selectedPlan);
-      const previousPlanDisplay = activePlan ? PLAN_DISPLAYS.find(p => p.id === activePlan) : null;
       navigate("/pro/subscription-success", {
         state: {
           plan: {
             id: selectedPlan,
-            name: plan?.name ?? selectedPlan,
-            price: getRawPrice(selectedPlan) ?? 0,
+            name: planDisplay?.name ?? selectedPlan,
+            price: getRawPrice(selectedPlan) ?? FALLBACK_PRICES[selectedPlan],
           },
           isUpgrade: !!activePlan,
           previousPlanName: previousPlanDisplay?.name ?? null,
@@ -178,7 +195,7 @@ const ProSubscription = () => {
       });
     } catch (error: any) {
       if (error?.userCancelled) {
-        // User cancelled, do nothing
+        // User cancelled — do nothing
       } else {
         console.error("Purchase error:", error);
         toast.error("Erreur lors du paiement. Réessaye.");
