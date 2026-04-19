@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Search, X, Star, MapPin, Navigation, Map, List, Heart,
-  Loader2, AlertTriangle, ChevronLeft, SlidersHorizontal, Check,
+  Loader2, AlertTriangle, ChevronLeft, Check,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -12,6 +12,15 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
+
+// ── Fix Leaflet default icon paths broken by Vite ────────────────────────────
+// (needed even though we use divIcon — prevents 404 on marker-icon.png)
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconUrl:       "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  shadowUrl:     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+});
 import MobileLayout from "@/components/MobileLayout";
 import { favoritesApi, specialistsApi } from "@/services/api";
 import { getImageUrl } from "@/utils/imageUrl";
@@ -108,29 +117,52 @@ const RATING_OPTIONS = [
   { label: "4.5+", value: 4.5 },
 ];
 
+// ── MapResizer — calls invalidateSize when map container becomes visible ──────
+// Required because the map is hidden via CSS (not unmounted), so Leaflet
+// initialises with 0×0 and needs to recalculate once the container shows.
+const MapResizer = ({ active }: { active: boolean }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (!active) return;
+    // rAF ensures the browser has painted the new layout before Leaflet reads it
+    const raf = requestAnimationFrame(() => {
+      map.invalidateSize(false);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [active, map]);
+  return null;
+};
+
 // ── Map bounds fitter ─────────────────────────────────────────────────────────
 
 const MapFitBounds = ({
   markers,
   userLocation,
+  active,
 }: {
   markers: Array<[number, number]>;
   userLocation: UserLocation | null;
+  active: boolean;
 }) => {
   const map = useMap();
   const prevKey = useRef("");
   useEffect(() => {
+    if (!active) return; // don't fit bounds while map is hidden
     const key = markers.map((m) => m.join(",")).join("|");
     if (key === prevKey.current) return;
     prevKey.current = key;
-    if (markers.length >= 2) {
-      map.fitBounds(L.latLngBounds(markers), { padding: [50, 50], maxZoom: 13 });
-    } else if (markers.length === 1) {
-      map.setView(markers[0], 13);
-    } else if (userLocation) {
-      map.setView([userLocation.lat, userLocation.lng], 10);
-    }
-  }, [markers, userLocation, map]);
+    // Small delay — lets MapResizer fire invalidateSize first
+    const t = setTimeout(() => {
+      if (markers.length >= 2) {
+        map.fitBounds(L.latLngBounds(markers), { padding: [50, 50], maxZoom: 13 });
+      } else if (markers.length === 1) {
+        map.setView(markers[0], 13);
+      } else if (userLocation) {
+        map.setView([userLocation.lat, userLocation.lng], 10);
+      }
+    }, 120);
+    return () => clearTimeout(t);
+  }, [markers, userLocation, active, map]);
   return null;
 };
 
@@ -549,8 +581,15 @@ const ClientSpecialists = () => {
         </div>
 
         {/* ══ MAP VIEW ══════════════════════════════════════════════════════════ */}
-        {/* Always mounted — never inside AnimatePresence */}
-        <div className={viewMode !== "map" ? "hidden" : ""}>
+        {/* Always mounted, NEVER display:none — Leaflet needs the container in
+            the DOM to calculate its size. We use overflow:hidden + max-height
+            to collapse it. MapResizer calls invalidateSize() on activation. */}
+        <div
+          style={{
+            maxHeight: viewMode === "map" ? "none" : 0,
+            overflow: viewMode === "map" ? "visible" : "hidden",
+          }}
+        >
           <div className="relative" style={{ height: "45vh" }}>
             <MapContainer
               center={userLocation ? [userLocation.lat, userLocation.lng] : [46.6, 2.2]}
@@ -564,9 +603,11 @@ const ClientSpecialists = () => {
                 url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
                 subdomains="abcd"
               />
+              <MapResizer active={viewMode === "map"} />
               <MapFitBounds
                 markers={mappableSpecialists.map((s) => [s.latitude!, s.longitude!] as [number, number])}
                 userLocation={userLocation}
+                active={viewMode === "map"}
               />
               {userLocation && (
                 <Marker position={[userLocation.lat, userLocation.lng]} icon={USER_ICON}>
