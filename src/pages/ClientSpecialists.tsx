@@ -223,7 +223,7 @@ const ClientSpecialists = () => {
       return res.data.map((pro: any) => ({
         id: pro.id,
         business_name: pro.activity_name || `${pro.first_name} ${pro.last_name}`,
-        specialty: pro.specialty || "Prothésiste ongulaire",
+        specialty: pro.specialty || pro.activity_name || "Prothésiste ongulaire",
         city: pro.city || "",
         rating: Number(pro.avg_rating) || 0,
         reviews_count: Number(pro.reviews_count) || 0,
@@ -232,7 +232,8 @@ const ClientSpecialists = () => {
         user: { first_name: pro.first_name, last_name: pro.last_name },
         latitude: pro.latitude != null ? Number(pro.latitude) : null,
         longitude: pro.longitude != null ? Number(pro.longitude) : null,
-        geo_precision: pro.geo_precision ?? "city",
+        // geo_precision: null until migration 20260419000001 is applied
+        geo_precision: (pro.geo_precision as "address" | "city") ?? "city",
         distance_km: pro.distance_km ?? null,
       }));
     },
