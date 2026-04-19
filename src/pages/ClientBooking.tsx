@@ -320,7 +320,7 @@ const StripeCheckoutForm = ({
 const ClientBooking = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { isAuthenticated, token, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
@@ -575,12 +575,6 @@ const ClientBooking = () => {
 
     setIsSubmitting(true);
     try {
-      if (!token) {
-        toast.error("Votre session a expiré. Veuillez vous reconnecter.");
-        navigate('/login');
-        return;
-      }
-
       const selectedSlot = availableSlots.find(slot => slot.time === selectedTime);
 
       const [hours, minutes] = selectedTime.split(':').map(Number);
