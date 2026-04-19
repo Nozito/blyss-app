@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Search, X, Star, MapPin, Sparkles, ChevronLeft, Heart,
   Loader2, SlidersHorizontal, AlertTriangle, Navigation, Map, List,
@@ -129,11 +129,12 @@ function useDebounce<T>(value: T, delay: number): T {
 const ClientSpecialists = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
 
-  // Filters
-  const [searchInput, setSearchInput] = useState("");
+  // Filters — initialized from URL params (set by ClientHome navigation)
+  const [searchInput, setSearchInput] = useState(searchParams.get("search") ?? "");
   const debouncedSearch = useDebounce(searchInput, 350);
-  const [cityFilter, setCityFilter] = useState("");
+  const [cityFilter, setCityFilter] = useState(searchParams.get("city") ?? "");
   const [ratingFilter, setRatingFilter] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
 
