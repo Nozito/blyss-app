@@ -969,16 +969,16 @@ app.post(
       const { start_datetime, end_datetime, duration } = req.body;
 
       // Insérer le slot
-      const [result] = await db.query(
+      const [slotRows] = await db.query(
         `INSERT INTO slots (pro_id, start_datetime, end_datetime, duration, status)
-         VALUES (?, ?, ?, ?, 'available')`,
+         VALUES (?, ?, ?, ?, 'available') RETURNING id`,
         [proId, start_datetime, end_datetime, duration ?? 60]
       );
 
       res.json({
         success: true,
         message: "Créneau créé",
-        data: { id: (result as unknown as { insertId: number }).insertId }
+        data: { id: (slotRows as any[])[0]?.id }
       });
     } catch (error) {
       console.error("Error creating slot:", error);
@@ -1182,17 +1182,12 @@ router.get('/prestations', authMiddleware, requireActiveProSubscription, async (
 router.post('/prestations', authMiddleware, validate(prestationSchema), requireActiveProSubscription, async (req: any, res: any) => {
   try {
     const { name, description, price, duration_minutes, active } = req.body;
-    const [result] = await db.query(
+    const [prestRows] = await db.query(
       `INSERT INTO prestations (pro_id, name, description, price, duration_minutes, active)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?) RETURNING *`,
       [req.user!.id, name, description, price, duration_minutes, active]
     );
-    // Get the inserted row
-    const [rows] = await db.query(
-      `SELECT * FROM prestations WHERE id = ?`,
-      [(result as any).insertId]
-    );
-    res.status(201).json({ success: true, data: (rows as any[])[0] });
+    res.status(201).json({ success: true, data: (prestRows as any[])[0] });
   } catch (error) {
     console.error('POST /prestations error:', error);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
@@ -1289,9 +1284,9 @@ router.post('/prestations/:id/duplicate', authMiddleware, requireActiveProSubscr
     }
     const presta = (originalRows as any[])[0];
     // Duplique
-    const [result] = await db.query(
+    const [dupRows] = await db.query(
       `INSERT INTO prestations (pro_id, name, description, price, duration_minutes, active)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?) RETURNING *`,
       [
         req.user!.id,
         `${presta.name} (copie)`,
@@ -1301,12 +1296,7 @@ router.post('/prestations/:id/duplicate', authMiddleware, requireActiveProSubscr
         false // désactivée par défaut
       ]
     );
-    // Get the duplicated prestation
-    const [rows] = await db.query(
-      `SELECT * FROM prestations WHERE id = ?`,
-      [(result as any).insertId]
-    );
-    res.status(201).json({ success: true, data: (rows as any[])[0] });
+    res.status(201).json({ success: true, data: (dupRows as any[])[0] });
   } catch (error) {
     console.error('POST /prestations/:id/duplicate error:', error);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
@@ -2456,12 +2446,12 @@ app.post(
           [userId]
         );
 
-        const [result] = await connection.execute(
+        const [subRows] = await connection.execute(
           `
           INSERT INTO subscriptions
-            (client_id, plan, billing_type, monthly_price, total_price, 
+            (client_id, plan, billing_type, monthly_price, total_price,
              commitment_months, start_date, end_date, status, payment_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
           `,
           [
             userId,
@@ -2486,8 +2476,7 @@ app.post(
 
         await connection.commit();
 
-        const insertResult = result as any;
-        const subscriptionId = insertResult.insertId;
+        const subscriptionId = (subRows as any[])[0]?.id;
 
         res.status(201).json({
           success: true,
@@ -5035,8 +5024,8 @@ app.post("/api/favorites", authenticateToken, validate(favoriteSchema), async (r
       });
     }
 
-    const [result] = await connection.query(
-      "INSERT INTO favorites (client_id, pro_id) VALUES (?, ?)",
+    const [favRows] = await connection.query(
+      "INSERT INTO favorites (client_id, pro_id) VALUES (?, ?) RETURNING id",
       [clientId, pro_id]
     );
 
@@ -5044,7 +5033,7 @@ app.post("/api/favorites", authenticateToken, validate(favoriteSchema), async (r
       success: true,
       message: "Ajouté aux favoris",
       data: {
-        id: (result as unknown as { insertId: number }).insertId,
+        id: (favRows as any[])[0]?.id,
         pro_id: pro_id,
         isFavorite: true
       }
@@ -5393,13 +5382,13 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
     const depositPct = pro.deposit_percentage ?? 50;
     const depositAmount = depositPct > 0 ? Math.round(parsedPrice * depositPct) / 100 : null;
 
-    const [result] = await db.execute(
+    const [resaRows] = await db.execute(
       `INSERT INTO reservations (client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, payment_status, deposit_amount, paid_online, slot_id, created_at)
-       VALUES (?, ?, ?, ?, ?, 'confirmed', ?, 'unpaid', ?, ?, ?, NOW())`,
+       VALUES (?, ?, ?, ?, ?, 'confirmed', ?, 'unpaid', ?, ?, ?, NOW()) RETURNING id`,
       [clientId, pro_id, prestation_id, start_datetime, end_datetime, parsedPrice, depositAmount, paidOnline, slot_id || null]
     );
 
-    const insertId = (result as unknown as { insertId: number }).insertId;
+    const insertId = (resaRows as any[])[0]?.id;
 
     // If slot_id, mark the slot as booked
     if (slot_id) {

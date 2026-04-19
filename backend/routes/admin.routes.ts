@@ -90,18 +90,10 @@ router.post(
       }
 
       const db = getDb();
-      const [result] = await db.query(
-        `INSERT INTO notifications (user_id, type, title, message, data, is_read, created_at)
-         VALUES (?, ?, ?, ?, ?, 0, NOW())`,
-        [user_id, type, title, message, data ? JSON.stringify(data) : null]
-      );
-
-      const notificationId = (result as any).insertId;
-
       const [notifRows] = await db.query(
-        `SELECT id, user_id, type, title, message, data, is_read, created_at
-         FROM notifications WHERE id = ?`,
-        [notificationId]
+        `INSERT INTO notifications (user_id, type, title, message, data, is_read, created_at)
+         VALUES (?, ?, ?, ?, ?, FALSE, NOW()) RETURNING id, user_id, type, title, message, data, is_read, created_at`,
+        [user_id, type, title, message, data ? JSON.stringify(data) : null]
       );
 
       const notification = (notifRows as any[])[0];

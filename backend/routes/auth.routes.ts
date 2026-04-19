@@ -175,10 +175,10 @@ router.post(
 
         const passwordHash = await bcrypt.hash(password, 12);
 
-        const [result] = (await connection.execute(
+        const [userRows] = (await connection.execute(
           `INSERT INTO users
            (first_name, last_name, email, phone_number, birth_date, password_hash, role, activity_name, city, instagram_account, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()) RETURNING id`,
           [
             first_name?.trim() || null,
             last_name?.trim() || null,
@@ -195,7 +195,7 @@ router.post(
           ]
         )) as [any, any];
 
-        const userId = result.insertId;
+        const userId = (userRows as any[])[0]?.id;
         // Log without PII: userId only, no email
 
         await connection.commit();
