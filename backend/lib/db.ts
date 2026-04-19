@@ -199,17 +199,24 @@ type QueryResult = [any[], any[]];
 
 async function mgmtQuery(sql: string, params?: any[]): Promise<QueryResult> {
   const query = interpolateSql(sql, params);
-  const resp = await fetch(
-    `https://api.supabase.com/v1/projects/${_projectRef}/database/query`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${_mgmtToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query }),
-    }
-  );
+  let resp: Response;
+  try {
+    resp = await fetch(
+      `https://api.supabase.com/v1/projects/${_projectRef}/database/query`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${_mgmtToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query }),
+      }
+    );
+  } catch (err: any) {
+    // Surface the underlying network cause (e.g. ENOTFOUND, SSL error, ECONNREFUSED)
+    const cause = err?.cause?.message ?? err?.cause?.code ?? "unknown";
+    throw new Error(`[DB Management API] fetch failed — cause: ${cause}. Run \`supabase login\` or enable the Supabase pooler.`);
+  }
   const json = await resp.json() as any;
   if (!resp.ok || json?.message) {
     throw new Error(`[DB Management API] ${json?.message ?? JSON.stringify(json)}`);
