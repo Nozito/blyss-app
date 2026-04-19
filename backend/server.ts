@@ -2250,8 +2250,8 @@ app.get(
       const whereParams: any[] = [];
 
       if (search) {
-        whereParts.push("(u.activity_name ILIKE ? OR u.first_name ILIKE ? OR u.last_name ILIKE ? OR u.city ILIKE ?)");
-        whereParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+        whereParts.push("(u.activity_name ILIKE ? OR u.first_name ILIKE ? OR u.last_name ILIKE ? OR u.city ILIKE ? OR u.specialty ILIKE ?)");
+        whereParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
       }
       if (cityFilter) {
         whereParts.push("u.city ILIKE ?");
@@ -2284,7 +2284,7 @@ app.get(
         `SELECT
           u.id, u.first_name, u.last_name, u.activity_name, u.city,
           u.instagram_account, u.profile_photo, u.banner_photo, u.bio, u.pro_status,
-          u.latitude, u.longitude,
+          u.latitude, u.longitude, u.specialty, u.geo_precision,
           COALESCE(AVG(r.rating), 0) as avg_rating,
           COUNT(DISTINCT r.id) as reviews_count
         FROM users u
