@@ -35,8 +35,9 @@ const RequireAuth = ({ children, role }: RequireAuthProps) => {
     const isAdmin = user?.is_admin === true;
     const userRole = user?.role;
 
+    // Admins can navigate to any role's interface (they choose their view in the modal)
     const hasAccess =
-      role === "admin" ? isAdmin : userRole === role;
+      isAdmin || (role === "admin" ? isAdmin : userRole === role);
 
     if (!hasAccess) {
       const fallback =

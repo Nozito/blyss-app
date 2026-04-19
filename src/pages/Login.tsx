@@ -38,7 +38,10 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
     if (!isLoading && isAuthenticated && user) {
       const isAdmin = user.is_admin === true;
       if (isAdmin) {
-        // Admins choose their interface — don't auto-redirect, let them use the form
+        // Show role picker immediately — admin doesn't need to re-login
+        setLoggedUserName(user.first_name);
+        setLoggedUserRole(user.role === "pro" ? "pro" : "client");
+        setShowRoleModal(true);
         return;
       }
       const route = user.role === "pro" ? "/pro/dashboard" : "/client";
