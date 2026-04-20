@@ -16,10 +16,12 @@ import {
   ChevronLeft,
   Zap,
   CheckCircle,
+  Repeat2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import logo from "@/assets/logo.png";
+import RoleSelectionModal, { type AdminRole } from "@/components/RoleSelectionModal";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
@@ -50,6 +52,7 @@ const AdminLayout = () => {
   });
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [nextNotifId, setNextNotifId] = useState(1);
+  const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
 
   const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
     const id = nextNotifId;
@@ -155,6 +158,16 @@ const AdminLayout = () => {
     logout();
     showNotification('success', 'Déconnexion réussie');
     setTimeout(() => navigate("/"), 500);
+  };
+
+  const handleRoleSelect = (role: AdminRole) => {
+    setShowRoleSwitcher(false);
+    const routes: Record<AdminRole, string> = {
+      client: "/client",
+      pro: "/pro/dashboard",
+      admin: "/admin/dashboard",
+    };
+    navigate(routes[role]);
   };
 
   return (
@@ -497,6 +510,18 @@ const AdminLayout = () => {
           </div>
 
           <div className="flex items-center gap-2 ml-4">
+            {/* Switch de vue */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowRoleSwitcher(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-500/90 hover:bg-orange-500 text-white text-xs font-bold transition-colors shadow-sm shadow-orange-500/20"
+              title="Changer d'espace"
+            >
+              <Repeat2 size={14} />
+              <span className="hidden sm:inline">Switcher</span>
+            </motion.button>
+
             {/* Notifications button */}
             <motion.button
               whileHover={{ scale: 1.05 }}
@@ -538,6 +563,13 @@ const AdminLayout = () => {
           </motion.div>
         </main>
       </div>
+
+      <RoleSelectionModal
+        isOpen={showRoleSwitcher}
+        userName={user?.first_name ?? ""}
+        onSelectRole={handleRoleSelect}
+        onClose={() => setShowRoleSwitcher(false)}
+      />
     </div>
   );
 };

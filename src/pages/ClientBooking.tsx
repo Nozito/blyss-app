@@ -45,6 +45,8 @@ interface Pro {
   instagram_account: string | null;
   bio: string | null;
   acceptance_conditions: ConditionItem[] | null;
+  accept_online_payment: boolean;
+  stripe_onboarding_complete: boolean;
 }
 
 interface Prestation {
@@ -927,13 +929,25 @@ const ClientBooking = () => {
                   title="Payer sur place"
                   subtitle="Espèces, carte bancaire"
                 />
-                <PaymentChoice
-                  selected={paymentMethod === "online"}
-                  onClick={() => setPaymentMethod("online")}
-                  icon={<Smartphone size={20} className="text-primary" />}
-                  title="Payer en ligne"
-                  subtitle="Carte, Apple Pay, Google Pay"
-                />
+                {pro?.stripe_onboarding_complete && pro?.accept_online_payment ? (
+                  <PaymentChoice
+                    selected={paymentMethod === "online"}
+                    onClick={() => setPaymentMethod("online")}
+                    icon={<Smartphone size={20} className="text-primary" />}
+                    title="Payer en ligne"
+                    subtitle="Carte, Apple Pay, Google Pay"
+                  />
+                ) : (
+                  <div className="flex items-center gap-3 p-4 rounded-2xl border border-border bg-muted/40 opacity-50 cursor-not-allowed">
+                    <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
+                      <Smartphone size={20} className="text-muted-foreground" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm text-muted-foreground">Payer en ligne</p>
+                      <p className="text-xs text-muted-foreground/70">Non disponible pour ce professionnel</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </section>
           </motion.div>

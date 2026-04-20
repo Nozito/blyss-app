@@ -397,39 +397,9 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
                 </div>
             )}
 
-            {/* Bell button - Seulement sur certaines pages */}
+            {/* Bell panel - triggered from bottom nav */}
             {shouldShowBell && (
                 <>
-                    <button
-                        onClick={() => {
-                            if (navigator.vibrate) navigator.vibrate(5);
-                            setShowNotifications(!showNotifications);
-                        }}
-                        className="fixed w-11 h-11 rounded-full bg-white/95 backdrop-blur-xl shadow-lg flex items-center justify-center transition-all active:scale-90 z-[60]"
-                        style={{
-                            top: 'max(env(safe-area-inset-top, 16px) + 16px, 16px)',
-                            right: '16px',
-                            boxShadow: "0 4px 20px rgba(0, 0, 0, 0.1), 0 0 1px rgba(0, 0, 0, 0.1)"
-                        }}
-                    >
-                        <Bell size={19} className="text-gray-700" strokeWidth={2.5} />
-                        {unreadCount > 0 && (
-                            <motion.span
-                                initial={{ scale: 0 }}
-                                animate={{ scale: 1 }}
-                                className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1.5 rounded-full bg-[#FF3B30] text-white text-[11px] font-bold flex items-center justify-center"
-                                style={{
-                                    boxShadow: "0 2px 8px rgba(255, 59, 48, 0.4)"
-                                }}
-                            >
-                                {unreadCount > 99 ? "99+" : unreadCount}
-                            </motion.span>
-                        )}
-                        {isConnected && (
-                            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#34C759] border-2 border-white" />
-                        )}
-                    </button>
-
                     <AnimatePresence>
                         {showNotifications && (
                             <>

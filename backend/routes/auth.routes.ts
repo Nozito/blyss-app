@@ -256,7 +256,7 @@ router.get(
       const [rows] = await db.query(
         `SELECT
           id, first_name, last_name, email, phone_number, birth_date, role,
-          activity_name, city, instagram_account, profile_photo, banner_photo,
+          is_admin, activity_name, city, instagram_account, profile_photo, banner_photo,
           bio, profile_visibility, pro_status, bankaccountname, "IBAN",
           iban_iv, iban_tag, iban_last4,
           accept_online_payment, created_at
@@ -307,6 +307,7 @@ router.get(
           phone_number: user.phone_number,
           birth_date: user.birth_date,
           role: user.role,
+          is_admin: user.is_admin === true || user.is_admin === 1,
           activity_name: user.activity_name,
           city: user.city,
           instagram_account: user.instagram_account,

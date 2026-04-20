@@ -5,15 +5,26 @@ import {
   DollarSign,
   TrendingUp,
   TrendingDown,
+  Minus,
   Activity,
   CheckCircle,
+  XCircle,
   Sparkles,
   UserPlus,
   Briefcase,
+  Wifi,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
+
+interface Changes {
+  clients: number | null;
+  pros: number | null;
+  users: number | null;
+  revenue: number | null;
+  bookings: number | null;
+}
 
 interface Stats {
   totalUsers: number;
@@ -24,23 +35,39 @@ interface Stats {
   totalRevenue: number;
   monthRevenue: number;
   activeUsers: number;
+  bookingsByStatus: Record<string, number>;
+  changes: Changes;
 }
 
-interface Activity {
+interface ActivityItem {
   type: 'booking' | 'user' | 'payment';
   title: string;
   description: string;
   time: string;
 }
 
+interface HealthStatus {
+  status: 'ok' | 'degraded';
+  db: 'ok' | 'error';
+}
+
+const formatChange = (val: number | null) => {
+  if (val === null) return null;
+  const sign = val > 0 ? "+" : "";
+  return `${sign}${val}%`;
+};
+
 const AdminDashboard = () => {
-  const { data, isLoading: loading } = useQuery({
+  const { data, isLoading: loading, error } = useQuery({
     queryKey: ["admin-dashboard"],
     queryFn: async () => {
       const response = await fetch(`${API_URL}/api/admin/dashboard/stats`, {
         credentials: 'include',
       });
-      if (!response.ok) throw new Error("Erreur lors du chargement des données");
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(`HTTP ${response.status} — ${body?.message ?? 'Erreur inconnue'}`);
+      }
       const data = await response.json();
       if (!data.success) throw new Error("Erreur serveur");
       return data;
@@ -49,48 +76,72 @@ const AdminDashboard = () => {
     retry: false,
   });
 
-  const stats: Stats | null = data?.stats ?? null;
-  const recentActivity: Activity[] = data?.recentActivity ?? [];
+  const { data: healthData } = useQuery({
+    queryKey: ["admin-health"],
+    queryFn: async () => {
+      const response = await fetch(`${API_URL}/api/health`, { credentials: 'include' });
+      if (!response.ok) throw new Error("health error");
+      return response.json() as Promise<HealthStatus>;
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    retry: false,
+  });
 
-  // Calcul des variations (pour l'exemple, vous pouvez stocker les stats précédentes)
-  const userChange = "+12.5%";
-  const clientChange = "+8.2%";
-  const revenueChange = "+15.3%";
-  const proChange = "+5.8%";
+  const stats: Stats | null = data?.stats ?? null;
+  const changes: Changes = stats?.changes ?? { clients: null, pros: null, users: null, revenue: null, bookings: null };
+  const recentActivity: ActivityItem[] = data?.recentActivity ?? [];
+  const bookingsByStatus: Record<string, number> = stats?.bookingsByStatus ?? {};
+
+  const StatBadge = ({ val }: { val: number | null }) => {
+    if (val === null) return (
+      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-gray-100 border border-gray-200 text-gray-500">
+        <Minus size={12} />
+        <span>Nouveau</span>
+      </div>
+    );
+    const positive = val >= 0;
+    return (
+      <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold backdrop-blur-sm border ${
+        positive
+          ? "bg-green-500/10 border-green-500/20 text-green-700 dark:text-green-400"
+          : "bg-red-500/10 border-red-500/20 text-red-700 dark:text-red-400"
+      }`}>
+        {positive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+        {formatChange(val)}
+      </div>
+    );
+  };
 
   const statCards = [
     {
       title: "Clients",
-      value: stats?.totalClients || 0,
-      change: clientChange,
-      isPositive: true,
+      value: stats?.totalClients ?? 0,
+      changeVal: changes.clients,
       icon: UserPlus,
       gradient: "from-purple-500 to-violet-600",
       bgGradient: "from-purple-500/10 to-violet-600/10",
     },
     {
       title: "Professionnels",
-      value: stats?.totalPros || 0,
-      change: proChange,
-      isPositive: true,
+      value: stats?.totalPros ?? 0,
+      changeVal: changes.pros,
       icon: Briefcase,
       gradient: "from-orange-500 to-amber-600",
       bgGradient: "from-orange-500/10 to-amber-600/10",
     },
     {
       title: "Utilisateurs Totaux",
-      value: stats?.totalUsers || 0,
-      change: userChange,
-      isPositive: true,
+      value: stats?.totalUsers ?? 0,
+      changeVal: changes.users,
       icon: Users,
       gradient: "from-blue-500 to-indigo-600",
       bgGradient: "from-blue-500/10 to-indigo-600/10",
     },
     {
-      title: "Chiffre d'Affaires",
-      value: `${(stats?.totalRevenue || 0).toLocaleString('fr-FR')}€`,
-      change: revenueChange,
-      isPositive: true,
+      title: "CA du mois",
+      value: `${(stats?.monthRevenue ?? 0).toLocaleString('fr-FR')}€`,
+      changeVal: changes.revenue,
       icon: DollarSign,
       gradient: "from-green-500 to-emerald-600",
       bgGradient: "from-green-500/10 to-emerald-600/10",
@@ -108,9 +159,27 @@ const AdminDashboard = () => {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-200px)]">
+        <div className="flex flex-col items-center gap-3 max-w-sm text-center">
+          <XCircle size={40} className="text-red-500" />
+          <p className="text-base font-semibold text-foreground">Impossible de charger les données</p>
+          <p className="text-sm text-muted-foreground font-mono bg-muted px-3 py-2 rounded-lg">
+            {(error as Error).message}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const apiOk = healthData?.status === 'ok';
+  const dbOk = healthData?.db === 'ok';
+  const wsOk = apiOk; // WebSocket shares the same process
+
   return (
     <div className="space-y-8 p-6">
-      {/* Stats Grid avec animations */}
+      {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {statCards.map((stat, index) => {
           const Icon = stat.icon;
@@ -123,40 +192,20 @@ const AdminDashboard = () => {
               whileHover={{ y: -4, scale: 1.02 }}
               className="group relative overflow-hidden rounded-3xl bg-card/50 backdrop-blur-sm border border-border hover:border-primary/20 transition-all duration-300"
             >
-              {/* Gradient background */}
               <div className={`absolute inset-0 bg-gradient-to-br ${stat.bgGradient} opacity-50 group-hover:opacity-70 transition-opacity`} />
-              
-              {/* Shine effect */}
               <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
               </div>
-
               <div className="relative p-6">
                 <div className="flex items-start justify-between mb-4">
-                  {/* Icon avec effet 3D */}
                   <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${stat.gradient} flex items-center justify-center shadow-lg group-hover:scale-110 group-hover:rotate-3 transition-all duration-300`}>
                     <Icon size={28} className="text-white drop-shadow-lg" />
                   </div>
-                  
-                  {/* Badge variation */}
-                  <div
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold backdrop-blur-sm border ${
-                      stat.isPositive
-                        ? "bg-green-500/10 border-green-500/20 text-green-700 dark:text-green-400"
-                        : "bg-red-500/10 border-red-500/20 text-red-700 dark:text-red-400"
-                    }`}
-                  >
-                    {stat.isPositive ? (
-                      <TrendingUp size={14} />
-                    ) : (
-                      <TrendingDown size={14} />
-                    )}
-                    {stat.change}
-                  </div>
+                  <StatBadge val={stat.changeVal} />
                 </div>
-
                 <h3 className="text-4xl font-black text-foreground mb-2 tracking-tight">{stat.value}</h3>
                 <p className="text-sm text-muted-foreground font-medium">{stat.title}</p>
+                <p className="text-[11px] text-muted-foreground/60 mt-1">vs mois précédent</p>
               </div>
             </motion.div>
           );
@@ -179,9 +228,9 @@ const AdminDashboard = () => {
               </div>
               <h2 className="text-xl font-bold text-foreground">Activité Récente</h2>
             </div>
-            <button className="text-sm text-primary font-semibold hover:underline">
-              Voir tout
-            </button>
+            <span className="text-xs text-muted-foreground font-medium bg-muted/50 px-2 py-1 rounded-lg">
+              Dernières 24h
+            </span>
           </div>
 
           <div className="space-y-3">
@@ -227,7 +276,7 @@ const AdminDashboard = () => {
           </div>
         </motion.div>
 
-        {/* Sidebar - Stats du jour & Status */}
+        {/* Sidebar */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -242,54 +291,90 @@ const AdminDashboard = () => {
               </div>
               <h3 className="text-lg font-bold text-foreground">Statistiques</h3>
             </div>
-            
+
             <div className="space-y-4">
               <div className="flex items-center justify-between p-4 rounded-2xl bg-card/50">
-                <span className="text-sm text-muted-foreground font-medium">Réservations aujourd'hui</span>
-                <span className="text-3xl font-black text-foreground">{stats?.todayBookings || 0}</span>
+                <div>
+                  <span className="text-sm text-muted-foreground font-medium block">RDV aujourd'hui</span>
+                  {changes.bookings !== null && (
+                    <span className={`text-[11px] font-semibold ${changes.bookings >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                      {formatChange(changes.bookings)} vs hier
+                    </span>
+                  )}
+                </div>
+                <span className="text-3xl font-black text-foreground">{stats?.todayBookings ?? 0}</span>
               </div>
               <div className="flex items-center justify-between p-4 rounded-2xl bg-card/50">
-                <span className="text-sm text-muted-foreground font-medium">Revenus du mois</span>
-                <span className="text-2xl font-bold text-green-600">{(stats?.monthRevenue || 0).toLocaleString('fr-FR')}€</span>
+                <div>
+                  <span className="text-sm text-muted-foreground font-medium block">Revenus totaux</span>
+                  <span className="text-[11px] text-muted-foreground/60">Tous temps</span>
+                </div>
+                <span className="text-xl font-bold text-green-600">{(stats?.totalRevenue ?? 0).toLocaleString('fr-FR')}€</span>
               </div>
               <div className="flex items-center justify-between p-4 rounded-2xl bg-card/50">
-                <span className="text-sm text-muted-foreground font-medium">Total réservations</span>
-                <span className="text-3xl font-black text-foreground">{stats?.totalBookings || 0}</span>
+                <div>
+                  <span className="text-sm text-muted-foreground font-medium block">Utilisateurs actifs</span>
+                  <span className="text-[11px] text-muted-foreground/60">7 derniers jours</span>
+                </div>
+                <span className="text-3xl font-black text-foreground">{stats?.activeUsers ?? 0}</span>
               </div>
             </div>
           </div>
 
-          {/* Status Système */}
+          {/* Réservations par statut */}
+          <div className="rounded-3xl bg-card/50 backdrop-blur-sm border border-border p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                <Calendar size={20} className="text-purple-600" />
+              </div>
+              <h3 className="text-lg font-bold text-foreground">Réservations</h3>
+            </div>
+            <div className="space-y-2">
+              {[
+                { key: "pending", label: "En attente", color: "text-amber-600", bg: "bg-amber-500/10" },
+                { key: "confirmed", label: "Confirmées", color: "text-blue-600", bg: "bg-blue-500/10" },
+                { key: "completed", label: "Terminées", color: "text-green-600", bg: "bg-green-500/10" },
+                { key: "cancelled", label: "Annulées", color: "text-red-500", bg: "bg-red-500/10" },
+              ].map(({ key, label, color, bg }) => (
+                <div key={key} className={`flex items-center justify-between p-3 rounded-xl ${bg}`}>
+                  <span className={`text-sm font-medium ${color}`}>{label}</span>
+                  <span className={`text-lg font-black ${color}`}>{bookingsByStatus[key] ?? 0}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Status Système — connecté à /api/health */}
           <div className="rounded-3xl bg-card/50 backdrop-blur-sm border border-border p-6">
             <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center">
-                <CheckCircle size={20} className="text-green-600" />
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${apiOk ? 'bg-green-500/10' : 'bg-red-500/10'}`}>
+                {apiOk
+                  ? <CheckCircle size={20} className="text-green-600" />
+                  : <XCircle size={20} className="text-red-500" />
+                }
               </div>
               <h3 className="text-lg font-bold text-foreground">Statut Système</h3>
             </div>
-            
+
             <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                <span className="text-sm text-muted-foreground font-medium">API</span>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                  <span className="text-sm font-semibold text-green-600">Opérationnel</span>
+              {[
+                { label: "API", ok: apiOk },
+                { label: "Base de données", ok: dbOk },
+                { label: "WebSocket", ok: wsOk },
+              ].map(({ label, ok }) => (
+                <div key={label} className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
+                  <div className="flex items-center gap-2">
+                    <Wifi size={14} className={ok ? "text-green-600" : "text-red-500"} />
+                    <span className="text-sm text-muted-foreground font-medium">{label}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${ok ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+                    <span className={`text-sm font-semibold ${ok ? 'text-green-600' : 'text-red-500'}`}>
+                      {ok === undefined ? '…' : ok ? 'Opérationnel' : 'Dégradé'}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                <span className="text-sm text-muted-foreground font-medium">Base de données</span>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                  <span className="text-sm font-semibold text-green-600">Opérationnel</span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                <span className="text-sm text-muted-foreground font-medium">WebSocket</span>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                  <span className="text-sm font-semibold text-green-600">Opérationnel</span>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </motion.div>

@@ -847,7 +847,8 @@ app.get(
       const [rows] = await db.query(
         `SELECT
           id, first_name, last_name, activity_name, city,
-          instagram_account, profile_photo, banner_photo, bio, acceptance_conditions, pro_status
+          instagram_account, profile_photo, banner_photo, bio, acceptance_conditions, pro_status,
+          accept_online_payment, stripe_onboarding_complete
         FROM users
         WHERE id = ? AND role = 'pro' AND pro_status = 'active'`,
         [proId]

@@ -33,22 +33,6 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
   const navigate = useNavigate();
   const { login, isLoading, isAuthenticated, user } = useAuth();
 
-  // Redirect already-authenticated users to their dashboard
-  useEffect(() => {
-    if (!isLoading && isAuthenticated && user) {
-      const isAdmin = user.is_admin === true;
-      if (isAdmin) {
-        // Show role picker immediately — admin doesn't need to re-login
-        setLoggedUserName(user.first_name);
-        setLoggedUserRole(user.role === "pro" ? "pro" : "client");
-        setShowRoleModal(true);
-        return;
-      }
-      const route = user.role === "pro" ? "/pro/dashboard" : "/client";
-      navigate(route, { replace: true });
-    }
-  }, [isLoading, isAuthenticated, user, navigate]);
-
   // ✅ État du formulaire
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -61,6 +45,24 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [loggedUserName, setLoggedUserName] = useState("");
   const [loggedUserRole, setLoggedUserRole] = useState<"pro" | "client">("client");
+
+  // Redirect already-authenticated users to their dashboard
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && user) {
+      const isAdmin = user.is_admin === true;
+      if (isAdmin) {
+        // Show role picker immediately — admin doesn't need to re-login
+        setLoggedUserName(user.first_name);
+        setLoggedUserRole(user.role === "pro" ? "pro" : "client");
+        setShowRoleModal(true);
+        return;
+      }
+      // Don't navigate away if the role modal is already open (race condition guard)
+      if (showRoleModal) return;
+      const route = user.role === "pro" ? "/pro/dashboard" : "/client";
+      navigate(route, { replace: true });
+    }
+  }, [isLoading, isAuthenticated, user, navigate, showRoleModal]);
 
   // ✅ Validation sécurisée de l'email [web:82]
   const validateEmail = useCallback((value: string): string | undefined => {

@@ -127,7 +127,7 @@ router.get(
       const [users] = await db.query(`
         SELECT
           id, first_name, last_name, email, phone_number, birth_date, role,
-          is_admin, is_verified, created_at, activity_name, city,
+          is_admin, is_active, created_at, activity_name, city,
           instagram_account, profile_photo, banner_photo, pro_status, bio
         FROM users
         ORDER BY created_at DESC
@@ -183,80 +183,109 @@ router.get(
     try {
       const db = getDb();
 
-      const [totalUsersRows] = await db.query("SELECT COUNT(*) as count FROM users");
-      const totalUsers = (totalUsersRows as any[])[0]?.count || 0;
+      const calcChange = (current: number, previous: number): number | null => {
+        if (previous === 0) return current > 0 ? 100 : null;
+        return Math.round(((current - previous) / previous) * 100 * 10) / 10;
+      };
 
-      const [totalProsRows] = await db.query("SELECT COUNT(*) as count FROM users WHERE role = 'pro'");
-      const totalPros = (totalProsRows as any[])[0]?.count || 0;
+      // ── Query 1: all main stats + month-over-month in a single CTE ──────────
+      const [mainRows] = await db.query(`
+        WITH
+          this_month AS (SELECT DATE_TRUNC('month', CURRENT_DATE) AS d),
+          last_month_start AS (SELECT DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AS d),
+          uc AS (
+            SELECT
+              COUNT(*)                                                       AS total_users,
+              COUNT(*) FILTER (WHERE role = 'pro')                          AS total_pros,
+              COUNT(*) FILTER (WHERE role = 'client')                       AS total_clients,
+              COUNT(*) FILTER (WHERE role = 'client' AND created_at >= (SELECT d FROM this_month))      AS clients_this,
+              COUNT(*) FILTER (WHERE role = 'client' AND created_at >= (SELECT d FROM last_month_start) AND created_at < (SELECT d FROM this_month)) AS clients_last,
+              COUNT(*) FILTER (WHERE role = 'pro'    AND created_at >= (SELECT d FROM this_month))      AS pros_this,
+              COUNT(*) FILTER (WHERE role = 'pro'    AND created_at >= (SELECT d FROM last_month_start) AND created_at < (SELECT d FROM this_month)) AS pros_last,
+              COUNT(*) FILTER (WHERE created_at >= (SELECT d FROM this_month))      AS users_this,
+              COUNT(*) FILTER (WHERE created_at >= (SELECT d FROM last_month_start) AND created_at < (SELECT d FROM this_month)) AS users_last
+            FROM users
+          ),
+          bc AS (
+            SELECT
+              COUNT(*)                                                                                    AS total_bookings,
+              COUNT(*) FILTER (WHERE start_datetime::date = CURRENT_DATE)                               AS today_bookings,
+              COUNT(*) FILTER (WHERE start_datetime::date = CURRENT_DATE - 1)                           AS yesterday_bookings,
+              COALESCE(SUM(price) FILTER (WHERE status IN ('confirmed','completed')), 0)                AS total_revenue,
+              COALESCE(SUM(price) FILTER (WHERE status IN ('confirmed','completed') AND EXTRACT(YEAR FROM start_datetime)  = EXTRACT(YEAR FROM CURRENT_DATE)                    AND EXTRACT(MONTH FROM start_datetime) = EXTRACT(MONTH FROM CURRENT_DATE)), 0)                   AS month_revenue,
+              COALESCE(SUM(price) FILTER (WHERE status IN ('confirmed','completed') AND EXTRACT(YEAR FROM start_datetime)  = EXTRACT(YEAR FROM CURRENT_DATE - INTERVAL '1 month') AND EXTRACT(MONTH FROM start_datetime) = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '1 month')), 0) AS last_month_revenue
+            FROM reservations
+          ),
+          au AS (
+            SELECT COUNT(DISTINCT user_id) AS active_users
+            FROM refresh_tokens
+            WHERE expires_at > NOW() AND revoked = FALSE AND created_at >= NOW() - INTERVAL '7 days'
+          )
+        SELECT uc.*, bc.*, au.active_users FROM uc, bc, au
+      `);
 
-      const [totalClientsRows] = await db.query("SELECT COUNT(*) as count FROM users WHERE role = 'client'");
-      const totalClients = (totalClientsRows as any[])[0]?.count || 0;
+      const r = (mainRows as any[])[0] ?? {};
+      const totalUsers    = Number(r.total_users    ?? 0);
+      const totalPros     = Number(r.total_pros     ?? 0);
+      const totalClients  = Number(r.total_clients  ?? 0);
+      const totalBookings = Number(r.total_bookings ?? 0);
+      const todayBookings = Number(r.today_bookings ?? 0);
+      const totalRevenue  = Number(r.total_revenue  ?? 0);
+      const monthRevenue  = Number(r.month_revenue  ?? 0);
+      const activeUsers   = Number(r.active_users   ?? 0);
 
-      const [totalBookingsRows] = await db.query("SELECT COUNT(*) as count FROM reservations");
-      const totalBookings = (totalBookingsRows as any[])[0]?.count || 0;
+      const changes = {
+        clients:  calcChange(Number(r.clients_this ?? 0),          Number(r.clients_last       ?? 0)),
+        pros:     calcChange(Number(r.pros_this    ?? 0),          Number(r.pros_last          ?? 0)),
+        users:    calcChange(Number(r.users_this   ?? 0),          Number(r.users_last         ?? 0)),
+        revenue:  calcChange(monthRevenue,                          Number(r.last_month_revenue ?? 0)),
+        bookings: calcChange(todayBookings,                         Number(r.yesterday_bookings ?? 0)),
+      };
 
-      const [todayBookingsRows] = await db.query(
-        "SELECT COUNT(*) as count FROM reservations WHERE start_datetime::date = CURRENT_DATE"
+      // ── Query 2: bookings by status ──────────────────────────────────────────
+      const [bookingStatusRows] = await db.query(
+        "SELECT status, COUNT(*) as count FROM reservations GROUP BY status"
       );
-      const todayBookings = (todayBookingsRows as any[])[0]?.count || 0;
 
-      const [totalRevenueRows] = await db.query(
-        "SELECT COALESCE(SUM(price), 0) as total FROM reservations WHERE status IN ('confirmed', 'completed')"
-      );
-      const totalRevenue = Number((totalRevenueRows as any[])[0]?.total || 0);
-
-      const [monthRevenueRows] = await db.query(
-        "SELECT COALESCE(SUM(price), 0) as total FROM reservations WHERE status IN ('confirmed', 'completed') AND EXTRACT(YEAR FROM start_datetime) = EXTRACT(YEAR FROM CURRENT_DATE) AND EXTRACT(MONTH FROM start_datetime) = EXTRACT(MONTH FROM CURRENT_DATE)"
-      );
-      const monthRevenue = Number((monthRevenueRows as any[])[0]?.total || 0);
-
-      const [activeUsersRows] = await db.query(
-        "SELECT COUNT(DISTINCT user_id) as count FROM refresh_tokens WHERE expires_at > NOW() AND revoked = false AND created_at >= NOW() - INTERVAL '7 days'"
-      );
-      const activeUsers = (activeUsersRows as any[])[0]?.count || 0;
-
+      // ── Query 3: recent activity ──────────────────────────────────────────────
       const [recentActivity] = await db.query(`
-        (SELECT
-          'booking' as type,
-          CONCAT('Nouvelle réservation de ', c.first_name, ' ', c.last_name) as title,
-          CONCAT('Chez ', p.first_name, ' ', p.last_name) as description,
-          TO_CHAR(r.created_at, 'HH24:MI') as time,
-          r.created_at as timestamp
-        FROM reservations r
-        JOIN users c ON c.id = r.client_id
-        JOIN users p ON p.id = r.pro_id
-        WHERE r.created_at >= NOW() - INTERVAL '24 hours'
-        ORDER BY r.created_at DESC
-        LIMIT 5)
-
-        UNION ALL
-
-        (SELECT
-          'user' as type,
-          CONCAT('Nouvel utilisateur : ', u.first_name, ' ', u.last_name) as title,
-          CONCAT('Rôle : ', CASE WHEN u.role = 'pro' THEN 'Professionnel' ELSE 'Client' END) as description,
-          TO_CHAR(u.created_at, 'HH24:MI') as time,
-          u.created_at as timestamp
-        FROM users u
-        WHERE u.created_at >= NOW() - INTERVAL '24 hours'
-        ORDER BY u.created_at DESC
-        LIMIT 5)
-
-        ORDER BY timestamp DESC
+        SELECT type, title, description, time FROM (
+          SELECT
+            'booking' AS type,
+            CONCAT('Réservation de ', c.first_name, ' ', c.last_name) AS title,
+            CONCAT('Chez ', p.first_name, ' ', p.last_name, ' — ', r.status) AS description,
+            TO_CHAR(r.created_at, 'DD/MM HH24:MI') AS time,
+            r.created_at AS ts
+          FROM reservations r
+          JOIN users c ON c.id = r.client_id
+          JOIN users p ON p.id = r.pro_id
+          UNION ALL
+          SELECT
+            'user' AS type,
+            CONCAT('Nouvel utilisateur : ', u.first_name, ' ', u.last_name) AS title,
+            CONCAT('Rôle : ', CASE WHEN u.role = 'pro' THEN 'Professionnel' ELSE 'Client' END) AS description,
+            TO_CHAR(u.created_at, 'DD/MM HH24:MI') AS time,
+            u.created_at AS ts
+          FROM users u
+        ) combined
+        ORDER BY ts DESC
         LIMIT 10
       `);
+
+      const bookingsByStatus: Record<string, number> = {};
+      for (const row of (bookingStatusRows as any[])) {
+        bookingsByStatus[row.status] = Number(row.count);
+      }
 
       res.json({
         success: true,
         stats: {
           totalUsers, totalPros, totalClients, totalBookings,
           todayBookings, totalRevenue, monthRevenue, activeUsers,
+          bookingsByStatus, changes,
         },
         recentActivity: (recentActivity as any[]).map((a: any) => ({
-          type: a.type,
-          title: a.title,
-          description: a.description,
-          time: a.time,
+          type: a.type, title: a.title, description: a.description, time: a.time,
         })),
       });
     } catch (error) {
