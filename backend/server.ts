@@ -6007,7 +6007,8 @@ setTimeout(() => {
 
 // Sentry error handler — must be before custom error handler
 if (process.env.SENTRY_DSN) {
-  app.use(Sentry.expressErrorHandler());
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  app.use(Sentry.expressErrorHandler() as any);
 }
 
 // Must be registered after all routes (Express uses arity to detect error middleware)
