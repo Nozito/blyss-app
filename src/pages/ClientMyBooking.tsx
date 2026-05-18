@@ -699,14 +699,16 @@ const BookingCard = ({ booking, index, formatDate, formatTime, onNavigate, onRes
             </button>
           </div>
         )}
-        <div className="px-4 pb-4 pt-2 border-t border-muted">
-          <CancelAppointmentButton
-            reservationId={booking.id}
-            appointmentStartAt={booking.start_datetime}
-            cancellationNoticeHours={booking.cancellation_notice_hours}
-            queryKeyToInvalidate={["client-bookings"]}
-          />
-        </div>
+        {booking.start_datetime && (
+          <div className="px-4 pb-4 pt-2 border-t border-muted">
+            <CancelAppointmentButton
+              reservationId={booking.id}
+              appointmentStartAt={booking.start_datetime}
+              cancellationNoticeHours={booking.cancellation_notice_hours}
+              queryKeyToInvalidate={["client-bookings"]}
+            />
+          </div>
+        )}
       </motion.div>
     );
   }

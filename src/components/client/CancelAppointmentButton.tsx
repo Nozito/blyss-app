@@ -72,13 +72,13 @@ export default function CancelAppointmentButton({
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
 
-  const startAt = useMemo(
-    () =>
+  const startAt = useMemo(() => {
+    const d =
       appointmentStartAt instanceof Date
         ? appointmentStartAt
-        : new Date(appointmentStartAt),
-    [appointmentStartAt]
-  );
+        : new Date(appointmentStartAt as string);
+    return isNaN(d.getTime()) ? new Date() : d;
+  }, [appointmentStartAt]);
 
   const deadline = useMemo(
     () => computeDeadline(startAt, cancellationNoticeHours),
@@ -92,7 +92,7 @@ export default function CancelAppointmentButton({
   );
 
   const deadlineLabel = useMemo(() => {
-    if (cancellationNoticeHours === 0) return null;
+    if (cancellationNoticeHours === 0 || isNaN(deadline.getTime())) return null;
     return format(deadline, "EEEE d MMMM 'à' HH'h'mm", { locale: fr });
   }, [deadline, cancellationNoticeHours]);
 

@@ -14,10 +14,12 @@ const NAV_ROUTES = new Set([
   "/client/my-booking",
   "/client/favorites",
   "/client/profile",
+  "/client/notifications",
   "/pro/dashboard",
   "/pro/calendar",
   "/pro/clients",
   "/pro/profile",
+  "/pro/notifications",
 ]);
 
 interface MobileLayoutProps {
@@ -39,7 +41,9 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
     const isPro = location.pathname.startsWith("/pro");
     const { activePlan } = useRevenueCat();
     const { user } = useAuth();
-    const { unreadCount, setShowNotifications } = useNotifications();
+    const { unreadCount } = useNotifications();
+    const notifPath = isPro ? "/pro/notifications" : "/client/notifications";
+    const isNotifActive = location.pathname === notifPath;
     const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
 
     // Auto-detection: show nav only on the main tab routes
@@ -123,13 +127,13 @@ const MobileLayout = forwardRef<HTMLDivElement, MobileLayoutProps>(
                 );
               })}
 
-              {/* Bell — notification panel trigger (before Profile) */}
+              {/* Bell — navigue vers la page notifications */}
               <button
-                onClick={() => { if (navigator.vibrate) navigator.vibrate(5); setShowNotifications(true); }}
+                onClick={() => { if (navigator.vibrate) navigator.vibrate(5); navigate(notifPath); }}
                 className="flex flex-1 items-center justify-center"
               >
-                <div className="apple-nav-icon relative">
-                  <Bell size={20} strokeWidth={2} />
+                <div className={`apple-nav-icon relative ${isNotifActive ? "active" : ""}`}>
+                  <Bell size={20} strokeWidth={isNotifActive ? 2.5 : 2} />
                   {unreadCount > 0 && (
                     <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[#FF3B30] text-white text-[9px] font-bold flex items-center justify-center leading-none">
                       {unreadCount > 99 ? "99+" : unreadCount}
