@@ -998,14 +998,17 @@ app.get(
 
       // Récupérer les slots disponibles pour la date (comparaison date locale stockée)
       const [availableSlots] = await db.query(
-        `SELECT id, TO_CHAR(start_datetime, 'HH24:MI') AS time, duration,
-                start_datetime, end_datetime
-         FROM slots
-         WHERE pro_id = ?
-         AND status = 'available'
-         AND start_datetime::date = ?::date
-         AND start_datetime > NOW()
-         ORDER BY start_datetime ASC`,
+        `SELECT s.id, TO_CHAR(s.start_datetime, 'HH24:MI') AS time, s.duration,
+                s.start_datetime, s.end_datetime
+         FROM slots s
+         JOIN users u ON u.id = s.pro_id
+         WHERE s.pro_id = ?
+         AND s.status = 'available'
+         AND s.start_datetime::date = ?::date
+         AND s.start_datetime > NOW()
+         AND u.pro_status = 'active'
+         AND u.is_active = TRUE
+         ORDER BY s.start_datetime ASC`,
         [proId, dateStr]
       );
 
@@ -1205,13 +1208,16 @@ app.get(
       const monthNumber = parseInt(monthStr, 10);
 
       const [result] = await db.query(
-        `SELECT DISTINCT TO_CHAR(start_datetime, 'YYYY-MM-DD') as available_date
-         FROM slots
-         WHERE pro_id = ?
-         AND status = 'available'
-         AND start_datetime > NOW()
-         AND EXTRACT(YEAR FROM start_datetime) = ?
-         AND EXTRACT(MONTH FROM start_datetime) = ?
+        `SELECT DISTINCT TO_CHAR(s.start_datetime, 'YYYY-MM-DD') as available_date
+         FROM slots s
+         JOIN users u ON u.id = s.pro_id
+         WHERE s.pro_id = ?
+         AND s.status = 'available'
+         AND s.start_datetime > NOW()
+         AND EXTRACT(YEAR FROM s.start_datetime) = ?
+         AND EXTRACT(MONTH FROM s.start_datetime) = ?
+         AND u.pro_status = 'active'
+         AND u.is_active = TRUE
          ORDER BY available_date ASC`,
         [proId, year, monthNumber]
       );
@@ -1905,8 +1911,8 @@ const fileFilter = (
   }
 };
 
-const upload = multer({ storage: memStorage, fileFilter, limits: { fileSize: 10 * 1024 * 1024 } });
-const uploadBanner = multer({ storage: memStorage, fileFilter, limits: { fileSize: 10 * 1024 * 1024 } });
+const upload = multer({ storage: memStorage, fileFilter, limits: { fileSize: 2 * 1024 * 1024 } });
+const uploadBanner = multer({ storage: memStorage, fileFilter, limits: { fileSize: 2 * 1024 * 1024 } });
 
 /* UPLOAD PROFILE PHOTO */
 app.post(
