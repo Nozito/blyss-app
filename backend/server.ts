@@ -368,6 +368,62 @@ app.use(cookieParser());
 // ── Routeurs extraits ──────────────────────────────────────────────────────
 app.use("/api/auth", authRouter);
 app.use("/api/admin", adminLimiter, adminRouter);
+
+// ── Guard global sur toutes les routes /api/pro/* ──────────────────────────
+// Vérifie en DB que le user est un pro avec un abonnement actif.
+// Whitelist : routes accessibles sans abonnement (consultation/souscription).
+const PRO_SUBSCRIPTION_WHITELIST = [
+  "/subscription",
+  "/subscription/cancel",
+  "/subscription/checkout",
+  "/onboarding",
+];
+
+// Une seule requête DB pour vérifier role + is_admin + pro_status
+async function requireProAccess(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ success: false, error: "non_authentifie" });
+    return;
+  }
+
+  const [rows] = await db.query(
+    "SELECT role, is_admin, pro_status FROM users WHERE id = ?",
+    [userId]
+  );
+  const user = (rows as any[])[0];
+
+  if (!user) {
+    res.status(401).json({ success: false, error: "non_authentifie" });
+    return;
+  }
+
+  // Admins passent toujours
+  if (user.is_admin === 1) return next();
+
+  // Doit être un pro
+  if (user.role !== "pro") {
+    res.status(403).json({ success: false, error: "pro_required" });
+    return;
+  }
+
+  // Routes whitelistées : pas besoin d'abonnement actif (souscription, onboarding)
+  const path = req.path;
+  if (PRO_SUBSCRIPTION_WHITELIST.some((p) => path === p || path.startsWith(p + "/"))) {
+    return next();
+  }
+
+  // Toutes les autres routes pro : abonnement actif requis (vérifié en DB, pas en JWT)
+  if (user.pro_status !== "active") {
+    res.status(403).json({ success: false, error: "subscription_required" });
+    return;
+  }
+
+  next();
+}
+
+app.use("/api/pro", authMiddleware, requireProAccess);
+
 app.use("/api/pro", router);
 app.use("/api", cancellationRouter);
 app.use("/api", nailTechRouter);
@@ -596,10 +652,11 @@ wss.on("close", () => {
 // ==========================================
 
 app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
+  let connection;
   try {
+    // ── 1. Vérification du secret ────────────────────────────────────────────
     const authHeader = req.headers.authorization;
     const expectedSecret = process.env.REVENUECAT_WEBHOOK_SECRET;
-
     if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
@@ -609,79 +666,114 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: "No event in body" });
     }
 
+    // ── 2. Champs obligatoires ───────────────────────────────────────────────
+    const eventId: string = event.id;
     const eventType: string = event.type;
     const appUserId: string = event.app_user_id;
     const productId: string = event.product_id ?? "";
     const expirationAtMs: number | null = event.expiration_at_ms ?? null;
 
+    if (!eventId) {
+      log.warn("/api/webhooks/revenuecat", "Event sans id — rejeté");
+      return res.status(400).json({ success: false, message: "Missing event.id" });
+    }
     if (!appUserId) {
       return res.status(400).json({ success: false, message: "Missing app_user_id" });
     }
 
     const userId = parseInt(appUserId, 10);
     if (isNaN(userId)) {
-      return res.status(400).json({ success: false, message: "Invalid app_user_id" });
+      log.warn("/api/webhooks/revenuecat", `app_user_id non numérique : ${appUserId}`);
+      return res.status(400).json({ success: false, message: "Invalid app_user_id (not a numeric id)" });
     }
 
-    // Determine plan from product_id
-    let plan: string = "start";
-    if (productId.includes("signature")) plan = "signature";
-    else if (productId.includes("serenite")) plan = "serenite";
+    connection = await db.getConnection();
 
-    // Determine billing type
-    const billingType = productId.includes("annual") ? "one_time" : "monthly";
+    // ── 3. Idempotence : un event_id ne s'exécute qu'une fois ───────────────
+    const [existing] = await connection.execute(
+      `SELECT event_id FROM revenuecat_events WHERE event_id = ?`,
+      [eventId]
+    );
+    if ((existing as any[]).length > 0) {
+      log.info("/api/webhooks/revenuecat", 200, 0, userId);
+      return res.status(200).json({ success: true, message: "Already processed" });
+    }
 
-    log.info("/api/webhooks/revenuecat", 200, 0, userId);
+    // ── 4. Vérifier que l'userId existe ET est un pro ────────────────────────
+    const [userRows] = await connection.execute(
+      `SELECT id, role FROM users WHERE id = ?`,
+      [userId]
+    );
+    const user = (userRows as any[])[0];
+    if (!user || user.role !== "pro") {
+      log.warn("/api/webhooks/revenuecat", `userId ${userId} introuvable ou pas pro (role: ${user?.role})`);
+      // On répond 200 pour éviter que RC ne réessaie indéfiniment
+      return res.status(200).json({ success: true, message: "User not applicable" });
+    }
 
-    const activateEvents = ["INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "PRODUCT_CHANGE"];
-    const deactivateEvents = ["CANCELLATION", "EXPIRATION"];
-
-    if (activateEvents.includes(eventType)) {
-      const startDate = new Date().toISOString().slice(0, 10);
-      const endDate = expirationAtMs
-        ? new Date(expirationAtMs).toISOString().slice(0, 10)
-        : null;
-
-      // Cancel existing active subscriptions for this user
-      await db.execute(
-        `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
-        [userId]
+    // ── 5. Traitement dans une transaction ───────────────────────────────────
+    await connection.beginTransaction();
+    try {
+      // Enregistrer l'event en premier (idempotence garantie)
+      await connection.execute(
+        `INSERT INTO revenuecat_events (event_id, event_type, user_id, processed_at) VALUES (?, ?, ?, NOW())`,
+        [eventId, eventType, userId]
       );
 
-      // Insert new subscription
-      await db.execute(
-        `INSERT INTO subscriptions (client_id, plan, billing_type, monthly_price, total_price, commitment_months, start_date, end_date, status, payment_id)
-         VALUES (?, ?, ?, 0, NULL, NULL, ?, ?, 'active', ?)`,
-        [userId, plan, billingType, startDate, endDate, `rc_${event.id ?? eventType}`]
-      );
+      let plan: string = "start";
+      if (productId.includes("signature")) plan = "signature";
+      else if (productId.includes("serenite")) plan = "serenite";
+      const billingType = productId.includes("annual") ? "one_time" : "monthly";
 
-      // Activate pro status
-      await db.execute(
-        `UPDATE users SET pro_status = 'active' WHERE id = ?`,
-        [userId]
-      );
+      const activateEvents = ["INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "PRODUCT_CHANGE"];
+      const deactivateEvents = ["CANCELLATION", "EXPIRATION"];
 
-      log.info("/api/webhooks/revenuecat/activate", 200, 0, userId);
-    } else if (deactivateEvents.includes(eventType)) {
-      await db.execute(
-        `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
-        [userId]
-      );
+      if (activateEvents.includes(eventType)) {
+        const startDate = new Date().toISOString().slice(0, 10);
+        const endDate = expirationAtMs ? new Date(expirationAtMs).toISOString().slice(0, 10) : null;
 
-      await db.execute(
-        `UPDATE users SET pro_status = 'inactive' WHERE id = ?`,
-        [userId]
-      );
+        await connection.execute(
+          `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
+          [userId]
+        );
+        await connection.execute(
+          `INSERT INTO subscriptions (client_id, plan, billing_type, monthly_price, total_price, commitment_months, start_date, end_date, status, payment_id)
+           VALUES (?, ?, ?, 0, NULL, NULL, ?, ?, 'active', ?)`,
+          [userId, plan, billingType, startDate, endDate, `rc_${eventId}`]
+        );
+        await connection.execute(
+          `UPDATE users SET pro_status = 'active' WHERE id = ?`,
+          [userId]
+        );
+        log.info("/api/webhooks/revenuecat/activate", 200, 0, userId);
 
-      log.info("/api/webhooks/revenuecat/deactivate", 200, 0, userId);
-    } else {
-      log.warn("/api/webhooks/revenuecat", `Unhandled event type: ${eventType}`);
+      } else if (deactivateEvents.includes(eventType)) {
+        await connection.execute(
+          `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
+          [userId]
+        );
+        await connection.execute(
+          `UPDATE users SET pro_status = 'inactive' WHERE id = ?`,
+          [userId]
+        );
+        log.info("/api/webhooks/revenuecat/deactivate", 200, 0, userId);
+
+      } else {
+        log.warn("/api/webhooks/revenuecat", `Unhandled event type: ${eventType}`);
+      }
+
+      await connection.commit();
+    } catch (txErr) {
+      await connection.rollback();
+      throw txErr;
     }
 
     return res.status(200).json({ success: true });
   } catch (error) {
     log.error("/api/webhooks/revenuecat", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined);
     return res.status(500).json({ success: false, message: "Internal server error" });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
@@ -2394,112 +2486,65 @@ app.get(
 // SUBSCRIPTION ROUTES
 // ==========================================
 
-/* CREATE SUBSCRIPTION */
+/* CREATE SUBSCRIPTION — DEV ONLY
+ * Cette route ne doit JAMAIS être accessible en production.
+ * Le seul chemin d'activation pro_status = 'active' est le webhook RevenueCat.
+ */
 app.post(
   "/api/subscriptions",
   authMiddleware,
   async (req: AuthenticatedRequest, res: Response) => {
+    if (process.env.NODE_ENV !== "development") {
+      return res.status(404).json({ success: false, message: "Not found" });
+    }
+
+    const adminKey = req.headers["x-admin-key"];
+    if (!adminKey || adminKey !== process.env.DEV_ADMIN_KEY) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+
     let connection;
     try {
       const userId = req.user?.id;
-
       if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: "Utilisateur non authentifié"
-        });
+        return res.status(401).json({ success: false, message: "Utilisateur non authentifié" });
       }
 
-      const {
-        plan,
-        billingType,
-        monthlyPrice,
-        totalPrice,
-        commitmentMonths,
-        startDate,
-        endDate,
-        status,
-        paymentId,
-      } = req.body;
-
+      const { plan, billingType, monthlyPrice, totalPrice, commitmentMonths, startDate, endDate, status, paymentId } = req.body;
       if (!plan || !billingType || !monthlyPrice) {
-        return res.status(400).json({
-          success: false,
-          message: "Champs requis manquants"
-        });
+        return res.status(400).json({ success: false, message: "Champs requis manquants" });
       }
 
-      // startDate defaults to today when omitted
       const effectiveStartDate = startDate ?? new Date().toISOString().split("T")[0];
-      // paymentId optional — RC webhook will provide it; frontend sync uses synthetic ID
-
       connection = await db.getConnection();
       await connection.beginTransaction();
 
       try {
         await connection.execute(
-          `
-          UPDATE subscriptions
-          SET status = 'cancelled'
-          WHERE client_id = ?
-            AND status = 'active'
-          `,
+          `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
           [userId]
         );
 
         const [subRows] = await connection.execute(
-          `
-          INSERT INTO subscriptions
-            (client_id, plan, billing_type, monthly_price, total_price,
-             commitment_months, start_date, end_date, status, payment_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
-          `,
-          [
-            userId,
-            plan,
-            billingType,
-            monthlyPrice,
-            totalPrice ?? null,
-            commitmentMonths ?? null,
-            effectiveStartDate,
-            endDate ?? null,
-            status || "active",
-            paymentId ?? null,
-          ]
+          `INSERT INTO subscriptions (client_id, plan, billing_type, monthly_price, total_price, commitment_months, start_date, end_date, status, payment_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+          [userId, plan, billingType, monthlyPrice, totalPrice ?? null, commitmentMonths ?? null, effectiveStartDate, endDate ?? null, status || "active", paymentId ?? null]
         );
 
         if (status === "active" || !status) {
-          await connection.execute(
-            `UPDATE users SET pro_status = 'active' WHERE id = ?`,
-            [userId]
-          );
+          await connection.execute(`UPDATE users SET pro_status = 'active' WHERE id = ?`, [userId]);
         }
 
         await connection.commit();
-
         const subscriptionId = (subRows as any[])[0]?.id;
-
-        res.status(201).json({
-          success: true,
-          data: {
-            id: subscriptionId,
-            subscriptionId,
-            status: status || "active"
-          },
-          message: "Abonnement créé avec succès"
-        });
-
+        res.status(201).json({ success: true, data: { id: subscriptionId, subscriptionId, status: status || "active" }, message: "Abonnement créé (DEV ONLY)" });
       } catch (err) {
         await connection.rollback();
         throw err;
       }
-
     } catch (error) {
-      console.error("Erreur lors de la création de l'abonnement:", error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur lors de la création de l'abonnement"
-      });
+      console.error("Erreur création abonnement (dev):", error);
+      res.status(500).json({ success: false, message: "Erreur lors de la création de l'abonnement" });
     } finally {
       if (connection) connection.release();
     }
