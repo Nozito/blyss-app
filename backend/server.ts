@@ -2035,6 +2035,30 @@ app.delete(
   }
 );
 
+/* SAVE EXPO PUSH TOKEN (mobile app) */
+app.post(
+  "/api/notifications/push-token",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { token } = req.body as { token?: string };
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ success: false, message: "Token required" });
+      }
+      await db.execute(
+        `INSERT INTO expo_push_tokens (user_id, token)
+         VALUES (?, ?)
+         ON CONFLICT (user_id, token) DO NOTHING`,
+        [req.user!.id, token]
+      );
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ success: false, message: "Failed to save push token" });
+    }
+  }
+);
+
 /* UPDATE USER PROFILE */
 app.put(
   "/api/users/update",
