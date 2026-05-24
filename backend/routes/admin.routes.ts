@@ -119,9 +119,30 @@ router.get(
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
       const offset = (page - 1) * limit;
+      const search = (req.query.search as string | undefined)?.trim() || null;
+      const role = (req.query.role as string | undefined) || null;
+      const banned = req.query.banned === "1" || req.query.banned === "true";
 
       const db = getDb();
-      const [countRows] = await db.query(`SELECT COUNT(*) as total FROM users`);
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+
+      if (search) {
+        conditions.push("(first_name ILIKE ? OR last_name ILIKE ? OR email ILIKE ?)");
+        const q = `%${search}%`;
+        params.push(q, q, q);
+      }
+      if (role && ["pro", "client"].includes(role)) {
+        conditions.push("role = ?");
+        params.push(role);
+      }
+      if (banned) {
+        conditions.push("is_active = FALSE");
+      }
+
+      const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+      const [countRows] = await db.query(`SELECT COUNT(*) as total FROM users ${where}`, params);
       const total = (countRows as { total: number }[])[0]?.total ?? 0;
 
       const [users] = await db.query(`
@@ -130,11 +151,158 @@ router.get(
           is_admin, is_active, created_at, activity_name, city,
           instagram_account, profile_photo, banner_photo, pro_status, bio
         FROM users
+        ${where}
         ORDER BY created_at DESC
         LIMIT ? OFFSET ?
-      `, [limit, offset]);
+      `, [...params, limit, offset]);
 
       res.json({ success: true, data: users, meta: { page, limit, total } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* GET /users/:id — full profile + subscription history */
+router.get(
+  "/users/:id",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = parseParamToInt(req.params.id);
+      const db = getDb();
+
+      const [userRows] = await db.query(`
+        SELECT id, first_name, last_name, email, phone_number, birth_date, role,
+               is_admin, is_active, created_at, activity_name, city,
+               instagram_account, profile_photo, banner_photo, pro_status, bio,
+               profile_visibility, is_verified
+        FROM users WHERE id = ?
+      `, [userId]);
+
+      if ((userRows as any[]).length === 0) {
+        return res.status(404).json({ success: false, error: "Utilisateur introuvable" });
+      }
+
+      const user = (userRows as any[])[0];
+
+      const [bookingStats] = await db.query(`
+        SELECT
+          COUNT(*) AS total_bookings,
+          COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+          COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled,
+          COALESCE(SUM(price) FILTER (WHERE status IN ('confirmed','completed')), 0) AS total_spent
+        FROM reservations
+        WHERE client_id = ? OR pro_id = ?
+      `, [userId, userId]);
+
+      const [subRows] = await db.query(`
+        SELECT id, plan, billing_type, monthly_price, start_date, end_date, status, created_at
+        FROM subscriptions WHERE client_id = ?
+        ORDER BY created_at DESC LIMIT 10
+      `, [userId]);
+
+      res.json({
+        success: true,
+        data: {
+          ...user,
+          stats: (bookingStats as any[])[0] ?? {},
+          subscription_history: subRows as any[],
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* PATCH /users/:id — partial update (email, name, role) */
+router.patch(
+  "/users/:id",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = parseParamToInt(req.params.id);
+      const { first_name, last_name, email, role } = req.body as Record<string, string | undefined>;
+      const db = getDb();
+
+      const sets: string[] = [];
+      const params: unknown[] = [];
+      if (first_name) { sets.push("first_name = ?"); params.push(first_name); }
+      if (last_name)  { sets.push("last_name = ?");  params.push(last_name); }
+      if (email)      { sets.push("email = ?");       params.push(email); }
+      if (role && ["pro", "client"].includes(role)) { sets.push("role = ?"); params.push(role); }
+
+      if (sets.length === 0) {
+        return res.status(400).json({ success: false, error: "Aucun champ à modifier" });
+      }
+      params.push(userId);
+
+      await db.query(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, params);
+      res.json({ success: true, data: { id: userId } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* POST /users/:id/ban */
+router.post(
+  "/users/:id/ban",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = parseParamToInt(req.params.id);
+      await getDb().query("UPDATE users SET is_active = FALSE WHERE id = ?", [userId]);
+      res.json({ success: true, data: { id: userId, is_active: false } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* POST /users/:id/unban */
+router.post(
+  "/users/:id/unban",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = parseParamToInt(req.params.id);
+      await getDb().query("UPDATE users SET is_active = TRUE WHERE id = ?", [userId]);
+      res.json({ success: true, data: { id: userId, is_active: true } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* POST /users/:id/grant-subscription */
+router.post(
+  "/users/:id/grant-subscription",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = parseParamToInt(req.params.id);
+      const { plan, months } = req.body as { plan: string; months: number };
+
+      if (!plan || !["start", "serenite", "signature"].includes(plan)) {
+        return res.status(400).json({ success: false, error: "Plan invalide (start|serenite|signature)" });
+      }
+      if (!months || months < 1) {
+        return res.status(400).json({ success: false, error: "Durée invalide" });
+      }
+
+      const db = getDb();
+      const endDate = new Date();
+      endDate.setMonth(endDate.getMonth() + Number(months));
+
+      await db.query(
+        `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
+        [userId]
+      );
+      await db.query(
+        `INSERT INTO subscriptions (client_id, plan, billing_type, monthly_price, total_price, commitment_months, start_date, end_date, status, payment_id)
+         VALUES (?, ?, 'monthly', 0, 0, ?, NOW(), ?, 'active', 'admin_grant')`,
+        [userId, plan, months, endDate.toISOString().split("T")[0]]
+      );
+      await db.query("UPDATE users SET pro_status = 'active' WHERE id = ?", [userId]);
+
+      res.json({ success: true, data: { id: userId, plan, months, end_date: endDate } });
     } catch (error) {
       next(error);
     }
@@ -516,24 +684,94 @@ router.get(
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
       const offset = (page - 1) * limit;
+      const status = req.query.status as string | undefined;
+      const date = req.query.date as string | undefined;
+      const userId = req.query.user_id as string | undefined;
 
       const db = getDb();
-      const [countRows] = await db.query(`SELECT COUNT(*) as total FROM reservations`);
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+
+      if (status && status !== "all") { conditions.push("r.status = ?"); params.push(status); }
+      if (date) { conditions.push("r.start_datetime::date = ?"); params.push(date); }
+      if (userId) { conditions.push("(r.client_id = ? OR r.pro_id = ?)"); params.push(userId, userId); }
+
+      const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+      const [countRows] = await db.query(`SELECT COUNT(*) as total FROM reservations r ${where}`, params);
       const total = (countRows as { total: number }[])[0]?.total ?? 0;
 
       const [bookings] = await db.query(`
         SELECT
           r.*,
           CONCAT(c.first_name, ' ', c.last_name) as client_name,
-          CONCAT(p.first_name, ' ', p.last_name) as pro_name
+          CONCAT(p.first_name, ' ', p.last_name) as pro_name,
+          pr.name as service_name
         FROM reservations r
         LEFT JOIN users c ON r.client_id = c.id
         LEFT JOIN users p ON r.pro_id = p.id
+        LEFT JOIN prestations pr ON r.prestation_id = pr.id
+        ${where}
         ORDER BY r.start_datetime DESC
         LIMIT ? OFFSET ?
-      `, [limit, offset]);
+      `, [...params, limit, offset]);
 
       res.json({ success: true, data: bookings, meta: { page, limit, total } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* GET /bookings/:id */
+router.get(
+  "/bookings/:id",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const bookingId = parseParamToInt(req.params.id);
+      const db = getDb();
+
+      const [rows] = await db.query(`
+        SELECT
+          r.*,
+          CONCAT(c.first_name, ' ', c.last_name) as client_name,
+          c.email as client_email, c.phone_number as client_phone,
+          CONCAT(p.first_name, ' ', p.last_name) as pro_name,
+          p.email as pro_email,
+          pr.name as service_name, pr.price as service_price, pr.duration_minutes
+        FROM reservations r
+        LEFT JOIN users c ON r.client_id = c.id
+        LEFT JOIN users p ON r.pro_id = p.id
+        LEFT JOIN prestations pr ON r.prestation_id = pr.id
+        WHERE r.id = ?
+      `, [bookingId]);
+
+      if ((rows as any[]).length === 0) {
+        return res.status(404).json({ success: false, error: "Réservation introuvable" });
+      }
+
+      res.json({ success: true, data: (rows as any[])[0] });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* PATCH /bookings/:id — status change */
+router.patch(
+  "/bookings/:id",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const bookingId = parseParamToInt(req.params.id);
+      const { status } = req.body as { status: string };
+
+      const allowed = ["pending", "confirmed", "completed", "cancelled"];
+      if (!status || !allowed.includes(status)) {
+        return res.status(400).json({ success: false, error: `Statut invalide (${allowed.join("|")})` });
+      }
+
+      await getDb().query("UPDATE reservations SET status = ? WHERE id = ?", [status, bookingId]);
+      res.json({ success: true, data: { id: bookingId, status } });
     } catch (error) {
       next(error);
     }
@@ -623,6 +861,462 @@ router.post(
     try {
       await runReminderCycle();
       res.json({ success: true, message: "Reminder cycle triggered" });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ── Payments ─────────────────────────────────────────────────────────────────
+
+/* GET /payments */
+router.get(
+  "/payments",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+      const offset = (page - 1) * limit;
+      const status = req.query.status as string | undefined;
+
+      const db = getDb();
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+
+      if (status && status !== "all") {
+        conditions.push("py.status = ?");
+        params.push(status);
+      }
+
+      const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+      const [countRows] = await db.query(`SELECT COUNT(*) as total FROM payments py ${where}`, params);
+      const total = (countRows as { total: number }[])[0]?.total ?? 0;
+
+      const [rows] = await db.query(`
+        SELECT
+          py.id, py.reservation_id, py.type, py.amount, py.status,
+          py.stripe_payment_intent_id, py.created_at,
+          CONCAT(c.first_name, ' ', c.last_name) as client_name,
+          CONCAT(p.first_name, ' ', p.last_name) as pro_name,
+          ROUND(py.amount * 0.015 + 0.25, 2) as fee,
+          ROUND(py.amount - (py.amount * 0.015 + 0.25), 2) as net_amount
+        FROM payments py
+        LEFT JOIN users c ON py.client_id = c.id
+        LEFT JOIN users p ON py.pro_id = p.id
+        ${where}
+        ORDER BY py.created_at DESC
+        LIMIT ? OFFSET ?
+      `, [...params, limit, offset]);
+
+      res.json({ success: true, data: rows, meta: { page, limit, total } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* GET /payments/:id */
+router.get(
+  "/payments/:id",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const paymentId = parseParamToInt(req.params.id);
+      const db = getDb();
+
+      const [rows] = await db.query(`
+        SELECT
+          py.*, r.start_datetime, r.end_datetime, r.status as booking_status,
+          CONCAT(c.first_name, ' ', c.last_name) as client_name,
+          c.email as client_email,
+          CONCAT(p.first_name, ' ', p.last_name) as pro_name,
+          ROUND(py.amount * 0.015 + 0.25, 2) as fee,
+          ROUND(py.amount - (py.amount * 0.015 + 0.25), 2) as net_amount
+        FROM payments py
+        LEFT JOIN reservations r ON py.reservation_id = r.id
+        LEFT JOIN users c ON py.client_id = c.id
+        LEFT JOIN users p ON py.pro_id = p.id
+        WHERE py.id = ?
+      `, [paymentId]);
+
+      if ((rows as any[]).length === 0) {
+        return res.status(404).json({ success: false, error: "Paiement introuvable" });
+      }
+
+      res.json({ success: true, data: (rows as any[])[0] });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* POST /payments/:id/refund */
+router.post(
+  "/payments/:id/refund",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const paymentId = parseParamToInt(req.params.id);
+      const db = getDb();
+
+      const [rows] = await db.query(
+        "SELECT id, status, stripe_payment_intent_id FROM payments WHERE id = ?",
+        [paymentId]
+      );
+      const payment = (rows as any[])[0];
+
+      if (!payment) {
+        return res.status(404).json({ success: false, error: "Paiement introuvable" });
+      }
+      if (payment.status === "refunded") {
+        return res.status(400).json({ success: false, error: "Déjà remboursé" });
+      }
+
+      await db.query(
+        "UPDATE payments SET status = 'refunded', updated_at = NOW() WHERE id = ?",
+        [paymentId]
+      );
+
+      res.json({ success: true, data: { id: paymentId, status: "refunded" } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ── Coupons ───────────────────────────────────────────────────────────────────
+
+/* GET /coupons */
+router.get(
+  "/coupons",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const [rows] = await getDb().query(
+        "SELECT * FROM coupons ORDER BY created_at DESC"
+      );
+      res.json({ success: true, data: rows });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* POST /coupons */
+router.post(
+  "/coupons",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const { code, discount_type, discount_value, applicable_plans, expires_at, max_uses } = req.body as {
+        code: string;
+        discount_type: "percent" | "fixed";
+        discount_value: number;
+        applicable_plans: string[];
+        expires_at?: string;
+        max_uses?: number;
+      };
+
+      if (!code?.trim()) {
+        return res.status(400).json({ success: false, error: "Le code est requis" });
+      }
+      if (!["percent", "fixed"].includes(discount_type)) {
+        return res.status(400).json({ success: false, error: "Type invalide (percent|fixed)" });
+      }
+      if (!discount_value || discount_value <= 0) {
+        return res.status(400).json({ success: false, error: "Valeur de réduction invalide" });
+      }
+
+      const db = getDb();
+      const [result] = await db.query(
+        `INSERT INTO coupons (code, discount_type, discount_value, applicable_plans, expires_at, max_uses)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          code.trim().toUpperCase(),
+          discount_type,
+          discount_value,
+          JSON.stringify(applicable_plans ?? []),
+          expires_at ?? null,
+          max_uses ?? null,
+        ]
+      );
+
+      res.json({ success: true, data: { id: (result as any).insertId } });
+    } catch (error: any) {
+      if (error?.code === "23505" || error?.code === "ER_DUP_ENTRY") {
+        return res.status(409).json({ success: false, error: "Ce code existe déjà" });
+      }
+      next(error);
+    }
+  }
+);
+
+/* PATCH /coupons/:id */
+router.patch(
+  "/coupons/:id",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const couponId = parseParamToInt(req.params.id);
+      const { code, discount_type, discount_value, applicable_plans, expires_at, max_uses } = req.body as Record<string, any>;
+
+      const sets: string[] = [];
+      const params: unknown[] = [];
+      if (code) { sets.push("code = ?"); params.push(code.trim().toUpperCase()); }
+      if (discount_type) { sets.push("discount_type = ?"); params.push(discount_type); }
+      if (discount_value != null) { sets.push("discount_value = ?"); params.push(discount_value); }
+      if (applicable_plans) { sets.push("applicable_plans = ?"); params.push(JSON.stringify(applicable_plans)); }
+      if (expires_at !== undefined) { sets.push("expires_at = ?"); params.push(expires_at ?? null); }
+      if (max_uses !== undefined) { sets.push("max_uses = ?"); params.push(max_uses ?? null); }
+
+      if (sets.length === 0) {
+        return res.status(400).json({ success: false, error: "Aucun champ à modifier" });
+      }
+      params.push(couponId);
+
+      await getDb().query(`UPDATE coupons SET ${sets.join(", ")} WHERE id = ?`, params);
+      res.json({ success: true, data: { id: couponId } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* DELETE /coupons/:id */
+router.delete(
+  "/coupons/:id",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const couponId = parseParamToInt(req.params.id);
+      const [result] = await getDb().query("DELETE FROM coupons WHERE id = ?", [couponId]);
+
+      if ((result as any).affectedRows === 0) {
+        return res.status(404).json({ success: false, error: "Coupon introuvable" });
+      }
+      res.json({ success: true, data: { id: couponId } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* PATCH /coupons/:id/toggle */
+router.patch(
+  "/coupons/:id/toggle",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const couponId = parseParamToInt(req.params.id);
+      const { active } = req.body as { active: boolean };
+
+      await getDb().query(
+        "UPDATE coupons SET is_active = ? WHERE id = ?",
+        [active ? 1 : 0, couponId]
+      );
+      res.json({ success: true, data: { id: couponId, is_active: !!active } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ── Notifications (mass send) ─────────────────────────────────────────────────
+
+/* POST /notifications/send — mass or targeted */
+router.post(
+  "/notifications/send",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const { target, user_id, title, body } = req.body as {
+        target: "user_id" | "all" | "pros" | "clients";
+        user_id?: number;
+        title: string;
+        body: string;
+      };
+
+      if (!title?.trim() || !body?.trim()) {
+        return res.status(400).json({ success: false, error: "title et body sont requis" });
+      }
+
+      const db = getDb();
+      let userIds: number[] = [];
+
+      if (target === "user_id") {
+        if (!user_id) {
+          return res.status(400).json({ success: false, error: "user_id requis pour target=user_id" });
+        }
+        userIds = [user_id];
+      } else {
+        const roleCondition = target === "pros" ? "WHERE role = 'pro'"
+          : target === "clients" ? "WHERE role = 'client'"
+          : "";
+        const [rows] = await db.query(
+          `SELECT id FROM users ${roleCondition} AND is_active = TRUE`
+        );
+        userIds = (rows as any[]).map((r: any) => r.id);
+      }
+
+      if (userIds.length === 0) {
+        return res.json({ success: true, data: { sent: 0 } });
+      }
+
+      const values = userIds.map(() => "(?, 'admin', ?, ?, FALSE, NOW())").join(", ");
+      const params = userIds.flatMap((id) => [id, title.trim(), body.trim()]);
+      await db.query(
+        `INSERT INTO notifications (user_id, type, title, message, is_read, created_at) VALUES ${values}`,
+        params
+      );
+
+      for (const uid of userIds) {
+        sendNotificationToUser(uid, { id: 0, type: "admin", title: title.trim(), message: body.trim(), created_at: new Date().toISOString() });
+      }
+
+      res.json({ success: true, data: { sent: userIds.length } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+
+/* GET /analytics */
+router.get(
+  "/analytics",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const db = getDb();
+
+      const [revenueRows] = await db.query(`
+        SELECT
+          COALESCE(SUM(amount) FILTER (WHERE status = 'succeeded'), 0) AS total_revenue,
+          COALESCE(SUM(amount) FILTER (WHERE status = 'succeeded'
+            AND EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE)
+            AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)), 0) AS month_revenue,
+          COUNT(*) FILTER (WHERE status = 'succeeded') AS successful_payments,
+          COUNT(*) FILTER (WHERE status = 'refunded') AS refunded_payments
+        FROM payments
+      `);
+
+      const [userRows] = await db.query(`
+        SELECT
+          COUNT(*) AS total_users,
+          COUNT(*) FILTER (WHERE role = 'pro') AS total_pros,
+          COUNT(*) FILTER (WHERE role = 'client') AS total_clients,
+          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '30 days') AS new_last_30d
+        FROM users
+      `);
+
+      const [bookingRows] = await db.query(`
+        SELECT
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+          COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled,
+          COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+          COUNT(*) FILTER (WHERE status = 'confirmed') AS confirmed,
+          COUNT(*) FILTER (WHERE start_datetime >= CURRENT_DATE - INTERVAL '30 days') AS last_30d
+        FROM reservations
+      `);
+
+      res.json({
+        success: true,
+        data: {
+          revenue: (revenueRows as any[])[0] ?? {},
+          users: (userRows as any[])[0] ?? {},
+          bookings: (bookingRows as any[])[0] ?? {},
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* GET /analytics/revenue */
+router.get(
+  "/analytics/revenue",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const period = (req.query.period as string) || "month";
+      const db = getDb();
+
+      let interval = "INTERVAL '30 days'";
+      let truncUnit = "day";
+      if (period === "week") { interval = "INTERVAL '7 days'"; truncUnit = "day"; }
+      else if (period === "year") { interval = "INTERVAL '365 days'"; truncUnit = "month"; }
+
+      const [rows] = await db.query(`
+        SELECT
+          DATE_TRUNC('${truncUnit}', created_at) AS period,
+          COALESCE(SUM(amount) FILTER (WHERE status = 'succeeded'), 0) AS revenue,
+          COUNT(*) FILTER (WHERE status = 'succeeded') AS transactions
+        FROM payments
+        WHERE created_at >= CURRENT_TIMESTAMP - ${interval}
+        GROUP BY DATE_TRUNC('${truncUnit}', created_at)
+        ORDER BY period ASC
+      `);
+
+      res.json({ success: true, data: rows });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* GET /analytics/users */
+router.get(
+  "/analytics/users",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const period = (req.query.period as string) || "month";
+      const db = getDb();
+
+      let interval = "INTERVAL '30 days'";
+      let truncUnit = "day";
+      if (period === "week") { interval = "INTERVAL '7 days'"; truncUnit = "day"; }
+      else if (period === "year") { interval = "INTERVAL '365 days'"; truncUnit = "month"; }
+
+      const [rows] = await db.query(`
+        SELECT
+          DATE_TRUNC('${truncUnit}', created_at) AS period,
+          COUNT(*) AS new_users,
+          COUNT(*) FILTER (WHERE role = 'pro') AS new_pros,
+          COUNT(*) FILTER (WHERE role = 'client') AS new_clients
+        FROM users
+        WHERE created_at >= CURRENT_TIMESTAMP - ${interval}
+        GROUP BY DATE_TRUNC('${truncUnit}', created_at)
+        ORDER BY period ASC
+      `);
+
+      res.json({ success: true, data: rows });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* GET /analytics/bookings */
+router.get(
+  "/analytics/bookings",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const period = (req.query.period as string) || "month";
+      const db = getDb();
+
+      let interval = "INTERVAL '30 days'";
+      let truncUnit = "day";
+      if (period === "week") { interval = "INTERVAL '7 days'"; truncUnit = "day"; }
+      else if (period === "year") { interval = "INTERVAL '365 days'"; truncUnit = "month"; }
+
+      const [rows] = await db.query(`
+        SELECT
+          DATE_TRUNC('${truncUnit}', created_at) AS period,
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+          COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled,
+          COALESCE(SUM(price) FILTER (WHERE status IN ('confirmed','completed')), 0) AS revenue
+        FROM reservations
+        WHERE created_at >= CURRENT_TIMESTAMP - ${interval}
+        GROUP BY DATE_TRUNC('${truncUnit}', created_at)
+        ORDER BY period ASC
+      `);
+
+      res.json({ success: true, data: rows });
     } catch (error) {
       next(error);
     }
