@@ -6,6 +6,7 @@ import { requireAdminMiddleware } from "../middleware/requireAdmin";
 import { adminLimiter } from "../middleware/rate-limits";
 import { getDb } from "../lib/db";
 import { sendNotificationToUser } from "../lib/notifications";
+import Expo from "expo-server-sdk";
 import { AuthenticatedRequest } from "../lib/types";
 import { parseParamToInt } from "../lib/helpers";
 import { runReminderCycle } from "../lib/reminders";
@@ -1142,12 +1143,10 @@ router.post(
         }
         userIds = [user_id];
       } else {
-        const roleCondition = target === "pros" ? "WHERE role = 'pro'"
-          : target === "clients" ? "WHERE role = 'client'"
-          : "";
-        const [rows] = await db.query(
-          `SELECT id FROM users ${roleCondition} AND is_active = TRUE`
-        );
+        const whereClause = target === "pros" ? "WHERE role = 'pro' AND is_active = TRUE"
+          : target === "clients" ? "WHERE role = 'client' AND is_active = TRUE"
+          : "WHERE is_active = TRUE";
+        const [rows] = await db.query(`SELECT id FROM users ${whereClause}`);
         userIds = (rows as any[]).map((r: any) => r.id);
       }
 
@@ -1155,6 +1154,7 @@ router.post(
         return res.json({ success: true, data: { sent: 0 } });
       }
 
+      // Insert in-app notifications
       const values = userIds.map(() => "(?, 'admin', ?, ?, FALSE, NOW())").join(", ");
       const params = userIds.flatMap((id) => [id, title.trim(), body.trim()]);
       await db.query(
@@ -1162,8 +1162,30 @@ router.post(
         params
       );
 
+      // WebSocket delivery (users with app open)
       for (const uid of userIds) {
         sendNotificationToUser(uid, { id: 0, type: "admin", title: title.trim(), message: body.trim(), created_at: new Date().toISOString() });
+      }
+
+      // Expo push delivery (background / closed app)
+      const [tokenRows] = await db.query(
+        `SELECT user_id, token FROM expo_push_tokens WHERE user_id IN (${userIds.map(() => "?").join(",")})`,
+        userIds
+      );
+      const expo = new Expo();
+      const messages = (tokenRows as any[])
+        .filter((r) => Expo.isExpoPushToken(r.token))
+        .map((r) => ({
+          to: r.token as string,
+          sound: "default" as const,
+          title: title.trim(),
+          body: body.trim(),
+          data: { type: "admin" },
+        }));
+
+      if (messages.length > 0) {
+        const chunks = expo.chunkPushNotifications(messages);
+        await Promise.allSettled(chunks.map((chunk) => expo.sendPushNotificationsAsync(chunk)));
       }
 
       res.json({ success: true, data: { sent: userIds.length } });
