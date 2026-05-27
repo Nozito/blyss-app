@@ -1146,11 +1146,15 @@ router.post(
         const whereClause = target === "pros" ? "WHERE role = 'pro' AND is_active = TRUE"
           : target === "clients" ? "WHERE role = 'client' AND is_active = TRUE"
           : "WHERE is_active = TRUE";
-        const [rows] = await db.query(`SELECT id FROM users ${whereClause}`);
+        const sql = `SELECT id FROM users ${whereClause}`;
+        console.log("[push] query:", sql);
+        const [rows] = await db.query(sql);
         userIds = (rows as any[]).map((r: any) => r.id);
+        console.log("[push] userIds found:", userIds.length, "target:", target);
       }
 
       if (userIds.length === 0) {
+        console.warn("[push] No active users found for target:", target);
         return res.json({ success: true, data: { sent: 0 } });
       }
 
@@ -1183,11 +1187,17 @@ router.post(
           data: { type: "admin" },
         }));
 
+      console.log("[push] expo tokens found:", messages.length, "/ userIds:", userIds.length);
       if (messages.length > 0) {
         const chunks = expo.chunkPushNotifications(messages);
-        await Promise.allSettled(chunks.map((chunk) => expo.sendPushNotificationsAsync(chunk)));
+        const results = await Promise.allSettled(chunks.map((chunk) => expo.sendPushNotificationsAsync(chunk)));
+        results.forEach((r, i) => {
+          if (r.status === "rejected") console.error("[push] chunk", i, "failed:", r.reason);
+          else console.log("[push] chunk", i, "ok:", r.value.map((t) => t.status));
+        });
       }
 
+      console.log("[push] sent:", userIds.length);
       res.json({ success: true, data: { sent: userIds.length } });
     } catch (error) {
       next(error);
