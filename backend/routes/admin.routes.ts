@@ -1171,13 +1171,20 @@ router.post(
         sendNotificationToUser(uid, { id: 0, type: "admin", title: title.trim(), message: body.trim(), created_at: new Date().toISOString() });
       }
 
-      // Expo push delivery (background / closed app)
-      const [tokenRows] = await db.query(
-        `SELECT user_id, token FROM expo_push_tokens WHERE user_id IN (${userIds.map(() => "?").join(",")})`,
-        userIds
-      );
+      // Expo push delivery (APNs / FCM via Expo — background / closed app)
+      let tokenRows: any[] = [];
+      try {
+        const [rows] = await db.query(
+          `SELECT user_id, token FROM expo_push_tokens WHERE user_id IN (${userIds.map(() => "?").join(",")})`,
+          userIds
+        );
+        tokenRows = rows as any[];
+      } catch (e: any) {
+        console.warn("[push] expo_push_tokens unavailable (migration pending?):", e.message);
+      }
+
       const expo = new Expo();
-      const messages = (tokenRows as any[])
+      const messages = tokenRows
         .filter((r) => Expo.isExpoPushToken(r.token))
         .map((r) => ({
           to: r.token as string,
