@@ -106,19 +106,19 @@ router.post(
         });
       }
 
-      if (password.length > 128) {
+      if (password.length > 12) {
         return res.status(400).json({
           success: false,
-          message: "Password too long",
+          message: "Password too long (max 12 characters)",
           error: "invalid_password",
         });
       }
 
-      if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(password)) {
+      if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).{8,12}$/.test(password)) {
         return res.status(400).json({
           success: false,
           message:
-            "Password must contain at least one lowercase, one uppercase and one number",
+            "Password must contain at least one lowercase, one uppercase, one number and one special character (!@#$%^&*)",
           error: "weak_password",
         });
       }

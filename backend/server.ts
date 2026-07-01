@@ -1944,6 +1944,21 @@ app.post(
   }
 );
 
+/* DELETE PROFILE PHOTO */
+app.delete(
+  "/api/users/profile-photo",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await db.execute("UPDATE users SET profile_photo = NULL WHERE id = ?", [req.user!.id]);
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ success: false, message: "Erreur lors de la suppression" });
+    }
+  }
+);
+
 /* UPLOAD BANNER */
 app.post(
   "/api/users/upload-banner",
