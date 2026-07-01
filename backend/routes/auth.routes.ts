@@ -205,7 +205,7 @@ router.post(
         const refreshToken = await generateAndStoreRefreshToken(userId);
         setAuthCookies(res, accessToken, refreshToken);
 
-        res.json({ success: true, message: "Account created successfully" });
+        res.json({ success: true, message: "Account created successfully", data: { accessToken, refreshToken } });
       } catch (transactionError) {
         await connection.rollback();
         throw transactionError;
@@ -600,6 +600,11 @@ router.patch(
     }
   }
 );
+
+/* POST /apple — Apple Sign In (stub: not yet implemented) */
+router.post("/apple", async (_req: Request, res: Response) => {
+  return res.status(501).json({ success: false, error: "apple_signin_not_implemented" });
+});
 
 /* POST /forgot-password */
 router.post(

@@ -6,7 +6,7 @@ import { requireAdminMiddleware } from "../middleware/requireAdmin";
 import { adminLimiter } from "../middleware/rate-limits";
 import { getDb } from "../lib/db";
 import { sendNotificationToUser } from "../lib/notifications";
-import Expo from "expo-server-sdk";
+
 import { AuthenticatedRequest } from "../lib/types";
 import { parseParamToInt } from "../lib/helpers";
 import { runReminderCycle } from "../lib/reminders";
@@ -1183,12 +1183,12 @@ router.post(
         console.warn("[push] expo_push_tokens unavailable (migration pending?):", e.message);
       }
 
-      const expo = new Expo();
+      const isExpoPushToken = (t: string) => /^Expo(nent)?PushToken\[.+\]$/.test(t);
       const messages = tokenRows
-        .filter((r) => Expo.isExpoPushToken(r.token))
+        .filter((r) => isExpoPushToken(r.token))
         .map((r) => ({
           to: r.token as string,
-          sound: "default" as const,
+          sound: "default",
           title: title.trim(),
           body: body.trim(),
           data: { type: "admin" },
@@ -1196,12 +1196,16 @@ router.post(
 
       console.log("[push] expo tokens found:", messages.length, "/ userIds:", userIds.length);
       if (messages.length > 0) {
-        const chunks = expo.chunkPushNotifications(messages);
-        const results = await Promise.allSettled(chunks.map((chunk) => expo.sendPushNotificationsAsync(chunk)));
-        results.forEach((r, i) => {
-          if (r.status === "rejected") console.error("[push] chunk", i, "failed:", r.reason);
-          else console.log("[push] chunk", i, "ok:", r.value.map((t) => t.status));
-        });
+        const CHUNK = 100;
+        for (let i = 0; i < messages.length; i += CHUNK) {
+          const chunk = messages.slice(i, i + CHUNK);
+          const r = await fetch("https://exp.host/--/api/v2/push/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify(chunk),
+          }).catch((e: Error) => { console.error("[push] chunk", i / CHUNK, "failed:", e.message); return null; });
+          if (r) console.log("[push] chunk", i / CHUNK, "status:", r.status);
+        }
       }
 
       console.log("[push] sent:", userIds.length);
