@@ -147,7 +147,7 @@ describe("POST /api/auth/reset-password", () => {
   it("400 — token manquant", async () => {
     const res = await request(app)
       .post("/api/auth/reset-password")
-      .send({ password: "ValidPass1" });
+      .send({ password: "ValidPass1!" });
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("validation_error");
   });
@@ -172,7 +172,7 @@ describe("POST /api/auth/reset-password", () => {
     mockExecute.mockResolvedValueOnce([[]]); // SELECT → aucun token
     const res = await request(app)
       .post("/api/auth/reset-password")
-      .send({ token: "invalidtoken123", password: "ValidPass1" });
+      .send({ token: "invalidtoken123", password: "ValidPass1!" });
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("invalid_token");
   });
@@ -187,7 +187,7 @@ describe("POST /api/auth/reset-password", () => {
     }]]);
     const res = await request(app)
       .post("/api/auth/reset-password")
-      .send({ token: "expiredtoken", password: "ValidPass1" });
+      .send({ token: "expiredtoken", password: "ValidPass1!" });
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("token_expired");
   });
@@ -202,7 +202,7 @@ describe("POST /api/auth/reset-password", () => {
     }]]);
     const res = await request(app)
       .post("/api/auth/reset-password")
-      .send({ token: "usedtoken", password: "ValidPass1" });
+      .send({ token: "usedtoken", password: "ValidPass1!" });
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("token_already_used");
   });
@@ -222,7 +222,7 @@ describe("POST /api/auth/reset-password", () => {
 
     const res = await request(app)
       .post("/api/auth/reset-password")
-      .send({ token: "validtoken123", password: "ValidPass1" });
+      .send({ token: "validtoken123", password: "ValidPass1!" });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);

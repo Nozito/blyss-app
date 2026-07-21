@@ -2,7 +2,7 @@ import express, { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { authMiddleware, authenticateToken } from "../middleware/auth";
-import { authLoginLimiter, authSignupLimiter, authRefreshLimiter, passwordResetLimiter } from "../middleware/rate-limits";
+import { authLoginLimiter, authLoginAccountLimiter, authSignupLimiter, authRefreshLimiter, passwordResetLimiter, passwordResetAccountLimiter, passwordResetConsumeLimiter } from "../middleware/rate-limits";
 import { validate } from "../middleware/validate";
 import { forgotPasswordSchema, resetPasswordSchema } from "../middleware/validate";
 import { getDb } from "../lib/db";
@@ -11,6 +11,7 @@ import {
   generateAccessToken,
   generateAndStoreRefreshToken,
   revokeRefreshToken,
+  findRefreshToken,
 } from "../lib/tokens";
 import {
   SignupRequestBody,
@@ -106,15 +107,15 @@ router.post(
         });
       }
 
-      if (password.length > 12) {
+      if (password.length > 128) {
         return res.status(400).json({
           success: false,
-          message: "Password too long (max 12 characters)",
+          message: "Password too long (max 128 characters)",
           error: "invalid_password",
         });
       }
 
-      if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).{8,12}$/.test(password)) {
+      if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).{8,128}$/.test(password)) {
         return res.status(400).json({
           success: false,
           message:
@@ -341,6 +342,7 @@ router.get(
 router.post(
   "/login",
   authLoginLimiter,
+  authLoginAccountLimiter,
   async (req: Request<{}, {}, LoginRequestBody>, res: Response) => {
     try {
       const { email, password } = req.body;
@@ -402,14 +404,7 @@ router.post(
         return res.status(401).json({ success: false, message: "Missing refresh token" });
       }
 
-      const [rows] = await getDb().execute(
-        `SELECT user_id, expires_at, revoked FROM refresh_tokens WHERE token = ? LIMIT 1`,
-        [refreshToken]
-      );
-
-      const record = (
-        rows as { user_id: number; expires_at: Date; revoked: number }[]
-      )[0];
+      const record = await findRefreshToken(refreshToken);
 
       if (!record) {
         return res.status(401).json({ success: false, message: "Invalid refresh token" });
@@ -487,6 +482,15 @@ router.delete(
         `UPDATE payments SET client_id = NULL, pro_id = NULL WHERE client_id = ? OR pro_id = ?`,
         [userId, userId]
       );
+
+      // Anonymise les avis : on garde la note/le commentaire mais on retire
+      // l'attribution. Deux UPDATE ciblés (pas un seul avec OR) pour ne
+      // toucher que le côté qui appartient réellement à ce compte — sinon
+      // supprimer son propre compte effacerait aussi l'identité de l'autre
+      // partie (le pro noté, ou la cliente qui a laissé l'avis) sans que
+      // cette personne n'ait rien demandé.
+      await connection.execute(`UPDATE reviews SET client_id = NULL WHERE client_id = ?`, [userId]);
+      await connection.execute(`UPDATE reviews SET pro_id = NULL WHERE pro_id = ?`, [userId]);
 
       // Supprime l'utilisateur (les autres tables cascadent via FK ON DELETE CASCADE)
       await connection.execute(`DELETE FROM users WHERE id = ?`, [userId]);
@@ -610,6 +614,7 @@ router.post("/apple", async (_req: Request, res: Response) => {
 router.post(
   "/forgot-password",
   passwordResetLimiter,
+  passwordResetAccountLimiter,
   validate(forgotPasswordSchema),
   async (req: Request, res: Response) => {
     // Always return 200 — never reveal whether an email exists (anti-enumeration)
@@ -661,6 +666,7 @@ router.post(
 /* POST /reset-password */
 router.post(
   "/reset-password",
+  passwordResetConsumeLimiter,
   validate(resetPasswordSchema),
   async (req: Request, res: Response) => {
     try {

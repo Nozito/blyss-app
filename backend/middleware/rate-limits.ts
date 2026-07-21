@@ -1,4 +1,17 @@
 import rateLimit from "express-rate-limit";
+import { Request } from "express";
+
+// Per-IP limiters alone don't stop a distributed attack (many source IPs)
+// aimed at one specific account. Keying by the submitted email/account
+// identifier closes that gap — the two limiter types are complementary,
+// both applied together on account-sensitive routes.
+function accountKey(req: Request): string {
+  const email = (req.body as { email?: unknown } | undefined)?.email;
+  if (typeof email === "string" && email.trim()) {
+    return email.trim().toLowerCase();
+  }
+  return "no-account"; // shares one bucket across requests with no email — safe default, not a bypass
+}
 
 export const authLoginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -9,6 +22,22 @@ export const authLoginLimiter = rateLimit({
     success: false,
     error: "too_many_requests",
     message: "Trop de tentatives, réessayez dans 15 minutes.",
+  },
+});
+
+// Same login endpoint, keyed by the targeted account instead of source IP —
+// stops a distributed credential-stuffing attempt against one account from
+// rotating IPs to dodge the limiter above.
+export const authLoginAccountLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyGenerator: accountKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de tentatives sur ce compte, réessayez dans 15 minutes.",
   },
 });
 
@@ -125,6 +154,41 @@ export const passwordResetLimiter = rateLimit({
     success: false,
     error: "too_many_requests",
     message: "Trop de demandes de réinitialisation, réessayez dans 1 heure.",
+  },
+});
+
+// Same route, keyed by the targeted account — an attacker spamming reset
+// emails at one victim from rotating IPs (harassment/spam, not brute-force
+// per se) still hits a wall here even though each IP looks fine on its own.
+export const passwordResetAccountLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  keyGenerator: accountKey,
+  skip: () => process.env.NODE_ENV === "test",
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de demandes de réinitialisation pour ce compte, réessayez dans 1 heure.",
+  },
+});
+
+// Token-consumption endpoint (POST /reset-password) — separate, more
+// generous limit than the request-a-reset-email limiter above, since a
+// legitimate user may mistype their new password a couple of times. Mainly
+// defense-in-depth/DoS protection: the token itself is 32 random bytes and
+// isn't practically brute-forceable.
+export const passwordResetConsumeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  skip: () => process.env.NODE_ENV === "test",
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de tentatives, réessayez dans 15 minutes.",
   },
 });
 
