@@ -88,17 +88,78 @@ async function sendNoticesForSoonExpiredAccounts(): Promise<number> {
   return users.length;
 }
 
-async function deleteInactiveAccounts(): Promise<number> {
-  // Only delete accounts that received a notice AND are still inactive
-  const [result] = await getDb().execute(
-    `DELETE FROM users
+/**
+ * Blanks out PII while keeping the row (and its id) intact. Used when a hard
+ * DELETE is blocked by FK constraints (reservations/payments/reviews have no
+ * ON DELETE CASCADE from users — by design, those need to survive for
+ * accounting/legal retention). is_active=FALSE is the same gate already used
+ * by the admin ban action, so the account becomes unusable the same way.
+ */
+async function anonymizeUser(userId: number): Promise<void> {
+  await getDb().execute(
+    `UPDATE users SET
+       first_name = 'Compte', last_name = 'supprimé',
+       email = 'deleted-' || id || '@blyss-anonymized.invalid',
+       phone_number = NULL, birth_date = NULL,
+       activity_name = NULL, city = NULL, instagram_account = NULL,
+       profile_photo = NULL, banner_photo = NULL, bio = NULL,
+       "IBAN" = NULL, iban_iv = NULL, iban_tag = NULL, iban_hash = NULL, iban_last4 = NULL,
+       bankaccountname = NULL,
+       is_active = FALSE
+     WHERE id = ?`,
+    [userId]
+  );
+}
+
+/**
+ * Deletes (or anonymizes, as a fallback) accounts inactive for
+ * ACCOUNT_INACTIVE_MONTHS that already received the 30-day notice.
+ *
+ * Processed one user at a time rather than as a single bulk DELETE: a bulk
+ * statement is atomic, so a single user with reservation/payment/review
+ * history (no ON DELETE CASCADE on those FKs) would abort the entire batch —
+ * meaning zero accounts get deleted that cycle, silently, every cycle,
+ * for as long as that one row keeps matching the WHERE clause. Handling
+ * each user independently means one FK conflict no longer blocks the rest,
+ * and falls back to anonymization so the RGPD erasure obligation is still
+ * met for accounts with history instead of being silently skipped.
+ */
+async function deleteInactiveAccounts(): Promise<{ deleted: number; anonymized: number; failed: number }> {
+  const [rows] = await getDb().query(
+    `SELECT id FROM users
      WHERE last_login_at < NOW() - INTERVAL '${ACCOUNT_INACTIVE_MONTHS} months'
        AND retention_notice_sent_at IS NOT NULL
        AND retention_notice_sent_at < NOW() - INTERVAL '30 days'
        AND is_admin = FALSE`,
     []
   );
-  return (result as any).rowCount ?? 0;
+  const candidates = rows as { id: number }[];
+
+  let deleted = 0;
+  let anonymized = 0;
+  let failed = 0;
+
+  for (const { id } of candidates) {
+    try {
+      await getDb().execute(`DELETE FROM users WHERE id = ?`, [id]);
+      deleted++;
+    } catch {
+      // Most likely a FK violation from reservation/payment/review history.
+      try {
+        await anonymizeUser(id);
+        anonymized++;
+      } catch (anonErr) {
+        failed++;
+        log.error(
+          ROUTE,
+          `Could not delete or anonymize user ${id}`,
+          anonErr instanceof Error ? anonErr.stack : String(anonErr)
+        );
+      }
+    }
+  }
+
+  return { deleted, anonymized, failed };
 }
 
 async function purgeRevokedInstagramTokens(): Promise<number> {
@@ -147,9 +208,9 @@ export async function runDataRetentionCycle(): Promise<void> {
   }
 
   try {
-    const deleted = await deleteInactiveAccounts();
-    await logAudit("delete_inactive_accounts", deleted);
-    log.warn(ROUTE, `Deleted ${deleted} inactive accounts`);
+    const { deleted, anonymized, failed } = await deleteInactiveAccounts();
+    await logAudit("delete_inactive_accounts", deleted + anonymized);
+    log.warn(ROUTE, `Deleted ${deleted}, anonymized ${anonymized}, failed ${failed} inactive account(s)`);
   } catch (err: unknown) {
     log.error(ROUTE, "delete_inactive_accounts failed", err instanceof Error ? err.stack : String(err));
   }

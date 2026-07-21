@@ -111,17 +111,29 @@ async function sendJ1Reminders(): Promise<void> {
 
   let sent = 0;
   for (const row of rows as any[]) {
-    let body = `Ton RDV à ${row.rdv_time} avec ${row.pro_name} (${row.prestation_name}) est demain !`;
-    if (row.preparation_instructions) {
-      body += ` Préparation : ${row.preparation_instructions}`;
+    // The row is already claimed (reminder_j1_sent=true) by the CTE above —
+    // an uncaught error here would otherwise abort the whole loop, silently
+    // dropping the push for every remaining row in this batch too, not just
+    // this one (all already marked "sent" regardless of whether it happened).
+    try {
+      let body = `Ton RDV à ${row.rdv_time} avec ${row.pro_name} (${row.prestation_name}) est demain !`;
+      if (row.preparation_instructions) {
+        body += ` Préparation : ${row.preparation_instructions}`;
+      }
+      await sendPushToUser(row.client_id, {
+        title: "Rappel rendez-vous demain ✨",
+        body,
+        url: "/client/bookings",
+        tag: `rdv-j1-${row.id}`,
+      });
+      sent++;
+    } catch (err) {
+      log.error(
+        "/cron/reminders",
+        `J-1 push failed for reservation ${row.id}`,
+        err instanceof Error ? err.stack : String(err)
+      );
     }
-    await sendPushToUser(row.client_id, {
-      title: "Rappel rendez-vous demain ✨",
-      body,
-      url: "/client/bookings",
-      tag: `rdv-j1-${row.id}`,
-    });
-    sent++;
   }
 
   if (sent > 0) {
@@ -135,13 +147,23 @@ async function sendH2Reminders(): Promise<void> {
 
   let sent = 0;
   for (const row of rows as any[]) {
-    await sendPushToUser(row.client_id, {
-      title: "Ton RDV approche ⏰",
-      body: `Ton rendez-vous à ${row.rdv_time} avec ${row.pro_name} est dans 2h !`,
-      url: "/client/bookings",
-      tag: `rdv-h2-${row.id}`,
-    });
-    sent++;
+    // Same reasoning as sendJ1Reminders: don't let one failed push abort
+    // the rest of an already-claimed batch.
+    try {
+      await sendPushToUser(row.client_id, {
+        title: "Ton RDV approche ⏰",
+        body: `Ton rendez-vous à ${row.rdv_time} avec ${row.pro_name} est dans 2h !`,
+        url: "/client/bookings",
+        tag: `rdv-h2-${row.id}`,
+      });
+      sent++;
+    } catch (err) {
+      log.error(
+        "/cron/reminders",
+        `H-2 push failed for reservation ${row.id}`,
+        err instanceof Error ? err.stack : String(err)
+      );
+    }
   }
 
   if (sent > 0) {
