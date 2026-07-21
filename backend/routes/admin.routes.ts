@@ -6,12 +6,87 @@ import { requireAdminMiddleware } from "../middleware/requireAdmin";
 import { adminLimiter } from "../middleware/rate-limits";
 import { getDb } from "../lib/db";
 import { sendNotificationToUser } from "../lib/notifications";
+import { encryptIban, encryptSensitiveData } from "../lib/encryption";
+import { isValidIBAN, electronicFormatIBAN } from "ibantools";
+import { refundPaymentById } from "../lib/refunds";
+import { validate } from "../middleware/validate";
+import {
+  adminNotificationCreateSchema,
+  adminUserPatchSchema,
+  adminUserCreateSchema,
+  adminUserPutSchema,
+  adminGrantSubscriptionSchema,
+  adminBookingStatusSchema,
+  adminBookingWriteSchema,
+  adminCouponCreateSchema,
+  adminCouponPatchSchema,
+  adminCouponToggleSchema,
+  adminNotificationSendSchema,
+} from "../middleware/validate";
 
 import { AuthenticatedRequest } from "../lib/types";
 import { parseParamToInt } from "../lib/helpers";
 import { runReminderCycle } from "../lib/reminders";
 
 const router = express.Router();
+
+/**
+ * Validates + encrypts an IBAN and bank account name the same way the
+ * self-service update path does (server.ts POST /pro/bank-info), so
+ * admin-created/edited records aren't stored in plaintext and remain
+ * decryptable by the same code path later.
+ */
+function prepareBankFields(IBAN: string | null | undefined, bankaccountname: string | null | undefined):
+  | { ok: true; iban: string | null; ibanIv: string | null; ibanTag: string | null; ibanLast4: string | null; ibanHash: string | null; accountName: string | null }
+  | { ok: false; message: string } {
+  if (!IBAN) {
+    return { ok: true, iban: null, ibanIv: null, ibanTag: null, ibanLast4: null, ibanHash: null, accountName: bankaccountname ? encryptSensitiveData(bankaccountname.trim()) : null };
+  }
+
+  const formattedIban = electronicFormatIBAN(IBAN);
+  if (!formattedIban || !isValidIBAN(formattedIban)) {
+    return { ok: false, message: "IBAN invalide." };
+  }
+
+  const { ciphertext, iv, tag } = encryptIban(formattedIban);
+  return {
+    ok: true,
+    iban: ciphertext,
+    ibanIv: iv,
+    ibanTag: tag,
+    ibanLast4: formattedIban.slice(-4),
+    ibanHash: crypto.createHash("sha256").update(formattedIban).digest("hex"),
+    accountName: bankaccountname ? encryptSensitiveData(bankaccountname.trim()) : null,
+  };
+}
+
+/**
+ * Cancels any currently-active subscription for the user and inserts a new
+ * admin_grant one (payment_id='admin_grant'), tracked by
+ * cron/subscription-expiry.ts so it actually expires. Does NOT touch
+ * users.pro_status — callers set that themselves.
+ */
+async function createAdminGrantSubscription(
+  db: ReturnType<typeof getDb>,
+  userId: number,
+  months: number,
+  plan: string = "start"
+): Promise<Date> {
+  const endDate = new Date();
+  endDate.setMonth(endDate.getMonth() + Number(months));
+
+  await db.query(
+    `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
+    [userId]
+  );
+  await db.query(
+    `INSERT INTO subscriptions (client_id, plan, billing_type, monthly_price, total_price, commitment_months, start_date, end_date, status, payment_id)
+     VALUES (?, ?, 'monthly', 0, 0, ?, NOW(), ?, 'active', 'admin_grant')`,
+    [userId, plan, months, endDate.toISOString().split("T")[0]]
+  );
+
+  return endDate;
+}
 
 // All admin routes require authentication + admin check
 router.use(authenticateToken, requireAdminMiddleware);
@@ -79,16 +154,10 @@ router.get(
 /* POST /notifications/create */
 router.post(
   "/notifications/create",
+  validate(adminNotificationCreateSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { user_id, type, title, message, data } = req.body;
-
-      if (!user_id || !type || !title || !message) {
-        return res.status(400).json({
-          success: false,
-          message: "Champs requis : user_id, type, title, message",
-        });
-      }
 
       const db = getDb();
       const [notifRows] = await db.query(
@@ -219,6 +288,7 @@ router.get(
 /* PATCH /users/:id — partial update (email, name, role) */
 router.patch(
   "/users/:id",
+  validate(adminUserPatchSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const userId = parseParamToInt(req.params.id);
@@ -230,7 +300,7 @@ router.patch(
       if (first_name) { sets.push("first_name = ?"); params.push(first_name); }
       if (last_name)  { sets.push("last_name = ?");  params.push(last_name); }
       if (email)      { sets.push("email = ?");       params.push(email); }
-      if (role && ["pro", "client"].includes(role)) { sets.push("role = ?"); params.push(role); }
+      if (role) { sets.push("role = ?"); params.push(role); }
 
       if (sets.length === 0) {
         return res.status(400).json({ success: false, error: "Aucun champ à modifier" });
@@ -276,31 +346,14 @@ router.post(
 /* POST /users/:id/grant-subscription */
 router.post(
   "/users/:id/grant-subscription",
+  validate(adminGrantSubscriptionSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const userId = parseParamToInt(req.params.id);
       const { plan, months } = req.body as { plan: string; months: number };
 
-      if (!plan || !["start", "serenite", "signature"].includes(plan)) {
-        return res.status(400).json({ success: false, error: "Plan invalide (start|serenite|signature)" });
-      }
-      if (!months || months < 1) {
-        return res.status(400).json({ success: false, error: "Durée invalide" });
-      }
-
       const db = getDb();
-      const endDate = new Date();
-      endDate.setMonth(endDate.getMonth() + Number(months));
-
-      await db.query(
-        `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
-        [userId]
-      );
-      await db.query(
-        `INSERT INTO subscriptions (client_id, plan, billing_type, monthly_price, total_price, commitment_months, start_date, end_date, status, payment_id)
-         VALUES (?, ?, 'monthly', 0, 0, ?, NOW(), ?, 'active', 'admin_grant')`,
-        [userId, plan, months, endDate.toISOString().split("T")[0]]
-      );
+      const endDate = await createAdminGrantSubscription(db, userId, months, plan);
       await db.query("UPDATE users SET pro_status = 'active' WHERE id = ?", [userId]);
 
       res.json({ success: true, data: { id: userId, plan, months, end_date: endDate } });
@@ -466,6 +519,7 @@ router.get(
 /* POST /users/create */
 router.post(
   "/users/create",
+  validate(adminUserCreateSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const {
@@ -474,13 +528,6 @@ router.post(
         bankaccountname, IBAN, iban_last4, accept_online_payment, pro_status,
         bio, profile_visibility,
       } = req.body;
-
-      if (!first_name || !last_name || !phone_number || !email || !role) {
-        return res.status(400).json({
-          success: false,
-          message: "Les champs first_name, last_name, phone_number, email et role sont obligatoires",
-        });
-      }
 
       const db = getDb();
       const [emailCheck] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
@@ -500,30 +547,37 @@ router.post(
 
       const password_hash = await bcrypt.hash("TempPassword123!", 12);
 
-      let iban_hash = null;
-      let computed_iban_last4 = iban_last4 || null;
-      if (IBAN) {
-        iban_hash = crypto.createHash("sha256").update(IBAN).digest("hex");
-        if (!computed_iban_last4) computed_iban_last4 = IBAN.slice(-4);
+      const bank = prepareBankFields(IBAN, bankaccountname);
+      if (!bank.ok) {
+        return res.status(400).json({ success: false, message: bank.message });
       }
 
-      await db.query(
+      const [insertRows] = await db.query(
         `INSERT INTO users (
           first_name, last_name, phone_number, email, birth_date, password_hash,
           is_verified, role, is_admin, created_at, activity_name, city,
           instagram_account, profile_photo, banner_photo, bankaccountname,
-          IBAN, iban_last4, iban_hash, accept_online_payment, pro_status, bio, profile_visibility
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          "IBAN", iban_iv, iban_tag, iban_last4, iban_hash, accept_online_payment, pro_status, bio, profile_visibility
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
         [
           first_name, last_name, phone_number, email, formattedBirthDate, password_hash,
           0, role, is_admin ? 1 : 0,
           activity_name || null, city || null, instagram_account || null,
-          profile_photo || null, banner_photo || null, bankaccountname || null,
-          IBAN || null, computed_iban_last4, iban_hash,
+          profile_photo || null, banner_photo || null, bank.accountName,
+          bank.iban, bank.ibanIv, bank.ibanTag, iban_last4 || bank.ibanLast4, bank.ibanHash,
           accept_online_payment ? 1 : 0, pro_status || "inactive",
           bio || null, profile_visibility || "public",
         ]
       );
+
+      // Setting pro_status='active' directly here (rather than through
+      // /grant-subscription) would otherwise be invisible to
+      // cron/subscription-expiry.ts and never expire. Give it the same
+      // tracked admin_grant row so it's managed consistently.
+      if (pro_status === "active") {
+        const newUserId = (insertRows as any[])[0]?.id;
+        await createAdminGrantSubscription(db, newUserId, 1);
+      }
 
       res.json({ success: true, message: "Utilisateur créé avec succès" });
     } catch (error) {
@@ -535,6 +589,7 @@ router.post(
 /* PUT /users/:id */
 router.put(
   "/users/:id",
+  validate(adminUserPutSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const userId = req.params.id;
@@ -544,13 +599,6 @@ router.put(
         bankaccountname, IBAN, iban_last4, accept_online_payment, pro_status,
         bio, profile_visibility, is_verified,
       } = req.body;
-
-      if (!first_name || !last_name || !phone_number || !email || !role) {
-        return res.status(400).json({
-          success: false,
-          message: "Les champs first_name, last_name, phone_number, email et role sont obligatoires",
-        });
-      }
 
       const db = getDb();
       const [emailCheck] = await db.query(
@@ -571,11 +619,9 @@ router.put(
         } catch {}
       }
 
-      let iban_hash = null;
-      let computed_iban_last4 = iban_last4 || null;
-      if (IBAN) {
-        iban_hash = crypto.createHash("sha256").update(IBAN).digest("hex");
-        if (!computed_iban_last4) computed_iban_last4 = IBAN.slice(-4);
+      const bank = prepareBankFields(IBAN, bankaccountname);
+      if (!bank.ok) {
+        return res.status(400).json({ success: false, message: bank.message });
       }
 
       await db.query(
@@ -583,7 +629,7 @@ router.put(
           first_name = ?, last_name = ?, phone_number = ?, email = ?,
           birth_date = ?, role = ?, is_admin = ?, activity_name = ?,
           city = ?, instagram_account = ?, profile_photo = ?, banner_photo = ?,
-          bankaccountname = ?, IBAN = ?, iban_last4 = ?, iban_hash = ?,
+          bankaccountname = ?, "IBAN" = ?, iban_iv = ?, iban_tag = ?, iban_last4 = ?, iban_hash = ?,
           accept_online_payment = ?, pro_status = ?, bio = ?,
           profile_visibility = ?, is_verified = ?
         WHERE id = ?`,
@@ -591,13 +637,27 @@ router.put(
           first_name, last_name, phone_number, email, formattedBirthDate,
           role, is_admin ? 1 : 0,
           activity_name || null, city || null, instagram_account || null,
-          profile_photo || null, banner_photo || null, bankaccountname || null,
-          IBAN || null, computed_iban_last4, iban_hash,
+          profile_photo || null, banner_photo || null, bank.accountName,
+          bank.iban, bank.ibanIv, bank.ibanTag, iban_last4 || bank.ibanLast4, bank.ibanHash,
           accept_online_payment ? 1 : 0, pro_status || "inactive",
           bio || null, profile_visibility || "public",
           is_verified ? 1 : 0, userId,
         ]
       );
+
+      // Same reasoning as /users/create: pro_status='active' set here bypasses
+      // /grant-subscription entirely, so give it a tracked row too — but only
+      // if one doesn't already exist, so re-saving an already-active pro's
+      // profile doesn't spawn a redundant admin_grant every time.
+      if (pro_status === "active") {
+        const [activeRows] = await db.query(
+          `SELECT id FROM subscriptions WHERE client_id = ? AND status = 'active' LIMIT 1`,
+          [userId]
+        );
+        if ((activeRows as any[]).length === 0) {
+          await createAdminGrantSubscription(db, Number(userId), 1);
+        }
+      }
 
       res.json({ success: true, message: "Utilisateur modifié avec succès" });
     } catch (error) {
@@ -610,12 +670,17 @@ router.put(
 router.delete(
   "/users/:id",
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    let connection;
     try {
       const db = getDb();
-      const userId = req.params.id;
+      const userId = parseParamToInt(req.params.id);
 
       const [userRows] = await db.query("SELECT is_admin FROM users WHERE id = ?", [userId]);
-      if ((userRows as any[])[0]?.is_admin) {
+      const user = (userRows as any[])[0];
+      if (!user) {
+        return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+      }
+      if (user.is_admin) {
         const [adminsRows] = await db.query("SELECT COUNT(*) as count FROM users WHERE is_admin = TRUE");
         if ((adminsRows as any[])[0].count <= 1) {
           return res.status(400).json({
@@ -625,14 +690,35 @@ router.delete(
         }
       }
 
-      const [result] = await db.query("DELETE FROM users WHERE id = ?", [userId]);
-      if ((result as any).affectedRows === 0) {
-        return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
-      }
+      // Same FK wall that blocked self-service deletion (DELETE /api/auth/delete-account):
+      // reservations.pro_id, payments.client_id/pro_id, reviews.client_id/pro_id have no
+      // ON DELETE CASCADE. Anonymize (accounting/legal retention for reservations+payments,
+      // keep rating/comment content for reviews) before removing the row. Reviews use two
+      // targeted UPDATEs rather than one with OR, so deleting this account doesn't also
+      // wipe out the OTHER party's attribution on a shared row.
+      connection = await db.getConnection();
+      await connection.beginTransaction();
+
+      await connection.execute(
+        `UPDATE reservations SET client_id = NULL, pro_id = NULL WHERE client_id = ? OR pro_id = ?`,
+        [userId, userId]
+      );
+      await connection.execute(
+        `UPDATE payments SET client_id = NULL, pro_id = NULL WHERE client_id = ? OR pro_id = ?`,
+        [userId, userId]
+      );
+      await connection.execute(`UPDATE reviews SET client_id = NULL WHERE client_id = ?`, [userId]);
+      await connection.execute(`UPDATE reviews SET pro_id = NULL WHERE pro_id = ?`, [userId]);
+
+      await connection.execute("DELETE FROM users WHERE id = ?", [userId]);
+      await connection.commit();
 
       res.json({ success: true, message: "Utilisateur supprimé avec succès" });
     } catch (error) {
+      if (connection) await connection.rollback().catch(() => {});
       next(error);
+    } finally {
+      if (connection) connection.release();
     }
   }
 );
@@ -761,15 +847,11 @@ router.get(
 /* PATCH /bookings/:id — status change */
 router.patch(
   "/bookings/:id",
+  validate(adminBookingStatusSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const bookingId = parseParamToInt(req.params.id);
       const { status } = req.body as { status: string };
-
-      const allowed = ["pending", "confirmed", "completed", "cancelled"];
-      if (!status || !allowed.includes(status)) {
-        return res.status(400).json({ success: false, error: `Statut invalide (${allowed.join("|")})` });
-      }
 
       await getDb().query("UPDATE reservations SET status = ? WHERE id = ?", [status, bookingId]);
       res.json({ success: true, data: { id: bookingId, status } });
@@ -782,16 +864,10 @@ router.patch(
 /* POST /bookings/create */
 router.post(
   "/bookings/create",
+  validate(adminBookingWriteSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price } = req.body;
-
-      if (!client_id || !pro_id || !prestation_id || !start_datetime || !end_datetime || !price) {
-        return res.status(400).json({
-          success: false,
-          message: "Tous les champs requis doivent être remplis",
-        });
-      }
 
       await getDb().query(
         `INSERT INTO reservations (client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, created_at)
@@ -809,17 +885,11 @@ router.post(
 /* PUT /bookings/:id */
 router.put(
   "/bookings/:id",
+  validate(adminBookingWriteSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const bookingId = req.params.id;
       const { client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price } = req.body;
-
-      if (!client_id || !pro_id || !prestation_id || !start_datetime || !end_datetime || !price) {
-        return res.status(400).json({
-          success: false,
-          message: "Tous les champs requis doivent être remplis",
-        });
-      }
 
       await getDb().query(
         `UPDATE reservations SET
@@ -842,9 +912,9 @@ router.delete(
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const bookingId = req.params.id;
-      const [result] = await getDb().query("DELETE FROM reservations WHERE id = ?", [bookingId]);
+      const [result] = await getDb().query("DELETE FROM reservations WHERE id = ? RETURNING id", [bookingId]);
 
-      if ((result as any).affectedRows === 0) {
+      if ((result as any[]).length === 0) {
         return res.status(404).json({ success: false, message: "Réservation non trouvée" });
       }
 
@@ -859,6 +929,9 @@ router.delete(
 router.post(
   "/reminders/trigger",
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (process.env.NODE_ENV === "production") {
+      return res.status(404).json({ success: false, message: "Not found" });
+    }
     try {
       await runReminderCycle();
       res.json({ success: true, message: "Reminder cycle triggered" });
@@ -957,27 +1030,24 @@ router.post(
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const paymentId = parseParamToInt(req.params.id);
-      const db = getDb();
+      const result = await refundPaymentById(paymentId);
 
-      const [rows] = await db.query(
-        "SELECT id, status, stripe_payment_intent_id FROM payments WHERE id = ?",
-        [paymentId]
-      );
-      const payment = (rows as any[])[0];
-
-      if (!payment) {
-        return res.status(404).json({ success: false, error: "Paiement introuvable" });
+      switch (result.status) {
+        case "not_found":
+          return res.status(404).json({ success: false, error: "Paiement introuvable" });
+        case "already_refunded":
+          return res.status(400).json({ success: false, error: "Déjà remboursé" });
+        case "not_refundable":
+          return res.status(400).json({
+            success: false,
+            error: "Ce paiement ne peut pas être remboursé (statut ou moyen de paiement invalide)",
+          });
+        case "refunded":
+          return res.json({
+            success: true,
+            data: { id: paymentId, status: "refunded", stripe_refund_id: result.stripeRefundId },
+          });
       }
-      if (payment.status === "refunded") {
-        return res.status(400).json({ success: false, error: "Déjà remboursé" });
-      }
-
-      await db.query(
-        "UPDATE payments SET status = 'refunded', updated_at = NOW() WHERE id = ?",
-        [paymentId]
-      );
-
-      res.json({ success: true, data: { id: paymentId, status: "refunded" } });
     } catch (error) {
       next(error);
     }
@@ -1004,6 +1074,7 @@ router.get(
 /* POST /coupons */
 router.post(
   "/coupons",
+  validate(adminCouponCreateSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { code, discount_type, discount_value, applicable_plans, expires_at, max_uses } = req.body as {
@@ -1014,16 +1085,6 @@ router.post(
         expires_at?: string;
         max_uses?: number;
       };
-
-      if (!code?.trim()) {
-        return res.status(400).json({ success: false, error: "Le code est requis" });
-      }
-      if (!["percent", "fixed"].includes(discount_type)) {
-        return res.status(400).json({ success: false, error: "Type invalide (percent|fixed)" });
-      }
-      if (!discount_value || discount_value <= 0) {
-        return res.status(400).json({ success: false, error: "Valeur de réduction invalide" });
-      }
 
       const db = getDb();
       const [result] = await db.query(
@@ -1052,6 +1113,7 @@ router.post(
 /* PATCH /coupons/:id */
 router.patch(
   "/coupons/:id",
+  validate(adminCouponPatchSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const couponId = parseParamToInt(req.params.id);
@@ -1085,9 +1147,9 @@ router.delete(
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const couponId = parseParamToInt(req.params.id);
-      const [result] = await getDb().query("DELETE FROM coupons WHERE id = ?", [couponId]);
+      const [result] = await getDb().query("DELETE FROM coupons WHERE id = ? RETURNING id", [couponId]);
 
-      if ((result as any).affectedRows === 0) {
+      if ((result as any[]).length === 0) {
         return res.status(404).json({ success: false, error: "Coupon introuvable" });
       }
       res.json({ success: true, data: { id: couponId } });
@@ -1100,6 +1162,7 @@ router.delete(
 /* PATCH /coupons/:id/toggle */
 router.patch(
   "/coupons/:id/toggle",
+  validate(adminCouponToggleSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const couponId = parseParamToInt(req.params.id);
@@ -1121,6 +1184,7 @@ router.patch(
 /* POST /notifications/send — mass or targeted */
 router.post(
   "/notifications/send",
+  validate(adminNotificationSendSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { target, user_id, title, body } = req.body as {
@@ -1129,10 +1193,6 @@ router.post(
         title: string;
         body: string;
       };
-
-      if (!title?.trim() || !body?.trim()) {
-        return res.status(400).json({ success: false, error: "title et body sont requis" });
-      }
 
       const db = getDb();
       let userIds: number[] = [];

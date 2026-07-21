@@ -71,8 +71,8 @@ export const userUpdateSchema = z.object({
     .min(8, "Le mot de passe doit faire au moins 8 caractères")
     .max(128, "Mot de passe trop long")
     .regex(
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/,
-      "Le mot de passe doit contenir au moins une majuscule, une minuscule et un chiffre"
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).{8,128}$/,
+      "Le mot de passe doit contenir au moins une majuscule, une minuscule, un chiffre et un caractère spécial (!@#$%^&*)"
     )
     .optional(),
 });
@@ -229,9 +229,107 @@ export const resetPasswordSchema = z.object({
   password: z
     .string()
     .min(8, "Le mot de passe doit faire au moins 8 caractères")
-    .max(12, "Le mot de passe ne doit pas dépasser 12 caractères")
+    .max(128, "Le mot de passe ne doit pas dépasser 128 caractères")
     .regex(
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).{8,12}$/,
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).{8,128}$/,
       "Le mot de passe doit contenir au moins une majuscule, une minuscule, un chiffre et un caractère spécial (!@#$%^&*)"
     ),
+});
+
+// ── Admin routes ─────────────────────────────────────────────────────────────
+
+export const adminNotificationCreateSchema = z.object({
+  user_id: z.number().int().positive("user_id invalide"),
+  type: z.string().min(1, "Le type est requis").max(50, "Type trop long"),
+  title: z.string().min(1, "Le titre est requis").max(200, "Titre trop long"),
+  message: z.string().min(1, "Le message est requis").max(2000, "Message trop long"),
+  data: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const adminUserPatchSchema = z.object({
+  first_name: z.string().min(1, "Prénom trop court").max(50, "Prénom trop long").optional(),
+  last_name: z.string().min(1, "Nom trop court").max(50, "Nom trop long").optional(),
+  email: z.string().email("Email invalide").max(255).optional(),
+  role: z.enum(["pro", "client"]).optional(),
+});
+
+const adminUserBaseFields = {
+  first_name: z.string().min(1, "Prénom requis").max(50, "Prénom trop long"),
+  last_name: z.string().min(1, "Nom requis").max(50, "Nom trop long"),
+  phone_number: z.string().min(1, "Téléphone requis").max(20, "Téléphone trop long"),
+  email: z.string().email("Email invalide").max(255),
+  birth_date: z.string().max(30).nullable().optional(),
+  role: z.enum(["client", "pro", "admin"]),
+  is_admin: z.boolean().optional(),
+  activity_name: z.string().max(255).nullable().optional(),
+  city: z.string().max(255).nullable().optional(),
+  instagram_account: z.string().max(255).nullable().optional(),
+  profile_photo: z.string().max(500).nullable().optional(),
+  banner_photo: z.string().max(500).nullable().optional(),
+  bankaccountname: z.string().max(255).nullable().optional(),
+  IBAN: z.string().max(50).nullable().optional(),
+  iban_last4: z.string().max(10).nullable().optional(),
+  accept_online_payment: z.boolean().optional(),
+  pro_status: z.enum(["active", "inactive"]).optional(),
+  bio: z.string().max(1000).nullable().optional(),
+  profile_visibility: z.enum(["public", "private"]).optional(),
+};
+
+export const adminUserCreateSchema = z.object(adminUserBaseFields);
+
+export const adminUserPutSchema = z.object({
+  ...adminUserBaseFields,
+  is_verified: z.boolean().optional(),
+});
+
+export const adminGrantSubscriptionSchema = z.object({
+  plan: z.enum(["start", "serenite", "signature"], { message: "Plan invalide (start|serenite|signature)" }),
+  months: z.number().int().min(1, "Durée invalide").max(60, "Durée trop longue"),
+});
+
+export const adminBookingStatusSchema = z.object({
+  status: z.enum(["pending", "confirmed", "completed", "cancelled"], {
+    message: "Statut invalide (pending|confirmed|completed|cancelled)",
+  }),
+});
+
+export const adminBookingWriteSchema = z.object({
+  client_id: z.number().int().positive("client_id invalide"),
+  pro_id: z.number().int().positive("pro_id invalide"),
+  prestation_id: z.number().int().positive("prestation_id invalide"),
+  start_datetime: z.string().datetime("start_datetime doit être une date ISO valide"),
+  end_datetime: z.string().datetime("end_datetime doit être une date ISO valide"),
+  status: z.enum(["pending", "confirmed", "completed", "cancelled"]).optional(),
+  price: z.number().positive("Le prix doit être positif"),
+});
+
+export const adminCouponCreateSchema = z.object({
+  code: z.string().min(1, "Le code est requis").max(50, "Code trop long"),
+  discount_type: z.enum(["percent", "fixed"], { message: "Type invalide (percent|fixed)" }),
+  discount_value: z.number().positive("Valeur de réduction invalide"),
+  applicable_plans: z.array(z.string()).max(10).optional(),
+  expires_at: z.string().nullable().optional(),
+  max_uses: z.number().int().positive().nullable().optional(),
+});
+
+export const adminCouponPatchSchema = z.object({
+  code: z.string().min(1).max(50).optional(),
+  discount_type: z.enum(["percent", "fixed"]).optional(),
+  discount_value: z.number().positive().optional(),
+  applicable_plans: z.array(z.string()).max(10).optional(),
+  expires_at: z.string().nullable().optional(),
+  max_uses: z.number().int().positive().nullable().optional(),
+});
+
+export const adminCouponToggleSchema = z.object({
+  active: z.boolean(),
+});
+
+export const adminNotificationSendSchema = z.object({
+  target: z.enum(["user_id", "all", "pros", "clients"], {
+    message: "target invalide (user_id|all|pros|clients)",
+  }),
+  user_id: z.number().int().positive().optional(),
+  title: z.string().min(1, "Le titre est requis").max(200, "Titre trop long"),
+  body: z.string().min(1, "Le message est requis").max(2000, "Message trop long"),
 });
