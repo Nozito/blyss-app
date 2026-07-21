@@ -90,7 +90,14 @@ function sendStripeWebhook(body: object = {}) {
 describe("POST /api/webhooks/stripe", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockExecute.mockResolvedValue([{ rowCount: 1 }]);
+    // Default: the idempotency SELECT finds no prior event (empty rows),
+    // everything else resolves generically. Tests override per-call as needed.
+    mockExecute.mockImplementation((sql: unknown) => {
+      if (typeof sql === "string" && sql.includes("FROM stripe_events")) {
+        return Promise.resolve([[], []]);
+      }
+      return Promise.resolve([{ rowCount: 1 }]);
+    });
     mockQuery.mockResolvedValue([[], []]);
   });
 
@@ -181,7 +188,7 @@ describe("POST /api/webhooks/stripe", () => {
     expect(res.body).toMatchObject({ received: true });
   });
 
-  it("idempotence : rejouer le même event → 200 les 2 fois", async () => {
+  it("idempotence : rejouer le même event → 200 les 2 fois, mais le second n'applique aucun effet", async () => {
     const event = {
       type: "payment_intent.payment_failed",
       id: "evt_dup",
@@ -191,11 +198,30 @@ describe("POST /api/webhooks/stripe", () => {
     mockConstructEvent.mockReturnValue(event);
 
     const res1 = await sendStripeWebhook();
+    const failedCallsAfterFirst = (mockExecute.mock.calls as unknown[][]).filter((a) =>
+      sqlIncludes(a, "UPDATE payments", "failed")
+    ).length;
+    expect(failedCallsAfterFirst).toBe(1);
+
+    // Second delivery of the SAME event.id: the idempotency check must now
+    // find the row inserted by the first call and skip all side effects.
+    mockExecute.mockImplementation((sql: unknown) => {
+      if (typeof sql === "string" && sql.includes("FROM stripe_events")) {
+        return Promise.resolve([[{ event_id: event.id }], []]);
+      }
+      return Promise.resolve([{ rowCount: 1 }]);
+    });
+
     const res2 = await sendStripeWebhook();
 
     expect(res1.status).toBe(200);
     expect(res2.status).toBe(200);
-    // mockExecute appelé au moins 2 fois (une par requête)
-    expect(mockExecute.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(res2.body).toMatchObject({ message: "Already processed" });
+
+    // The "UPDATE payments ... failed" side effect must NOT have run again.
+    const failedCallsAfterSecond = (mockExecute.mock.calls as unknown[][]).filter((a) =>
+      sqlIncludes(a, "UPDATE payments", "failed")
+    ).length;
+    expect(failedCallsAfterSecond).toBe(1);
   });
 });
