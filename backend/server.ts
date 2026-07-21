@@ -48,7 +48,9 @@ import { startReminderCron, runReminderCycle } from "./lib/reminders";
 import { geocodeCity, haversineKm } from "./lib/geocoding";
 import { startDataRetentionCron } from "./cron/data-retention";
 import { startPaymentCleanupCron } from "./cron/payment-cleanup";
+import { startSubscriptionExpiryCron } from "./cron/subscription-expiry";
 import { initiateRefundsForReservation } from "./lib/refunds";
+import { getActiveEntitlement } from "./lib/revenuecat";
 import { startRecallCron } from "./cron/recall";
 import nailTechRouter, { notifyWaitingList } from "./routes/nail-tech.routes";
 import jwt from "jsonwebtoken";
@@ -224,23 +226,48 @@ app.post(
 
     log.warn("/api/webhooks/stripe", `Event: ${event.type}, id: ${event.id}`);
 
+    let connection;
     try {
+      connection = await db.getConnection();
+
+      // ── Idempotence : un event.id Stripe ne s'exécute qu'une fois ──────────
+      // Stripe retente la livraison sur tout non-2xx ou timeout ; sans ce
+      // contrôle, un simple renvoi rejouerait les effets (crédit double, etc).
+      const [existing] = await connection.execute(
+        `SELECT event_id FROM stripe_events WHERE event_id = ?`,
+        [event.id]
+      );
+      if ((existing as any[]).length > 0) {
+        log.info("/api/webhooks/stripe", 200, 0);
+        return res.status(200).json({ received: true, message: "Already processed" });
+      }
+
+      await connection.beginTransaction();
+
+      // Enregistrer l'event en premier (garantit l'idempotence même si le
+      // traitement plante après ce point : un retry retrouvera la ligne et
+      // ne rejouera rien).
+      await connection.execute(
+        `INSERT INTO stripe_events (event_id, event_type, processed_at) VALUES (?, ?, NOW())`,
+        [event.id, event.type]
+      );
+
       switch (event.type) {
         case "payment_intent.succeeded": {
           const pi = event.data.object as Stripe.PaymentIntent;
-          await db.execute(
+          await connection.execute(
             `UPDATE payments SET status = 'succeeded', updated_at = NOW() WHERE stripe_payment_intent_id = ?`,
             [pi.id]
           );
           // Get payment info to update reservation
-          const [paymentRows] = await db.query(
+          const [paymentRows] = await connection.query(
             `SELECT reservation_id, amount, type FROM payments WHERE stripe_payment_intent_id = ?`,
             [pi.id]
           );
           const payment = (paymentRows as any[])[0];
           if (payment) {
             const newStatus = payment.type === "deposit" ? "deposit_paid" : "fully_paid";
-            await db.execute(
+            await connection.execute(
               `UPDATE reservations SET payment_status = ?, total_paid = total_paid + ? WHERE id = ?`,
               [newStatus, payment.amount, payment.reservation_id]
             );
@@ -249,19 +276,19 @@ app.post(
         }
         case "payment_intent.payment_failed": {
           const pi = event.data.object as Stripe.PaymentIntent;
-          await db.execute(
+          await connection.execute(
             `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE stripe_payment_intent_id = ?`,
             [pi.id]
           );
           // Notify client that payment failed so they can retry
-          const [failedPayRows] = await db.query(
+          const [failedPayRows] = await connection.query(
             `SELECT client_id, reservation_id FROM payments WHERE stripe_payment_intent_id = ?`,
             [pi.id]
           );
           const failedPay = (failedPayRows as any[])[0];
           if (failedPay) {
             try {
-              const [notifRows] = await db.query(
+              const [notifRows] = await connection.query(
                 `INSERT INTO notifications (user_id, type, title, message, data)
                  VALUES (?, 'payment_failed', 'Paiement échoué', ?, ?)
                  RETURNING id, created_at`,
@@ -293,34 +320,34 @@ app.post(
           const piId = charge.payment_intent as string;
           if (piId) {
             // Mark payment as refunded (may already be set by initiateRefundsForReservation, idempotent)
-            await db.execute(
+            await connection.execute(
               `UPDATE payments
                SET status = 'refunded', refund_amount = COALESCE(refund_amount, amount), updated_at = NOW()
                WHERE stripe_payment_intent_id = ? AND status != 'refunded'`,
               [piId]
             );
             // Check if all payments for the reservation are now refunded → reset payment_status
-            const [chargePayRows] = await db.query(
+            const [chargePayRows] = await connection.query(
               `SELECT reservation_id, client_id FROM payments WHERE stripe_payment_intent_id = ?`,
               [piId]
             );
             const chargePay = (chargePayRows as any[])[0];
             if (chargePay) {
-              const [pendingRows] = await db.query(
+              const [pendingRows] = await connection.query(
                 `SELECT COUNT(*) AS cnt FROM payments
                  WHERE reservation_id = ? AND status = 'succeeded'`,
                 [chargePay.reservation_id]
               );
               const remainingSucceeded = Number((pendingRows as any[])[0]?.cnt ?? 0);
               if (remainingSucceeded === 0) {
-                await db.execute(
+                await connection.execute(
                   `UPDATE reservations SET payment_status = 'unpaid', total_paid = 0 WHERE id = ?`,
                   [chargePay.reservation_id]
                 );
               }
               // Notify client of the refund (best-effort)
               try {
-                const [notifRows] = await db.query(
+                const [notifRows] = await connection.query(
                   `INSERT INTO notifications (user_id, type, title, message, data)
                    VALUES (?, 'payment_refunded', 'Remboursement initié', ?, ?)
                    RETURNING id, created_at`,
@@ -352,10 +379,20 @@ app.post(
           log.warn("/api/webhooks/stripe", `Unhandled event type: ${event.type}`);
       }
 
+      await connection.commit();
       return res.status(200).json({ received: true });
     } catch (error) {
+      if (connection) {
+        try {
+          await connection.rollback();
+        } catch {
+          // rollback best-effort — the connection may already be broken
+        }
+      }
       log.error("/api/webhooks/stripe", error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined);
       return res.status(500).json({ error: "Webhook processing failed" });
+    } finally {
+      connection?.release();
     }
   }
 );
@@ -376,6 +413,7 @@ const PRO_SUBSCRIPTION_WHITELIST = [
   "/subscription",
   "/subscription/cancel",
   "/subscription/checkout",
+  "/subscription/sync",
   "/onboarding",
 ];
 
@@ -671,6 +709,7 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
     const eventType: string = event.type;
     const appUserId: string = event.app_user_id;
     const productId: string = event.product_id ?? "";
+    const entitlementIds: string[] = Array.isArray(event.entitlement_ids) ? event.entitlement_ids : [];
     const expirationAtMs: number | null = event.expiration_at_ms ?? null;
 
     if (!eventId) {
@@ -720,9 +759,16 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
         [eventId, eventType, userId]
       );
 
-      let plan: string = "start";
-      if (productId.includes("signature")) plan = "signature";
-      else if (productId.includes("serenite")) plan = "serenite";
+      // Prefer RevenueCat's own entitlement_ids (identifiers are exactly
+      // "start"/"serenite"/"signature", matching what the client checks via
+      // hasProEntitlement()) over guessing from the product_id string, which
+      // silently falls through to "start" for any SKU that doesn't literally
+      // contain "signature"/"serenite" (renamed SKU, promo product, Android
+      // naming, etc).
+      const PLAN_PRIORITY = ["signature", "serenite", "start"] as const;
+      let plan: string =
+        PLAN_PRIORITY.find((p) => entitlementIds.includes(p)) ??
+        (productId.includes("signature") ? "signature" : productId.includes("serenite") ? "serenite" : "start");
       const billingType = productId.includes("annual") ? "one_time" : "monthly";
 
       const activateEvents = ["INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "PRODUCT_CHANGE"];
@@ -748,6 +794,24 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
         log.info("/api/webhooks/revenuecat/activate", 200, 0, userId);
 
       } else if (deactivateEvents.includes(eventType)) {
+        // An admin-granted subscription (payment_id='admin_grant') has no
+        // real RevenueCat purchase behind it. If this event is about to
+        // cancel one, it means either a stray/unrelated RC event landed for
+        // this user, or the admin grant is being legitimately superseded —
+        // either way, nobody would otherwise know this happened.
+        const [activeRows] = await connection.query(
+          `SELECT payment_id FROM subscriptions WHERE client_id = ? AND status = 'active' LIMIT 1`,
+          [userId]
+        );
+        const activePaymentId = (activeRows as any[])[0]?.payment_id;
+        if (activePaymentId === "admin_grant") {
+          await sendAlert("warn", "RevenueCat webhook is deactivating an admin-granted subscription", {
+            userId,
+            eventType,
+            eventId,
+          }).catch(() => {});
+        }
+
         await connection.execute(
           `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
           [userId]
@@ -757,6 +821,39 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
           [userId]
         );
         log.info("/api/webhooks/revenuecat/deactivate", 200, 0, userId);
+
+      } else if (eventType === "BILLING_ISSUE") {
+        // Renewal failed — RevenueCat/StoreKit grace period keeps access
+        // alive for now (a later EXPIRATION event will deactivate if the
+        // billing issue is never resolved), but the pro should know their
+        // card needs attention rather than silently losing access later
+        // with no warning.
+        try {
+          const [notifRows] = await connection.query(
+            `INSERT INTO notifications (user_id, type, title, message, data)
+             VALUES (?, 'subscription_billing_issue', 'Problème de paiement', ?, ?)
+             RETURNING id, created_at`,
+            [
+              userId,
+              "Le renouvellement de ton abonnement Blyss Pro a échoué. Mets à jour ton moyen de paiement pour ne pas perdre l'accès.",
+              JSON.stringify({}),
+            ]
+          );
+          const notif = (notifRows as any[])[0];
+          if (notif) {
+            await sendNotificationToUser(userId, {
+              id: notif.id,
+              type: "subscription_billing_issue",
+              title: "Problème de paiement",
+              message: "Le renouvellement de ton abonnement Blyss Pro a échoué. Mets à jour ton moyen de paiement pour ne pas perdre l'accès.",
+              data: {},
+              created_at: notif.created_at,
+            });
+          }
+        } catch (notifErr) {
+          log.warn("/api/webhooks/revenuecat", "billing_issue notification error (non-fatal)", { userId } as any);
+        }
+        log.warn("/api/webhooks/revenuecat", `BILLING_ISSUE for user ${userId} (grace period, no state change)`);
 
       } else {
         log.warn("/api/webhooks/revenuecat", `Unhandled event type: ${eventType}`);
@@ -875,38 +972,6 @@ function parseParamToInt(param: string | string[] | undefined): number {
   }
 
   return parsed;
-}
-
-function generateAccessToken(userId: number) {
-  return jwt.sign({ id: userId }, process.env.JWT_SECRET!, { expiresIn: "15m" });
-}
-
-async function generateAndStoreRefreshToken(userId: number) {
-  const refreshToken = crypto.randomBytes(64).toString("hex");
-
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 30);
-
-  await db.execute(
-    `
-      INSERT INTO refresh_tokens (user_id, token, expires_at, revoked)
-      VALUES (?, ?, ?, 0)
-    `,
-    [userId, refreshToken, expiresAt]
-  );
-
-  return refreshToken;
-}
-
-async function revokeRefreshToken(token: string) {
-  await db.execute(
-    `
-      UPDATE refresh_tokens
-      SET revoked = true
-      WHERE token = ?
-    `,
-    [token]
-  );
 }
 
 function getProId(req: AuthenticatedRequest): number {
@@ -1356,10 +1421,10 @@ router.delete('/prestations/:id', authMiddleware, requireActiveProSubscription, 
     const { id } = req.params;
     // Delete and check if existed
     const [result] = await db.query(
-      'DELETE FROM prestations WHERE id = ? AND pro_id = ?',
+      'DELETE FROM prestations WHERE id = ? AND pro_id = ? RETURNING id',
       [id, req.user!.id]
     );
-    if ((result as any).affectedRows === 0) {
+    if ((result as any[]).length === 0) {
       return res.status(404).json({ success: false, error: 'Prestation introuvable' });
     }
     res.json({ success: true, data: { id: parseInt(id) } });
@@ -2532,8 +2597,12 @@ app.get(
 // ==========================================
 
 /* CREATE SUBSCRIPTION — DEV ONLY
- * Cette route ne doit JAMAIS être accessible en production.
- * Le seul chemin d'activation pro_status = 'active' est le webhook RevenueCat.
+ * Cette route ne doit JAMAIS être accessible en production (voir le guard
+ * NODE_ENV ci-dessous).
+ * pro_status = 'active' peut aussi être positionné par : le webhook
+ * RevenueCat (chemin normal), POST /api/admin/users/:id/grant-subscription
+ * (don admin, expiré par cron/subscription-expiry.ts), et
+ * POST /api/pro/subscription/sync (rattrapage si le webhook est en retard).
  */
 app.post(
   "/api/subscriptions",
@@ -3270,6 +3339,13 @@ app.put(
         `,
         [subscriptionId]
       );
+      // Consistent with the RevenueCat webhook's own CANCELLATION handling —
+      // access ends immediately rather than leaving pro_status stale until
+      // a later webhook event happens to correct it.
+      await connection.query(
+        `UPDATE users SET pro_status = 'inactive' WHERE id = ?`,
+        [proId]
+      );
 
       res.json({ success: true });
     } catch (err) {
@@ -3277,6 +3353,75 @@ app.put(
       res
         .status(500)
         .json({ success: false, message: "Erreur lors de la résiliation." });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
+/* SYNC PRO SUBSCRIPTION — reconciles DB with RevenueCat's live entitlement
+   state right after a client-reported purchase/restore. The webhook remains
+   the primary source of truth; this is a fallback for when it's delayed or
+   missed, so the pro isn't stuck looking "active" on their device while the
+   backend still has them gated out. Never trusts client-supplied plan/price —
+   the plan comes exclusively from RevenueCat's own API. Activation-only: if
+   RevenueCat reports no active entitlement, this leaves DB state untouched
+   (deactivation stays the webhook's responsibility). */
+app.post(
+  "/api/pro/subscription/sync",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+
+      const active = await getActiveEntitlement(proId);
+      if (!active) {
+        return res.json({ success: true, data: { reconciled: false } });
+      }
+
+      connection = await db.getConnection();
+
+      const [currentRows] = (await connection.query(
+        `SELECT plan FROM subscriptions WHERE client_id = ? AND status = 'active' LIMIT 1`,
+        [proId]
+      )) as any[];
+      const currentPlan = currentRows[0]?.plan ?? null;
+
+      if (currentPlan === active.plan) {
+        // DB already reflects RevenueCat's state (the webhook already landed).
+        return res.json({ success: true, data: { reconciled: false, plan: active.plan } });
+      }
+
+      const endDate = active.expiresAtMs ? new Date(active.expiresAtMs).toISOString().slice(0, 10) : null;
+
+      await connection.beginTransaction();
+      try {
+        await connection.execute(
+          `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
+          [proId]
+        );
+        await connection.execute(
+          `INSERT INTO subscriptions (client_id, plan, billing_type, monthly_price, total_price, commitment_months, start_date, end_date, status, payment_id)
+           VALUES (?, ?, 'monthly', 0, NULL, NULL, CURRENT_DATE, ?, 'active', 'rc_sync')`,
+          [proId, active.plan, endDate]
+        );
+        await connection.execute(`UPDATE users SET pro_status = 'active' WHERE id = ?`, [proId]);
+        await connection.commit();
+      } catch (txErr) {
+        await connection.rollback().catch(() => {});
+        throw txErr;
+      }
+
+      log.info("/api/pro/subscription/sync", 200, 0, proId);
+      return res.json({ success: true, data: { reconciled: true, plan: active.plan } });
+    } catch (err) {
+      log.error(
+        "/api/pro/subscription/sync",
+        err instanceof Error ? err.message : String(err),
+        err instanceof Error ? err.stack : undefined
+      );
+      return res.status(500).json({ success: false, message: "Erreur de synchronisation" });
     } finally {
       if (connection) connection.release();
     }
@@ -5163,11 +5308,11 @@ app.delete("/api/favorites/:proId", authenticateToken, async (req: Request, res:
     connection = await db.getConnection();
 
     const [result] = await connection.query(
-      "DELETE FROM favorites WHERE client_id = ? AND pro_id = ?",
+      "DELETE FROM favorites WHERE client_id = ? AND pro_id = ? RETURNING id",
       [clientId, proId]
     );
 
-    if ((result as unknown as { affectedRows: number }).affectedRows === 0) {
+    if ((result as any[]).length === 0) {
       return res.status(404).json({
         success: false,
         message: "Favori non trouvé",
@@ -5433,60 +5578,92 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
       return res.status(403).json({ success: false, message: "Réservation impossible avec ce professionnel." });
     }
 
-    // If a slot_id is provided, verify it is still available (owned by pro)
-    if (slot_id) {
-      const [slotRows] = await db.query(
-        `SELECT status FROM slots WHERE id = ? AND pro_id = ?`,
-        [slot_id, pro_id]
-      );
-      const slot = (slotRows as any[])[0];
-      if (!slot || slot.status !== "available") {
-        return res.status(409).json({ success: false, message: "Ce créneau n'est plus disponible" });
+    // Everything below is contention-sensitive (two clients racing for the
+    // same slot/time) and must be serialized. A Postgres advisory lock keyed
+    // on pro_id — held for the transaction's duration — means a second
+    // concurrent booking attempt for the same pro blocks here instead of
+    // reading the same "still available" state and double-booking. Neither
+    // the slot check nor the overlap check previously re-verified anything
+    // at write time, so two near-simultaneous requests could both pass and
+    // both insert.
+    const connection = await db.getConnection();
+    let insertId: number;
+    let depositPct: number;
+    let depositAmount: number | null;
+    try {
+      await connection.beginTransaction();
+      await connection.query(`SELECT pg_advisory_xact_lock(?)`, [pro_id]);
+
+      // If a slot_id is provided, verify it is still available (owned by pro)
+      if (slot_id) {
+        const [slotRows] = await connection.query(
+          `SELECT status FROM slots WHERE id = ? AND pro_id = ?`,
+          [slot_id, pro_id]
+        );
+        const slot = (slotRows as any[])[0];
+        if (!slot || slot.status !== "available") {
+          await connection.rollback();
+          return res.status(409).json({ success: false, message: "Ce créneau n'est plus disponible" });
+        }
       }
-    }
 
-    // Prevent overlapping reservations with the same pro.
-    // Also respects buffer_after_minutes of existing prestations:
-    // if an existing appointment ends at T with a 15-min buffer, the new one cannot start before T+15.
-    const [overlapRows] = await db.query(
-      `SELECT r.id FROM reservations r
-       LEFT JOIN prestations prev_p ON prev_p.id = r.prestation_id
-       WHERE r.pro_id = ?
-         AND r.status NOT IN ('cancelled', 'rejected')
-         AND r.start_datetime < ?
-         AND (r.end_datetime + COALESCE(prev_p.buffer_after_minutes, 0) * INTERVAL '1 minute') > ?`,
-      [pro_id, end_datetime, start_datetime]
-    );
-    if ((overlapRows as any[]).length > 0) {
-      return res.status(409).json({ success: false, message: "Ce créneau est déjà réservé ou trop proche d'un autre rendez-vous" });
-    }
-
-    // Get pro's deposit percentage
-    const [proRows] = await db.query(
-      `SELECT deposit_percentage, stripe_onboarding_complete FROM users WHERE id = ?`,
-      [pro_id]
-    );
-    const pro = (proRows as any[])[0];
-    if (!pro) {
-      return res.status(404).json({ success: false, message: "Professionnel introuvable" });
-    }
-    const depositPct = pro.deposit_percentage ?? 50;
-    const depositAmount = depositPct > 0 ? Math.round(parsedPrice * depositPct) / 100 : null;
-
-    const [resaRows] = await db.execute(
-      `INSERT INTO reservations (client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, payment_status, deposit_amount, paid_online, slot_id, created_at)
-       VALUES (?, ?, ?, ?, ?, 'confirmed', ?, 'unpaid', ?, ?, ?, NOW()) RETURNING id`,
-      [clientId, pro_id, prestation_id, start_datetime, end_datetime, parsedPrice, depositAmount, paidOnline, slot_id || null]
-    );
-
-    const insertId = (resaRows as any[])[0]?.id;
-
-    // If slot_id, mark the slot as booked
-    if (slot_id) {
-      await db.execute(
-        `UPDATE slots SET status = 'booked' WHERE id = ?`,
-        [slot_id]
+      // Prevent overlapping reservations with the same pro.
+      // Also respects buffer_after_minutes of existing prestations:
+      // if an existing appointment ends at T with a 15-min buffer, the new one cannot start before T+15.
+      const [overlapRows] = await connection.query(
+        `SELECT r.id FROM reservations r
+         LEFT JOIN prestations prev_p ON prev_p.id = r.prestation_id
+         WHERE r.pro_id = ?
+           AND r.status NOT IN ('cancelled', 'rejected')
+           AND r.start_datetime < ?
+           AND (r.end_datetime + COALESCE(prev_p.buffer_after_minutes, 0) * INTERVAL '1 minute') > ?`,
+        [pro_id, end_datetime, start_datetime]
       );
+      if ((overlapRows as any[]).length > 0) {
+        await connection.rollback();
+        return res.status(409).json({ success: false, message: "Ce créneau est déjà réservé ou trop proche d'un autre rendez-vous" });
+      }
+
+      // Get pro's deposit percentage
+      const [proRows] = await connection.query(
+        `SELECT deposit_percentage, stripe_onboarding_complete FROM users WHERE id = ?`,
+        [pro_id]
+      );
+      const pro = (proRows as any[])[0];
+      if (!pro) {
+        await connection.rollback();
+        return res.status(404).json({ success: false, message: "Professionnel introuvable" });
+      }
+      depositPct = pro.deposit_percentage ?? 50;
+      depositAmount = depositPct > 0 ? Math.round(parsedPrice * depositPct) / 100 : null;
+
+      const [resaRows] = await connection.execute(
+        `INSERT INTO reservations (client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, payment_status, deposit_amount, paid_online, slot_id, created_at)
+         VALUES (?, ?, ?, ?, ?, 'confirmed', ?, 'unpaid', ?, ?, ?, NOW()) RETURNING id`,
+        [clientId, pro_id, prestation_id, start_datetime, end_datetime, parsedPrice, depositAmount, paidOnline, slot_id || null]
+      );
+
+      insertId = (resaRows as any[])[0]?.id;
+
+      // If slot_id, mark the slot as booked — re-checked against 'available'
+      // one more time (belt and suspenders with the advisory lock above).
+      if (slot_id) {
+        const [slotUpdateRows] = await connection.query(
+          `UPDATE slots SET status = 'booked' WHERE id = ? AND status = 'available' RETURNING id`,
+          [slot_id]
+        );
+        if ((slotUpdateRows as any[]).length === 0) {
+          await connection.rollback();
+          return res.status(409).json({ success: false, message: "Ce créneau n'est plus disponible" });
+        }
+      }
+
+      await connection.commit();
+    } catch (txErr) {
+      await connection.rollback().catch(() => {});
+      throw txErr;
+    } finally {
+      connection.release();
     }
 
     // ── Notify pro of new booking with full details (best-effort) ─────────────
@@ -5733,12 +5910,28 @@ app.post("/api/payments/create-intent", authenticateToken, paymentIntentLimiter,
       },
     });
 
-    // Record payment in DB
-    await db.execute(
-      `INSERT INTO payments (reservation_id, client_id, pro_id, type, amount, stripe_payment_intent_id, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
-      [reservation_id, clientId, reservation.pro_id, type, amount, paymentIntent.id]
-    );
+    // Record payment in DB. A unique index on (reservation_id, type) for
+    // non-terminal statuses guards against two concurrent requests (double
+    // tap, retry) both passing the earlier "not already paid" check and
+    // each creating a separate Stripe PaymentIntent for the same charge.
+    try {
+      await db.execute(
+        `INSERT INTO payments (reservation_id, client_id, pro_id, type, amount, stripe_payment_intent_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+        [reservation_id, clientId, reservation.pro_id, type, amount, paymentIntent.id]
+      );
+    } catch (dbError: any) {
+      if (dbError?.code === "23505") {
+        // Another request already has an active payment for this reservation+type.
+        // Cancel this now-orphaned PaymentIntent so it can't be confirmed later.
+        await stripe.paymentIntents.cancel(paymentIntent.id).catch(() => {});
+        return res.status(409).json({
+          success: false,
+          message: "Un paiement est déjà en cours pour cette réservation",
+        });
+      }
+      throw dbError;
+    }
 
     return res.json({
       success: true,
@@ -6134,6 +6327,7 @@ if (process.env.NODE_ENV !== "test") {
     startDataRetentionCron();
     startPaymentCleanupCron();
     startRecallCron();
+    startSubscriptionExpiryCron();
   });
 }
 

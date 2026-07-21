@@ -15,10 +15,12 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 
 // ─── 1. Mocks hoistés ─────────────────────────────────────────────────────
-const { mockExecute, mockQuery } = vi.hoisted(() => {
+const { mockExecute, mockQuery, mockPaymentIntentCreate, mockPaymentIntentCancel } = vi.hoisted(() => {
   const mockExecute = vi.fn();
   const mockQuery = vi.fn();
-  return { mockExecute, mockQuery };
+  const mockPaymentIntentCreate = vi.fn();
+  const mockPaymentIntentCancel = vi.fn();
+  return { mockExecute, mockQuery, mockPaymentIntentCreate, mockPaymentIntentCancel };
 });
 
 // ─── 2. Mock lib/db ───────────────────────────────────────────────────────
@@ -41,7 +43,12 @@ vi.mock("../lib/db", () => ({
 vi.mock("stripe", () => {
   class MockStripe {
     webhooks = { constructEvent: () => ({ type: "test", data: { object: {} } }) };
-    paymentIntents = { create: async () => ({}), retrieve: async () => ({}) };
+    paymentIntents = {
+      create: mockPaymentIntentCreate,
+      cancel: mockPaymentIntentCancel,
+      retrieve: async () => ({}),
+    };
+    customers = { create: async () => ({ id: "cus_mock" }) };
     accounts = { retrieve: async () => ({}) };
     accountLinks = { create: async () => ({}) };
   }
@@ -372,6 +379,79 @@ describe("POST /api/payments/create-intent — validation Zod", () => {
 
     expect(res.status).toBe(400);
     expectValidationError(res.body, "reservation_id");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// POST /api/payments/create-intent — deux créations concurrentes pour la
+// même réservation (double-tap / retry réseau) ne doivent pas produire deux
+// PaymentIntents Stripe actifs pour la même charge.
+// ═══════════════════════════════════════════════════════════════════════════
+describe("POST /api/payments/create-intent — concurrence", () => {
+  const token = makeToken(42, "client");
+
+  const reservationRow = {
+    id: 1,
+    pro_id: 99,
+    client_id: 42,
+    price: 100,
+    total_paid: 0,
+    deposit_amount: 50,
+    payment_status: "unpaid",
+    stripe_account_id: "acct_123",
+    stripe_onboarding_complete: true,
+  };
+  const clientRow = {
+    stripe_customer_id: "cus_existing",
+    email: "client@blyss.test",
+    first_name: "A",
+    last_name: "B",
+  };
+
+  beforeEach(() => {
+    // mockReset (not clearAllMocks) — this file's other describe blocks leave
+    // unconsumed mockResolvedValueOnce entries queued on the shared mocks
+    // when their own route errors early, which would otherwise leak into
+    // and corrupt the call order these tests depend on.
+    mockQuery.mockReset();
+    mockExecute.mockReset();
+    mockPaymentIntentCreate.mockReset();
+    mockPaymentIntentCancel.mockReset();
+  });
+
+  it("crée normalement un PaymentIntent quand rien n'est en cours", async () => {
+    mockQuery.mockResolvedValueOnce([[reservationRow], []]);
+    mockQuery.mockResolvedValueOnce([[clientRow], []]);
+    mockPaymentIntentCreate.mockResolvedValueOnce({ id: "pi_1", client_secret: "secret_1" });
+    mockExecute.mockResolvedValueOnce([{ rowCount: 1 }]);
+
+    const res = await request(app)
+      .post("/api/payments/create-intent")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ reservation_id: 1, type: "full" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.payment_intent_id).toBe("pi_1");
+    expect(mockPaymentIntentCancel).not.toHaveBeenCalled();
+  });
+
+  it("409 + annule le PaymentIntent Stripe si un paiement est déjà en cours pour cette réservation", async () => {
+    mockQuery.mockResolvedValueOnce([[reservationRow], []]);
+    mockQuery.mockResolvedValueOnce([[clientRow], []]);
+    mockPaymentIntentCreate.mockResolvedValueOnce({ id: "pi_2", client_secret: "secret_2" });
+    // Simule la violation de la contrainte unique (reservation_id, type) sur
+    // un enregistrement de paiement déjà actif — la deuxième requête d'un
+    // double-tap arrive ici.
+    mockExecute.mockRejectedValueOnce(Object.assign(new Error("duplicate key"), { code: "23505" }));
+    mockPaymentIntentCancel.mockResolvedValueOnce({});
+
+    const res = await request(app)
+      .post("/api/payments/create-intent")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ reservation_id: 1, type: "full" });
+
+    expect(res.status).toBe(409);
+    expect(mockPaymentIntentCancel).toHaveBeenCalledWith("pi_2");
   });
 });
 

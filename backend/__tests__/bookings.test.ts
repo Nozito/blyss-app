@@ -159,6 +159,8 @@ describe("POST /api/reservations — logique métier", () => {
     mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
     // Blacklist check → non bloquée
     mockQuery.mockResolvedValueOnce([[]]);
+    // pg_advisory_xact_lock (serialization guard, no meaningful return value)
+    mockQuery.mockResolvedValueOnce([[]]);
     // Slot check → status = 'booked'
     mockQuery.mockResolvedValueOnce([[{ status: "booked" }]]);
 
@@ -176,6 +178,8 @@ describe("POST /api/reservations — logique métier", () => {
     mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
     // Blacklist check → non bloquée
     mockQuery.mockResolvedValueOnce([[]]);
+    // pg_advisory_xact_lock (serialization guard, no meaningful return value)
+    mockQuery.mockResolvedValueOnce([[]]);
     // (pas de slot_id) Overlap check → conflit trouvé
     mockQuery.mockResolvedValueOnce([[{ id: 99 }]]);
 
@@ -192,6 +196,8 @@ describe("POST /api/reservations — logique métier", () => {
     // Prestation check → OK
     mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
     // Blacklist check → non bloquée
+    mockQuery.mockResolvedValueOnce([[]]);
+    // pg_advisory_xact_lock (serialization guard, no meaningful return value)
     mockQuery.mockResolvedValueOnce([[]]);
     // Overlap check → aucun conflit
     mockQuery.mockResolvedValueOnce([[]]);
@@ -212,12 +218,14 @@ describe("POST /api/reservations — logique métier", () => {
     mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
     // Blacklist check → non bloquée
     mockQuery.mockResolvedValueOnce([[]]);
+    // pg_advisory_xact_lock (serialization guard, no meaningful return value)
+    mockQuery.mockResolvedValueOnce([[]]);
     // Overlap check → aucun conflit
     mockQuery.mockResolvedValueOnce([[]]);
     // Pro query → deposit 30%
     mockQuery.mockResolvedValueOnce([[{ deposit_percentage: 30, stripe_onboarding_complete: 1 }]]);
     // INSERT reservations
-    mockExecute.mockResolvedValueOnce([{ insertId: 55 }]);
+    mockExecute.mockResolvedValueOnce([[{ id: 55 }], []]);
     // (notification queries sont dans un try/catch — si non mockées, elles échouent silencieusement)
 
     const res = await request(app)
@@ -229,6 +237,48 @@ describe("POST /api/reservations — logique métier", () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.id).toBe(55);
     expect(res.body.data.deposit_percentage).toBe(30);
+  });
+
+  it("acquiert un verrou Postgres scopé au pro_id avant toute vérification de disponibilité", async () => {
+    mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
+    mockQuery.mockResolvedValueOnce([[]]);
+    mockQuery.mockResolvedValueOnce([[]]); // pg_advisory_xact_lock
+    mockQuery.mockResolvedValueOnce([[]]); // overlap check
+    mockQuery.mockResolvedValueOnce([[{ deposit_percentage: 30, stripe_onboarding_complete: 1 }]]);
+    mockExecute.mockResolvedValueOnce([[{ id: 55 }], []]);
+
+    await request(app)
+      .post("/api/reservations")
+      .set("Authorization", `Bearer ${token}`)
+      .send(validBody);
+
+    const lockCall = (mockQuery.mock.calls as unknown[][]).find(
+      (a) => typeof a[0] === "string" && (a[0] as string).includes("pg_advisory_xact_lock")
+    );
+    expect(lockCall).toBeDefined();
+    expect(lockCall?.[1]).toEqual([validBody.pro_id]);
+  });
+
+  it("409 si le créneau est pris entre la vérification et l'écriture (course concurrente)", async () => {
+    // Slot check initial → disponible
+    mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
+    mockQuery.mockResolvedValueOnce([[]]); // blacklist
+    mockQuery.mockResolvedValueOnce([[]]); // pg_advisory_xact_lock
+    mockQuery.mockResolvedValueOnce([[{ status: "available" }]]); // slot check → toujours dispo à ce moment-là
+    mockQuery.mockResolvedValueOnce([[]]); // overlap check
+    mockQuery.mockResolvedValueOnce([[{ deposit_percentage: 30, stripe_onboarding_complete: 1 }]]);
+    mockExecute.mockResolvedValueOnce([[{ id: 55 }], []]); // INSERT réservation réussi
+    // Le slot a été pris par une autre transaction juste avant ce UPDATE —
+    // 0 ligne affectée malgré le check initial "available".
+    mockQuery.mockResolvedValueOnce([[]]); // UPDATE slots ... RETURNING id → vide
+
+    const res = await request(app)
+      .post("/api/reservations")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ ...validBody, slot_id: 5 });
+
+    expect(res.status).toBe(409);
+    expect(res.body.success).toBe(false);
   });
 });
 
