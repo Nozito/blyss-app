@@ -13,11 +13,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 
 // ─── 1. Mocks hoistés ──────────────────────────────────────────────────────
-const { mockExecute, mockQuery } = vi.hoisted(() => {
+const { mockExecute, mockQuery, mockSendAlert } = vi.hoisted(() => {
   const mockExecute = vi.fn();
   const mockQuery = vi.fn();
-  return { mockExecute, mockQuery };
+  const mockSendAlert = vi.fn().mockResolvedValue(undefined);
+  return { mockExecute, mockQuery, mockSendAlert };
 });
+
+// ─── 1b. Mock lib/alerts — spy on admin-grant-override notifications ──────
+vi.mock("../lib/alerts", () => ({
+  sendAlert: mockSendAlert,
+  track5xx: vi.fn(),
+}));
 
 // ─── 2. Mock lib/db ────────────────────────────────────────────────────────
 vi.mock("../lib/db", () => ({
@@ -71,12 +78,14 @@ const VALID_SECRET = process.env.REVENUECAT_WEBHOOK_SECRET!;
 function sendRCWebhook(eventType: string, opts: {
   userId?: string;
   productId?: string;
+  entitlementIds?: string[];
   expirationAtMs?: number | null;
   authHeader?: string;
 } = {}) {
   const {
     userId = "42",
     productId = "blyss_start_monthly",
+    entitlementIds,
     expirationAtMs = null,
     authHeader = `Bearer ${VALID_SECRET}`,
   } = opts;
@@ -89,8 +98,9 @@ function sendRCWebhook(eventType: string, opts: {
         type: eventType,
         app_user_id: userId,
         product_id: productId,
+        ...(entitlementIds ? { entitlement_ids: entitlementIds } : {}),
         expiration_at_ms: expirationAtMs,
-        id: `rc_evt_${Date.now()}`,
+        id: `rc_evt_${Date.now()}_${Math.random()}`,
       },
     });
 }
@@ -107,7 +117,21 @@ function sqlIncludes(args: unknown[], ...fragments: string[]): boolean {
 describe("POST /api/webhooks/revenuecat", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockExecute.mockResolvedValue([{ rowCount: 1 }]);
+    // Content-aware default: the idempotency check and the "is this user a
+    // pro" lookup both go through connection.execute and need actual row
+    // shapes to pass — a blanket `[{ rowCount: 1 }]` doesn't destructure into
+    // a usable row for either, so every activate/deactivate test silently
+    // hit the early "user not applicable" return before reaching any of the
+    // SQL assertions below.
+    mockExecute.mockImplementation((sql: unknown) => {
+      if (typeof sql === "string" && sql.includes("FROM revenuecat_events")) {
+        return Promise.resolve([[], []]); // no prior event → not a duplicate
+      }
+      if (typeof sql === "string" && sql.includes("SELECT id, role FROM users")) {
+        return Promise.resolve([[{ id: 1, role: "pro" }], []]);
+      }
+      return Promise.resolve([{ rowCount: 1 }]);
+    });
     mockQuery.mockResolvedValue([[], []]);
   });
 
@@ -161,6 +185,53 @@ describe("POST /api/webhooks/revenuecat", () => {
 
     const calls = mockExecute.mock.calls as unknown[][];
     expect(calls.find((a) => sqlIncludes(a, "UPDATE users", "inactive"))).toBeDefined();
+  });
+
+  it("plan déduit de entitlement_ids plutôt que du product_id quand les deux sont présents", async () => {
+    // product_id ne contient ni "signature" ni "serenite" — sans entitlement_ids,
+    // ça retomberait sur "start". entitlement_ids doit prendre le dessus.
+    const res = await sendRCWebhook("INITIAL_PURCHASE", {
+      userId: "20",
+      productId: "blyss_promo_sku_xyz",
+      entitlementIds: ["signature"],
+      expirationAtMs: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
+
+    expect(res.status).toBe(200);
+
+    const calls = mockExecute.mock.calls as unknown[][];
+    const insertCall = calls.find((a) => sqlIncludes(a, "INSERT INTO subscriptions"));
+    expect(insertCall).toBeDefined();
+    expect(insertCall?.[1]).toContain("signature");
+  });
+
+  it("BILLING_ISSUE → aucun changement de statut, notification best-effort tentée", async () => {
+    const res = await sendRCWebhook("BILLING_ISSUE", { userId: "21" });
+
+    expect(res.status).toBe(200);
+
+    const calls = mockExecute.mock.calls as unknown[][];
+    expect(calls.find((a) => sqlIncludes(a, "UPDATE users", "pro_status"))).toBeUndefined();
+    expect(calls.find((a) => sqlIncludes(a, "UPDATE subscriptions"))).toBeUndefined();
+    expect(mockQuery.mock.calls.some((a) => sqlIncludes(a, "INSERT INTO notifications"))).toBe(true);
+  });
+
+  it("CANCELLATION qui désactive un abonnement offert par un admin → alerte envoyée", async () => {
+    mockQuery.mockImplementation((sql: unknown) => {
+      if (typeof sql === "string" && sql.includes("SELECT payment_id FROM subscriptions")) {
+        return Promise.resolve([[{ payment_id: "admin_grant" }], []]);
+      }
+      return Promise.resolve([[], []]);
+    });
+
+    const res = await sendRCWebhook("CANCELLATION", { userId: "22" });
+
+    expect(res.status).toBe(200);
+    expect(mockSendAlert).toHaveBeenCalledWith(
+      "warn",
+      expect.stringContaining("admin-granted"),
+      expect.objectContaining({ userId: 22 })
+    );
   });
 
   it("secret invalide → 401 Unauthorized", async () => {
