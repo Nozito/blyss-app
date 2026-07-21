@@ -165,7 +165,13 @@ describe("POST /api/reviews — validation Zod", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("PATCH /api/pro/prestations/:id — validation Zod", () => {
   const token = makeToken(1, "pro");
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // requireProAccess (server.ts) gates the whole /api/pro/* router — this
+    // is the FIRST db call on every request, ahead of anything the route
+    // (or requireActiveProSubscription) queues below.
+    mockQuery.mockResolvedValueOnce([[{ role: "pro", is_admin: 0, pro_status: "active" }], []]);
+  });
 
   it("400 si price est négatif", async () => {
     const res = await request(app)
@@ -260,7 +266,11 @@ describe("PUT /api/users/update — validation Zod", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("PUT /api/pro/finance/objective — validation Zod", () => {
   const token = makeToken(1, "pro");
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // requireProAccess (server.ts) gates the whole /api/pro/* router.
+    mockQuery.mockResolvedValueOnce([[{ role: "pro", is_admin: 0, pro_status: "active" }], []]);
+  });
 
   it("400 si objective est négatif", async () => {
     const res = await request(app)
@@ -298,7 +308,11 @@ describe("PUT /api/pro/finance/objective — validation Zod", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("PUT /api/pro/stripe/deposit — validation Zod", () => {
   const token = makeToken(1, "pro");
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // requireProAccess (server.ts) gates the whole /api/pro/* router.
+    mockQuery.mockResolvedValueOnce([[{ role: "pro", is_admin: 0, pro_status: "active" }], []]);
+  });
 
   it("400 si deposit_percentage est absent", async () => {
     const res = await request(app)

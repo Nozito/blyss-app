@@ -14,7 +14,7 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 
 // ─── 1. Mocks hoistés ─────────────────────────────────────────────────────
-const { mockConnection } = vi.hoisted(() => {
+const { mockConnection, mockTopQuery } = vi.hoisted(() => {
   const mockConnection = {
     query: vi.fn(),
     execute: vi.fn(),
@@ -23,7 +23,10 @@ const { mockConnection } = vi.hoisted(() => {
     rollback: vi.fn().mockResolvedValue(undefined),
     release: vi.fn(),
   };
-  return { mockConnection };
+  // requireProAccess (server.ts, global /api/pro/* guard) uses the
+  // top-level db.query — separate from the route's own connection.
+  const mockTopQuery = vi.fn();
+  return { mockConnection, mockTopQuery };
 });
 
 // ─── 2. Mock lib/db ───────────────────────────────────────────────────────
@@ -32,8 +35,8 @@ vi.mock("../lib/db", () => {
   return {
     DbTimeoutError,
     getDb: () => ({
-      query: vi.fn(),
-      execute: vi.fn(),
+      query: mockTopQuery,
+      execute: mockTopQuery,
       getConnection: vi.fn().mockResolvedValue(mockConnection),
     }),
   };
@@ -79,7 +82,11 @@ function makeProToken(userId = 7) {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("PATCH /api/pro/reservations/:id/status — validation Zod", () => {
   const token = makeProToken();
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // requireProAccess (server.ts) gates the whole /api/pro/* router.
+    mockTopQuery.mockResolvedValue([[{ role: "pro", is_admin: 0, pro_status: "active" }], []]);
+  });
 
   it("400 si body vide", async () => {
     const res = await request(app)
@@ -107,7 +114,11 @@ describe("PATCH /api/pro/reservations/:id/status — validation Zod", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("PATCH /api/pro/reservations/:id/status — business logic", () => {
   const token = makeProToken();
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // requireProAccess (server.ts) gates the whole /api/pro/* router.
+    mockTopQuery.mockResolvedValue([[{ role: "pro", is_admin: 0, pro_status: "active" }], []]);
+  });
 
   it("404 si réservation introuvable ou appartient à un autre pro", async () => {
     mockConnection.query.mockResolvedValueOnce([[], []]); // SELECT → not found

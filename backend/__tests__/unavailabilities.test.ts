@@ -86,7 +86,11 @@ const validBody = {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("POST /api/pro/unavailabilities — validation Zod", () => {
   const token = makeProToken();
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // requireProAccess (server.ts) gates the whole /api/pro/* router.
+    mockQuery.mockResolvedValue([[{ role: "pro", is_admin: 0, pro_status: "active" }], []]);
+  });
 
   it("400 si start_date manquant", async () => {
     const res = await request(app)
@@ -134,7 +138,11 @@ describe("POST /api/pro/unavailabilities — validation Zod", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("POST /api/pro/unavailabilities — création", () => {
   const token = makeProToken();
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // requireProAccess (server.ts) gates the whole /api/pro/* router.
+    mockQuery.mockResolvedValue([[{ role: "pro", is_admin: 0, pro_status: "active" }], []]);
+  });
 
   it("200 — crée l'indisponibilité et la retourne", async () => {
     const created = { id: 1, pro_id: 7, ...validBody, created_at: new Date().toISOString() };
@@ -153,7 +161,11 @@ describe("POST /api/pro/unavailabilities — création", () => {
 
 describe("GET /api/pro/unavailabilities", () => {
   const token = makeProToken();
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // requireProAccess (server.ts) gates the whole /api/pro/* router.
+    mockQuery.mockResolvedValue([[{ role: "pro", is_admin: 0, pro_status: "active" }], []]);
+  });
 
   it("200 — retourne la liste", async () => {
     const rows = [
@@ -173,7 +185,11 @@ describe("GET /api/pro/unavailabilities", () => {
 
 describe("DELETE /api/pro/unavailabilities/:id", () => {
   const token = makeProToken();
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // requireProAccess (server.ts) gates the whole /api/pro/* router.
+    mockQuery.mockResolvedValue([[{ role: "pro", is_admin: 0, pro_status: "active" }], []]);
+  });
 
   it("404 si l'indisponibilité n'appartient pas au pro", async () => {
     mockConnection.query.mockResolvedValueOnce([[], []]); // rowCount = 0

@@ -167,7 +167,12 @@ describe("CancellationWindowExpiredError", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("PATCH /api/pro/settings/cancellation-policy — validation", () => {
-  beforeEach(() => mockQuery.mockReset());
+  beforeEach(() => {
+    mockQuery.mockReset();
+    // requireProAccess (server.ts) gates the whole /api/pro/* router — every
+    // request needs an active pro to reach the route's own Zod validation.
+    mockQuery.mockResolvedValueOnce([[{ role: "pro", is_admin: 0, pro_status: "active" }], []]);
+  });
 
   it("400 si valeur absente", async () => {
     const token = makeToken(1, "pro");
@@ -190,23 +195,30 @@ describe("PATCH /api/pro/settings/cancellation-policy — validation", () => {
   });
 
   it("403 si rôle client", async () => {
-    // Mock : SELECT role → client
-    mockQuery.mockResolvedValueOnce([[{ role: "client" }], []]);
+    // Le garde global requireProAccess (server.ts) intercepte avant même
+    // d'atteindre la vérification de rôle propre à cette route — il exige
+    // role/is_admin/pro_status en une seule requête. Reset d'abord pour
+    // remplacer la valeur "pro actif" déjà mise en file par le beforeEach.
+    mockQuery.mockReset();
+    mockQuery.mockResolvedValueOnce([[{ role: "client", is_admin: 0, pro_status: "inactive" }], []]);
     const token = makeToken(1, "client");
     const res = await request(app)
       .patch("/api/pro/settings/cancellation-policy")
       .set("Cookie", `access_token=${token}`)
       .send({ cancellation_notice_hours: 24 });
     expect(res.status).toBe(403);
-    expect(res.body.error).toBe("forbidden");
+    expect(res.body.error).toBe("pro_required");
   });
 });
 
 describe("PATCH /api/pro/settings/cancellation-policy — succès", () => {
   beforeEach(() => {
-    // Séquence : 1. SELECT role → pro  2. UPDATE users
+    // Séquence : 1. requireProAccess (role+is_admin+pro_status)
+    //            2. la route elle-même revérifie le rôle (SELECT role FROM users)
+    //            3. UPDATE users
     mockQuery
-      .mockResolvedValueOnce([[{ role: "pro" }], []])   // vérification rôle
+      .mockResolvedValueOnce([[{ role: "pro", is_admin: 0, pro_status: "active" }], []])
+      .mockResolvedValueOnce([[{ role: "pro" }], []])
       .mockResolvedValue([[], []]);                      // UPDATE
   });
 
