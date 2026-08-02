@@ -45,7 +45,7 @@ const UPLOADS_DIR = path.resolve(
 import sharp from "sharp";
 import { sendPushToUser } from "./lib/push";
 import { startReminderCron, runReminderCycle } from "./lib/reminders";
-import { geocodeCity, haversineKm } from "./lib/geocoding";
+import { geocodeCity, haversineKm, jitterCoords } from "./lib/geocoding";
 import { startDataRetentionCron } from "./cron/data-retention";
 import { startPaymentCleanupCron } from "./cron/payment-cleanup";
 import { startSubscriptionExpiryCron } from "./cron/subscription-expiry";
@@ -931,6 +931,13 @@ interface User {
   bankaccountname?: string | null;
   bio?: string | null;
   is_admin?: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
+  geo_precision?: "address" | "city" | null;
+  address_line?: string | null;
+  postal_code?: string | null;
+  service_radius_km?: number | null;
+  service_area_label?: string | null;
 }
 
 interface UpdatePaymentsBody {
@@ -1005,7 +1012,9 @@ app.get(
         `SELECT
           id, first_name, last_name, activity_name, city,
           instagram_account, profile_photo, banner_photo, bio, acceptance_conditions, pro_status,
-          accept_online_payment, stripe_onboarding_complete
+          accept_online_payment, stripe_onboarding_complete,
+          geo_precision, address_line, postal_code, latitude, longitude,
+          public_latitude, public_longitude, service_radius_km, service_area_label
         FROM users
         WHERE id = ? AND role = 'pro' AND pro_status = 'active'`,
         [proId]
@@ -1020,7 +1029,25 @@ app.get(
         });
       }
 
-      res.json({ success: true, data: pro });
+      // Whitelist, not blacklist: build the public payload field-by-field rather than
+      // stripping from the full row, so a forgotten SELECT column never leaks by default.
+      const addressVisible = pro.geo_precision === "address";
+      const {
+        geo_precision, address_line, postal_code,
+        latitude, longitude, public_latitude, public_longitude,
+        service_radius_km, service_area_label,
+        ...base
+      } = pro;
+
+      const data = {
+        ...base,
+        address_visible: addressVisible,
+        ...(addressVisible
+          ? { address_line, postal_code, latitude, longitude }
+          : { service_radius_km, service_area_label, public_latitude, public_longitude }),
+      };
+
+      res.json({ success: true, data });
     } catch (error) {
       next(error);
     }
@@ -2156,6 +2183,11 @@ app.put(
         acceptance_conditions,
         currentPassword,
         newPassword,
+        geo_precision,
+        address_line,
+        postal_code,
+        service_radius_km,
+        service_area_label,
       } = req.body;
 
       const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [
@@ -2223,20 +2255,79 @@ app.put(
               : null
           : null;
 
-      // Geocode city when it changes for pro profiles (non-blocking)
-      let geoLat: number | null = null;
-      let geoLng: number | null = null;
-      if (user.role === "pro" && updatedCity && updatedCity !== user.city) {
-        const coords = await geocodeCity(updatedCity);
-        if (coords) { geoLat = coords.lat; geoLng = coords.lng; }
-      } else if (user.role === "pro" && updatedCity === user.city) {
-        geoLat = (user as any).latitude ?? null;
-        geoLng = (user as any).longitude ?? null;
+      // Address privacy: geo_precision is the visibility toggle — 'city' (default, safe)
+      // keeps the exact address private and only exposes an approximate public point;
+      // 'address' is an explicit pro opt-in to publish the exact address + a precise pin.
+      const updatedGeoPrecision =
+        user.role === "pro"
+          ? geo_precision !== undefined
+            ? geo_precision
+            : (user.geo_precision ?? "city")
+          : null;
+      const updatedAddressLine =
+        user.role === "pro"
+          ? address_line !== undefined ? address_line : user.address_line ?? null
+          : null;
+      const updatedPostalCode =
+        user.role === "pro"
+          ? postal_code !== undefined ? postal_code : user.postal_code ?? null
+          : null;
+      const updatedServiceRadiusKm =
+        user.role === "pro"
+          ? service_radius_km !== undefined ? service_radius_km : user.service_radius_km ?? 5
+          : null;
+      const updatedServiceAreaLabel =
+        user.role === "pro"
+          ? service_area_label !== undefined ? service_area_label : user.service_area_label ?? null
+          : null;
+
+      if (
+        user.role === "pro" &&
+        updatedGeoPrecision === "address" &&
+        (!updatedAddressLine || !updatedPostalCode || !updatedCity)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Adresse, code postal et ville requis pour publier votre adresse exacte",
+        });
+      }
+
+      // Geocode when the city or the exact address changes for pro profiles (non-blocking)
+      let geoLat: number | null = (user as any).latitude ?? null;
+      let geoLng: number | null = (user as any).longitude ?? null;
+      if (user.role === "pro") {
+        const cityChanged = updatedCity && updatedCity !== user.city;
+        const addressChanged =
+          updatedGeoPrecision === "address" &&
+          (updatedAddressLine !== user.address_line ||
+            updatedPostalCode !== user.postal_code ||
+            cityChanged);
+
+        if (addressChanged) {
+          const fullAddress = `${updatedAddressLine}, ${updatedPostalCode} ${updatedCity}`;
+          const coords = await geocodeCity(fullAddress);
+          if (coords) { geoLat = coords.lat; geoLng = coords.lng; }
+        } else if (cityChanged) {
+          const coords = await geocodeCity(updatedCity);
+          if (coords) { geoLat = coords.lat; geoLng = coords.lng; }
+        }
+      }
+
+      // The public point is always a bounded, deterministic jitter of the real coordinates —
+      // never the exact coordinates themselves — so it's ready the instant a pro switches
+      // back to 'city' visibility, and it stays stable across requests either way.
+      let publicLat: number | null = null;
+      let publicLng: number | null = null;
+      if (user.role === "pro" && geoLat != null && geoLng != null) {
+        const jittered = jitterCoords(geoLat, geoLng, req.user!.id);
+        publicLat = jittered.lat;
+        publicLng = jittered.lng;
       }
 
       await db.execute(
         `UPDATE users
-         SET first_name = ?, last_name = ?, activity_name = ?, city = ?, instagram_account = ?, bio = ?, acceptance_conditions = ?::jsonb, password_hash = ?, latitude = ?, longitude = ?
+         SET first_name = ?, last_name = ?, activity_name = ?, city = ?, instagram_account = ?, bio = ?, acceptance_conditions = ?::jsonb, password_hash = ?, latitude = ?, longitude = ?,
+             geo_precision = ?, address_line = ?, postal_code = ?, public_latitude = ?, public_longitude = ?, service_radius_km = ?, service_area_label = ?
          WHERE id = ?`,
         [
           updatedFirstName,
@@ -2249,6 +2340,13 @@ app.put(
           passwordHash,
           geoLat,
           geoLng,
+          updatedGeoPrecision,
+          updatedAddressLine,
+          updatedPostalCode,
+          publicLat,
+          publicLng,
+          updatedServiceRadiusKm,
+          updatedServiceAreaLabel,
           req.user!.id,
         ]
       );
@@ -2477,7 +2575,8 @@ app.get(
         `SELECT
           u.id, u.first_name, u.last_name, u.activity_name, u.city,
           u.instagram_account, u.profile_photo, u.banner_photo, u.bio, u.pro_status,
-          u.latitude, u.longitude, u.specialty, u.geo_precision,
+          u.latitude, u.longitude, u.public_latitude, u.public_longitude,
+          u.service_radius_km, u.service_area_label, u.specialty, u.geo_precision,
           COALESCE(AVG(r.rating), 0) as avg_rating,
           COUNT(DISTINCT r.id) as reviews_count
         FROM users u
@@ -2490,16 +2589,31 @@ app.get(
         [...whereParams, ...havingParams, limit, offset]
       );
 
-      // Compute distance client-side friendly: attach distance_km to each pro
-      let pros = rows as any[];
+      // Distance is always computed from the real coordinates (never the public/jittered
+      // ones) so proximity search stays accurate regardless of a pro's privacy choice.
+      // The coordinates actually returned to the client are swapped to the approximate
+      // public point below, whenever the pro hasn't opted in to publish her exact address.
+      let pros = (rows as any[]).map((p) => {
+        const addressVisible = p.geo_precision === "address";
+        const exactLat = p.latitude != null ? Number(p.latitude) : null;
+        const exactLng = p.longitude != null ? Number(p.longitude) : null;
+
+        let distance_km: number | null = null;
+        if (hasGeo && exactLat != null && exactLng != null) {
+          distance_km = Math.round(haversineKm(userLat, userLng, exactLat, exactLng) * 10) / 10;
+        }
+
+        const { public_latitude, public_longitude, geo_precision, latitude, longitude, ...rest } = p;
+        return {
+          ...rest,
+          latitude: addressVisible ? exactLat : (public_latitude != null ? Number(public_latitude) : null),
+          longitude: addressVisible ? exactLng : (public_longitude != null ? Number(public_longitude) : null),
+          address_visible: addressVisible,
+          distance_km,
+        };
+      });
+
       if (hasGeo) {
-        pros = pros.map((p) => {
-          if (p.latitude != null && p.longitude != null) {
-            const dist = haversineKm(userLat, userLng, Number(p.latitude), Number(p.longitude));
-            return { ...p, distance_km: Math.round(dist * 10) / 10 };
-          }
-          return { ...p, distance_km: null };
-        });
         // Filter by radius (only when geo is requested)
         if (req.query.nearby === "1") {
           pros = pros.filter((p) => p.distance_km === null || p.distance_km <= maxKm);
@@ -4861,7 +4975,10 @@ app.get(
             u.profile_photo,
             u.activity_name,
             u.phone_number AS pro_phone,
-            u.city
+            u.city,
+            u.geo_precision,
+            u.address_line,
+            u.postal_code
         FROM reservations r
         JOIN prestations p ON r.prestation_id = p.id
         JOIN users u ON r.pro_id = u.id
@@ -4878,6 +4995,17 @@ app.get(
       booking.price = Number(booking.price) || 0;
       booking.paid_online = Number(booking.paid_online) || 0;
       booking.duration_minutes = Number(booking.duration_minutes) || 0;
+
+      // Conditional address reveal: the exact address is only shown once the client has
+      // an actual reason to go there (booking confirmed or already completed) — never for
+      // a merely pending request, and never again once cancelled. This is what lets a pro
+      // keep her address private from public browsing while still receiving clients.
+      const canRevealAddress = booking.status === "confirmed" || booking.status === "completed";
+      delete booking.geo_precision;
+      if (!canRevealAddress) {
+        delete booking.address_line;
+        delete booking.postal_code;
+      }
 
       res.json({ success: true, data: booking });
     } catch (err) {
@@ -4933,6 +5061,8 @@ app.get(
           u.city AS pro_city,
           u.instagram_account AS pro_instagram,
           u.phone_number AS pro_phone,
+          u.address_line AS pro_address_line,
+          u.postal_code AS pro_postal_code,
           p.name AS prestation_name,
           p.description AS prestation_description,
           p.duration_minutes AS prestation_duration
@@ -4952,6 +5082,10 @@ app.get(
 
       const row = (rows as any[])[0];
 
+      // See booking-detail/:id for the rationale: exact address only once the client
+      // actually has a confirmed/completed reason to visit the pro's address.
+      const canRevealAddress = row.status === "confirmed" || row.status === "completed";
+
       const booking = {
         id: row.id,
         pro: {
@@ -4963,7 +5097,10 @@ app.get(
           banner_photo: row.pro_banner_photo,
           city: row.pro_city,
           instagram: row.pro_instagram,
-          phone: row.pro_phone
+          phone: row.pro_phone,
+          ...(canRevealAddress
+            ? { address_line: row.pro_address_line, postal_code: row.pro_postal_code }
+            : {}),
         },
         prestation: row.prestation_id ? {
           id: row.prestation_id,

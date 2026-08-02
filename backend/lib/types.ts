@@ -27,6 +27,15 @@ export interface User {
   acceptance_conditions?: Array<{ text: string; accepted: boolean }> | null;
   is_admin?: boolean;
   is_active?: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
+  public_latitude?: number | null;
+  public_longitude?: number | null;
+  geo_precision?: "address" | "city" | null;
+  address_line?: string | null;
+  postal_code?: string | null;
+  service_radius_km?: number | null;
+  service_area_label?: string | null;
 }
 
 export interface SignupRequestBody {

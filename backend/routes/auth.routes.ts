@@ -260,7 +260,8 @@ router.get(
           is_admin, activity_name, city, instagram_account, profile_photo, banner_photo,
           bio, profile_visibility, pro_status, bankaccountname, "IBAN",
           iban_iv, iban_tag, iban_last4,
-          accept_online_payment, created_at
+          accept_online_payment, created_at,
+          geo_precision, address_line, postal_code, service_radius_km, service_area_label
         FROM users WHERE id = ?`,
         [userId]
       );
@@ -324,6 +325,11 @@ router.get(
           IBAN: user.IBAN,
           accept_online_payment: user.accept_online_payment,
           created_at: user.created_at,
+          geo_precision: user.geo_precision || "city",
+          address_line: user.address_line,
+          postal_code: user.postal_code,
+          service_radius_km: user.service_radius_km,
+          service_area_label: user.service_area_label,
         },
       });
     } catch (error) {

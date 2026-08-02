@@ -65,6 +65,17 @@ export const userUpdateSchema = z.object({
   profile_visibility: z.enum(["public", "private"]).optional(),
   banner_photo: z.string().max(500).optional(),
   profile_photo: z.string().max(500).optional(),
+  geo_precision: z.enum(["address", "city"], {
+    message: "geo_precision doit être 'address' ou 'city'",
+  }).optional(),
+  address_line: z.string().max(200, "Adresse trop longue").nullable().optional(),
+  postal_code: z.string().max(20, "Code postal trop long").nullable().optional(),
+  service_radius_km: z
+    .number("Le rayon doit être un nombre")
+    .min(1, "Rayon minimum : 1 km")
+    .max(30, "Rayon maximum : 30 km")
+    .optional(),
+  service_area_label: z.string().max(100, "Libellé de zone trop long").nullable().optional(),
   currentPassword: z.string().optional(),
   newPassword: z
     .string()

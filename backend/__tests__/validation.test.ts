@@ -259,6 +259,90 @@ describe("PUT /api/users/update — validation Zod", () => {
     expect(res.status).toBe(400);
     expectValidationError(res.body, "newPassword");
   });
+
+  it("400 si service_radius_km hors bornes (0)", async () => {
+    const res = await request(app)
+      .put("/api/users/update")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ service_radius_km: 0 });
+
+    expect(res.status).toBe(400);
+    expectValidationError(res.body, "service_radius_km");
+  });
+
+  it("400 si geo_precision='address' sans adresse complète (protège la pro d'une publication accidentelle)", async () => {
+    mockExecute.mockResolvedValueOnce([[{
+      id: 42, role: "pro", password_hash: "hash",
+      first_name: "Iara", last_name: "D", activity_name: "Nails", city: "Nantes",
+      instagram_account: null, bio: null, acceptance_conditions: null,
+      geo_precision: "city", address_line: null, postal_code: null,
+      service_radius_km: 5, service_area_label: null,
+      latitude: 47.2181, longitude: -1.5528,
+    }]]);
+
+    const res = await request(app)
+      .put("/api/users/update")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ geo_precision: "address" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /api/users/pros — confidentialité d'adresse (address_visibility)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("GET /api/users/pros — masquage d'adresse par défaut", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("ne renvoie jamais latitude/longitude exactes pour une pro en geo_precision='city'", async () => {
+    mockQuery.mockResolvedValueOnce([[{ total: 1 }]]); // COUNT
+    mockQuery.mockResolvedValueOnce([[{
+      id: 5, first_name: "Jane", last_name: "Doe", activity_name: "Nails by Jane",
+      city: "Nantes", instagram_account: null, profile_photo: null, banner_photo: null,
+      bio: null, pro_status: "active",
+      latitude: 47.2181, longitude: -1.5528,
+      public_latitude: 47.2205, public_longitude: -1.5471,
+      service_radius_km: 5, service_area_label: "Nantes centre",
+      specialty: null, geo_precision: "city",
+      avg_rating: 0, reviews_count: 0,
+    }]]);
+
+    const res = await request(app).get("/api/users/pros");
+
+    expect(res.status).toBe(200);
+    const pro = res.body.data[0];
+    expect(pro.address_visible).toBe(false);
+    expect(pro.latitude).toBe(47.2205);
+    expect(pro.longitude).toBe(-1.5471);
+    expect(pro.latitude).not.toBe(47.2181);
+    expect(pro.longitude).not.toBe(-1.5528);
+    expect(pro.geo_precision).toBeUndefined();
+    expect(pro.public_latitude).toBeUndefined();
+  });
+
+  it("renvoie les coordonnées exactes quand la pro a publié son adresse (geo_precision='address')", async () => {
+    mockQuery.mockResolvedValueOnce([[{ total: 1 }]]);
+    mockQuery.mockResolvedValueOnce([[{
+      id: 6, first_name: "Camille", last_name: "R", activity_name: "Camille Nails",
+      city: "Nantes", instagram_account: null, profile_photo: null, banner_photo: null,
+      bio: null, pro_status: "active",
+      latitude: 47.2181, longitude: -1.5528,
+      public_latitude: 47.2205, public_longitude: -1.5471,
+      service_radius_km: 5, service_area_label: null,
+      specialty: null, geo_precision: "address",
+      avg_rating: 0, reviews_count: 0,
+    }]]);
+
+    const res = await request(app).get("/api/users/pros");
+
+    expect(res.status).toBe(200);
+    const pro = res.body.data[0];
+    expect(pro.address_visible).toBe(true);
+    expect(pro.latitude).toBe(47.2181);
+    expect(pro.longitude).toBe(-1.5528);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
