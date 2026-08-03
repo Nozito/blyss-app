@@ -76,6 +76,9 @@ export const userUpdateSchema = z.object({
     .max(30, "Rayon maximum : 30 km")
     .optional(),
   service_area_label: z.string().max(100, "Libellé de zone trop long").nullable().optional(),
+  deposit_required: z.boolean().optional(),
+  companions_allowed: z.boolean().optional(),
+  handicap_access: z.boolean().optional(),
   currentPassword: z.string().optional(),
   newPassword: z
     .string()
