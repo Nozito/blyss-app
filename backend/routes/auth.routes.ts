@@ -262,7 +262,7 @@ router.get(
           iban_iv, iban_tag, iban_last4,
           accept_online_payment, created_at,
           geo_precision, address_line, postal_code, service_radius_km, service_area_label,
-          deposit_required, companions_allowed, handicap_access
+          acceptance_conditions
         FROM users WHERE id = ?`,
         [userId]
       );
@@ -331,9 +331,7 @@ router.get(
           postal_code: user.postal_code,
           service_radius_km: user.service_radius_km,
           service_area_label: user.service_area_label,
-          deposit_required: user.deposit_required,
-          companions_allowed: user.companions_allowed,
-          handicap_access: user.handicap_access,
+          acceptance_conditions: user.acceptance_conditions,
         },
       });
     } catch (error) {

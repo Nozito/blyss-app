@@ -938,9 +938,6 @@ interface User {
   postal_code?: string | null;
   service_radius_km?: number | null;
   service_area_label?: string | null;
-  deposit_required?: boolean | null;
-  companions_allowed?: boolean | null;
-  handicap_access?: boolean | null;
 }
 
 interface UpdatePaymentsBody {
@@ -1017,8 +1014,7 @@ app.get(
           instagram_account, profile_photo, banner_photo, bio, acceptance_conditions, pro_status,
           accept_online_payment, stripe_onboarding_complete,
           geo_precision, address_line, postal_code, latitude, longitude,
-          public_latitude, public_longitude, service_radius_km, service_area_label,
-          deposit_required, companions_allowed, handicap_access
+          public_latitude, public_longitude, service_radius_km, service_area_label
         FROM users
         WHERE id = ? AND role = 'pro' AND pro_status = 'active'`,
         [proId]
@@ -2197,9 +2193,6 @@ app.put(
         postal_code,
         service_radius_km,
         service_area_label,
-        deposit_required,
-        companions_allowed,
-        handicap_access,
       } = req.body;
 
       const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [
@@ -2292,18 +2285,6 @@ app.put(
         user.role === "pro"
           ? service_area_label !== undefined ? service_area_label : user.service_area_label ?? null
           : null;
-      const updatedDepositRequired =
-        user.role === "pro"
-          ? deposit_required !== undefined ? deposit_required : user.deposit_required ?? null
-          : null;
-      const updatedCompanionsAllowed =
-        user.role === "pro"
-          ? companions_allowed !== undefined ? companions_allowed : user.companions_allowed ?? null
-          : null;
-      const updatedHandicapAccess =
-        user.role === "pro"
-          ? handicap_access !== undefined ? handicap_access : user.handicap_access ?? null
-          : null;
 
       if (
         user.role === "pro" &&
@@ -2351,8 +2332,7 @@ app.put(
       await db.execute(
         `UPDATE users
          SET first_name = ?, last_name = ?, activity_name = ?, city = ?, instagram_account = ?, bio = ?, acceptance_conditions = ?::jsonb, password_hash = ?, latitude = ?, longitude = ?,
-             geo_precision = ?, address_line = ?, postal_code = ?, public_latitude = ?, public_longitude = ?, service_radius_km = ?, service_area_label = ?,
-             deposit_required = ?, companions_allowed = ?, handicap_access = ?
+             geo_precision = ?, address_line = ?, postal_code = ?, public_latitude = ?, public_longitude = ?, service_radius_km = ?, service_area_label = ?
          WHERE id = ?`,
         [
           updatedFirstName,
@@ -2372,9 +2352,6 @@ app.put(
           publicLng,
           updatedServiceRadiusKm,
           updatedServiceAreaLabel,
-          updatedDepositRequired,
-          updatedCompanionsAllowed,
-          updatedHandicapAccess,
           req.user!.id,
         ]
       );
