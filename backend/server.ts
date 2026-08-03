@@ -2030,7 +2030,7 @@ app.post(
         .webp({ quality: 82 })
         .toFile(destPath);
 
-      const photoPath = `uploads/profile_photo/${filename}`;
+      const photoPath = `/uploads/profile_photo/${filename}`;
       await db.execute("UPDATE users SET profile_photo = ? WHERE id = ?", [photoPath, req.user.id]);
 
       res.json({ success: true, photo: photoPath });
@@ -2075,7 +2075,7 @@ app.post(
         .webp({ quality: 85 })
         .toFile(destPath);
 
-      const fileUrl = `uploads/banners/${filename}`;
+      const fileUrl = `/uploads/banners/${filename}`;
       await db.query("UPDATE users SET banner_photo = ? WHERE id = ?", [fileUrl, userId]);
 
       const [users] = await db.query(
