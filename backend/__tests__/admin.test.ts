@@ -163,11 +163,10 @@ describe("POST /api/admin/notifications/create — RBAC", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// POST /api/admin/users/create — IBAN doit être chiffré, jamais en clair
+// POST /api/admin/users/create
 // ═══════════════════════════════════════════════════════════════════════════
-describe("POST /api/admin/users/create — chiffrement IBAN", () => {
+describe("POST /api/admin/users/create", () => {
   const adminToken = makeToken(1);
-  const VALID_IBAN = "DE89370400440532013000";
   const basePayload = {
     first_name: "Test",
     last_name: "Pro",
@@ -177,45 +176,6 @@ describe("POST /api/admin/users/create — chiffrement IBAN", () => {
   };
 
   beforeEach(() => vi.clearAllMocks());
-
-  it("chiffre l'IBAN et le nom du titulaire au lieu de les stocker en clair", async () => {
-    mockQuery.mockResolvedValueOnce([[{ is_admin: 1 }]]); // requireAdminMiddleware
-    mockQuery.mockResolvedValueOnce([[]]); // email check — pas de doublon
-    mockQuery.mockResolvedValueOnce([{}]); // INSERT
-
-    const res = await request(app)
-      .post("/api/admin/users/create")
-      .set("Authorization", `Bearer ${adminToken}`)
-      .send({ ...basePayload, IBAN: VALID_IBAN, bankaccountname: "Test Pro" });
-
-    expect(res.status).toBe(200);
-
-    const insertCall = (mockQuery.mock.calls as unknown[][]).find(
-      (a) => typeof a[0] === "string" && (a[0] as string).includes("INSERT INTO users")
-    );
-    expect(insertCall).toBeDefined();
-    const params = insertCall?.[1] as unknown[];
-
-    // Ni l'IBAN ni le nom du titulaire ne doivent apparaître en clair dans les
-    // paramètres envoyés à la requête d'insertion.
-    expect(params).not.toContain(VALID_IBAN);
-    expect(params).not.toContain("Test Pro");
-    // L'IBAN chiffré (ciphertext base64) doit être présent, non vide.
-    const ibanParam = params.find((p) => typeof p === "string" && p.length > 0 && p !== "Test Pro");
-    expect(typeof ibanParam).toBe("string");
-  });
-
-  it("400 si l'IBAN a un format invalide", async () => {
-    mockQuery.mockResolvedValueOnce([[{ is_admin: 1 }]]); // requireAdminMiddleware
-    mockQuery.mockResolvedValueOnce([[]]); // email check
-
-    const res = await request(app)
-      .post("/api/admin/users/create")
-      .set("Authorization", `Bearer ${adminToken}`)
-      .send({ ...basePayload, IBAN: "NOT_AN_IBAN", bankaccountname: "Test Pro" });
-
-    expect(res.status).toBe(400);
-  });
 
   it("400 si l'email est invalide (validation Zod, avant toute requête métier)", async () => {
     mockQuery.mockResolvedValueOnce([[{ is_admin: 1 }]]); // requireAdminMiddleware

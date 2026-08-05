@@ -91,19 +91,6 @@ export const paymentIntentLimiter = rateLimit({
   },
 });
 
-// 5 mises à jour IBAN par heure par IP
-export const ibanUpdateLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: "too_many_requests",
-    message: "Trop de mises à jour bancaires, réessayez dans 1 heure.",
-  },
-});
-
 // 100 requêtes par 15 min pour les listes publiques (pros, services)
 export const publicListingLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

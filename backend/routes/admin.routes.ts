@@ -1,13 +1,10 @@
 import express, { Response, NextFunction } from "express";
 import bcrypt from "bcrypt";
-import crypto from "crypto";
 import { authenticateToken } from "../middleware/auth";
 import { requireAdminMiddleware } from "../middleware/requireAdmin";
 import { adminLimiter } from "../middleware/rate-limits";
 import { getDb } from "../lib/db";
 import { sendNotificationToUser } from "../lib/notifications";
-import { encryptIban, encryptSensitiveData } from "../lib/encryption";
-import { isValidIBAN, electronicFormatIBAN } from "ibantools";
 import { refundPaymentById } from "../lib/refunds";
 import { validate } from "../middleware/validate";
 import {
@@ -29,36 +26,6 @@ import { parseParamToInt } from "../lib/helpers";
 import { runReminderCycle } from "../lib/reminders";
 
 const router = express.Router();
-
-/**
- * Validates + encrypts an IBAN and bank account name the same way the
- * self-service update path does (server.ts POST /pro/bank-info), so
- * admin-created/edited records aren't stored in plaintext and remain
- * decryptable by the same code path later.
- */
-function prepareBankFields(IBAN: string | null | undefined, bankaccountname: string | null | undefined):
-  | { ok: true; iban: string | null; ibanIv: string | null; ibanTag: string | null; ibanLast4: string | null; ibanHash: string | null; accountName: string | null }
-  | { ok: false; message: string } {
-  if (!IBAN) {
-    return { ok: true, iban: null, ibanIv: null, ibanTag: null, ibanLast4: null, ibanHash: null, accountName: bankaccountname ? encryptSensitiveData(bankaccountname.trim()) : null };
-  }
-
-  const formattedIban = electronicFormatIBAN(IBAN);
-  if (!formattedIban || !isValidIBAN(formattedIban)) {
-    return { ok: false, message: "IBAN invalide." };
-  }
-
-  const { ciphertext, iv, tag } = encryptIban(formattedIban);
-  return {
-    ok: true,
-    iban: ciphertext,
-    ibanIv: iv,
-    ibanTag: tag,
-    ibanLast4: formattedIban.slice(-4),
-    ibanHash: crypto.createHash("sha256").update(formattedIban).digest("hex"),
-    accountName: bankaccountname ? encryptSensitiveData(bankaccountname.trim()) : null,
-  };
-}
 
 /**
  * Cancels any currently-active subscription for the user and inserts a new
@@ -525,7 +492,7 @@ router.post(
       const {
         first_name, last_name, phone_number, email, birth_date, role, is_admin,
         activity_name, city, instagram_account, profile_photo, banner_photo,
-        bankaccountname, IBAN, iban_last4, accept_online_payment, pro_status,
+        accept_online_payment, pro_status,
         bio, profile_visibility,
       } = req.body;
 
@@ -547,24 +514,18 @@ router.post(
 
       const password_hash = await bcrypt.hash("TempPassword123!", 12);
 
-      const bank = prepareBankFields(IBAN, bankaccountname);
-      if (!bank.ok) {
-        return res.status(400).json({ success: false, message: bank.message });
-      }
-
       const [insertRows] = await db.query(
         `INSERT INTO users (
           first_name, last_name, phone_number, email, birth_date, password_hash,
           is_verified, role, is_admin, created_at, activity_name, city,
-          instagram_account, profile_photo, banner_photo, bankaccountname,
-          "IBAN", iban_iv, iban_tag, iban_last4, iban_hash, accept_online_payment, pro_status, bio, profile_visibility
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+          instagram_account, profile_photo, banner_photo,
+          accept_online_payment, pro_status, bio, profile_visibility
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
         [
           first_name, last_name, phone_number, email, formattedBirthDate, password_hash,
           0, role, is_admin ? 1 : 0,
           activity_name || null, city || null, instagram_account || null,
-          profile_photo || null, banner_photo || null, bank.accountName,
-          bank.iban, bank.ibanIv, bank.ibanTag, iban_last4 || bank.ibanLast4, bank.ibanHash,
+          profile_photo || null, banner_photo || null,
           accept_online_payment ? 1 : 0, pro_status || "inactive",
           bio || null, profile_visibility || "public",
         ]
@@ -596,7 +557,7 @@ router.put(
       const {
         first_name, last_name, phone_number, email, birth_date, role, is_admin,
         activity_name, city, instagram_account, profile_photo, banner_photo,
-        bankaccountname, IBAN, iban_last4, accept_online_payment, pro_status,
+        accept_online_payment, pro_status,
         bio, profile_visibility, is_verified,
       } = req.body;
 
@@ -619,17 +580,11 @@ router.put(
         } catch {}
       }
 
-      const bank = prepareBankFields(IBAN, bankaccountname);
-      if (!bank.ok) {
-        return res.status(400).json({ success: false, message: bank.message });
-      }
-
       await db.query(
         `UPDATE users SET
           first_name = ?, last_name = ?, phone_number = ?, email = ?,
           birth_date = ?, role = ?, is_admin = ?, activity_name = ?,
           city = ?, instagram_account = ?, profile_photo = ?, banner_photo = ?,
-          bankaccountname = ?, "IBAN" = ?, iban_iv = ?, iban_tag = ?, iban_last4 = ?, iban_hash = ?,
           accept_online_payment = ?, pro_status = ?, bio = ?,
           profile_visibility = ?, is_verified = ?
         WHERE id = ?`,
@@ -637,8 +592,7 @@ router.put(
           first_name, last_name, phone_number, email, formattedBirthDate,
           role, is_admin ? 1 : 0,
           activity_name || null, city || null, instagram_account || null,
-          profile_photo || null, banner_photo || null, bank.accountName,
-          bank.iban, bank.ibanIv, bank.ibanTag, iban_last4 || bank.ibanLast4, bank.ibanHash,
+          profile_photo || null, banner_photo || null,
           accept_online_payment ? 1 : 0, pro_status || "inactive",
           bio || null, profile_visibility || "public",
           is_verified ? 1 : 0, userId,
