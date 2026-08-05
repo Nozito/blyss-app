@@ -1061,6 +1061,29 @@ app.get(
   }
 );
 
+/* GET PORTFOLIO GALLERY BY PRO (PUBLIC) — profil public vu par une cliente */
+app.get(
+  "/api/gallery/pro/:id",
+  publicListingLimiter,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const proId = parseParamToInt(req.params.id);
+      if (proId === null) {
+        return res.status(400).json({ success: false, message: "ID invalide" });
+      }
+
+      const [rows] = await db.query(
+        "SELECT id, url, thumbnail, created_at FROM gallery_images WHERE pro_id = ? ORDER BY created_at DESC",
+        [proId]
+      );
+
+      res.json({ success: true, data: rows });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 /* ============================================
    SLOTS & AVAILABILITY ROUTES
    ============================================ */
