@@ -23,6 +23,7 @@ const PRO_NOTIFICATION_MAPPING: { [key: string]: string } = {
   message_received: "client_message",
   payment_received: "payment_alert",
   activity_summary: "activity_summary",
+  finance_report: "activity_summary",
   promotional: "activity_summary",
   info: "activity_summary",
 };

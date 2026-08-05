@@ -49,6 +49,7 @@ import { geocodeCity, haversineKm, jitterCoords } from "./lib/geocoding";
 import { startDataRetentionCron } from "./cron/data-retention";
 import { startPaymentCleanupCron } from "./cron/payment-cleanup";
 import { startSubscriptionExpiryCron } from "./cron/subscription-expiry";
+import { startFinanceReportsCron } from "./cron/finance-reports";
 import { initiateRefundsForReservation } from "./lib/refunds";
 import { getActiveEntitlement } from "./lib/revenuecat";
 import { startRecallCron } from "./cron/recall";
@@ -56,7 +57,6 @@ import nailTechRouter, { notifyWaitingList } from "./routes/nail-tech.routes";
 import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
 import http from "http";
-import { isValidIBAN, electronicFormatIBAN } from "ibantools";
 import crypto from "crypto";
 import ExcelJS from "exceljs";
 import Stripe from "stripe";
@@ -76,7 +76,6 @@ import { authMiddleware, authenticateToken } from "./middleware/auth";
 import {
   bookingLimiter,
   paymentIntentLimiter,
-  ibanUpdateLimiter,
   publicListingLimiter,
   adminLimiter,
   instagramLimiter,
@@ -86,12 +85,7 @@ import { validate, userUpdateSchema, financeObjectiveSchema, prestationSchema, p
 import authRouter from "./routes/auth.routes";
 import adminRouter from "./routes/admin.routes";
 import cancellationRouter from "./routes/cancellation.routes";
-import {
-  encryptSensitiveData,
-  decryptSensitiveData,
-  encryptIban,
-  decryptIban,
-} from "./lib/encryption";
+import { getTopServices, getRevenueStats } from "./lib/finance";
 
 // ==========================================
 // 2. CONFIGURATION ENV
@@ -109,7 +103,6 @@ const REQUIRED_ENV_VARS = [
   "STRIPE_SECRET_KEY",
   "STRIPE_WEBHOOK_SECRET",
   "REVENUECAT_WEBHOOK_SECRET",
-  "IBAN_ENC_KEY",
 ] as const;
 
 const missingVars = REQUIRED_ENV_VARS.filter((v) => !process.env[v]);
@@ -881,17 +874,6 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
 /* Toutes les routes /api/admin/* sont dans routes/admin.routes.ts */
 
 // ==========================================
-// CONFIGURATION CHIFFREMENT IBAN
-// encryptIban/decryptIban/encryptSensitiveData/decryptSensitiveData
-// importés depuis lib/encryption.ts (random IV par enregistrement)
-// ==========================================
-if (!process.env.IBAN_ENC_KEY) {
-  console.error("❌ IBAN_ENC_KEY manquante");
-  process.exit(1);
-}
-console.info("Clés de chiffrement IBAN chargées");
-
-// ==========================================
 // INTERFACES
 // ==========================================
 
@@ -941,8 +923,6 @@ interface User {
 }
 
 interface UpdatePaymentsBody {
-  bankaccountname?: string;
-  IBAN?: string;
   accept_online_payment?: boolean;
 }
 
@@ -1505,6 +1485,35 @@ router.post('/prestations/:id/duplicate', authMiddleware, requireActiveProSubscr
 // FINANCE PRO ROUTES (Signature only)
 // =====================
 
+// Shared guard for the finance endpoints below — same rule as the existing
+// /finance/stats and /finance/objective (pro actif + abonnement Signature).
+async function requireActiveSignaturePro(
+  userId: number
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const [userRows]: any = await db.query(
+    "SELECT role, pro_status FROM users WHERE id = ?",
+    [userId]
+  );
+  const user = userRows?.[0];
+  if (!user || user.role !== "pro" || user.pro_status !== "active") {
+    return { ok: false, status: 403, error: "Accès réservé aux professionnels actifs" };
+  }
+
+  const [subscriptionRows]: any = await db.query(
+    "SELECT plan, status FROM subscriptions WHERE client_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1",
+    [userId]
+  );
+  const subscription = subscriptionRows?.[0];
+  if (!subscription || subscription.status !== "active") {
+    return { ok: false, status: 403, error: "Aucun abonnement actif" };
+  }
+  if (subscription.plan !== "signature") {
+    return { ok: false, status: 403, error: `Fonctionnalité réservée à l'abonnement Signature (actuel : ${subscription.plan})` };
+  }
+
+  return { ok: true };
+}
+
 // GET /api/pro/finance/stats - Dashboard Finance
 app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
   const rid = req.requestId;
@@ -1560,6 +1569,11 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0)
       .toISOString()
       .split("T")[0];
+    // Semaine ISO (lundi → aujourd'hui) — getDay() renvoie 0 pour dimanche
+    const mondayOffset = (now.getDay() + 6) % 7;
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - mondayOffset);
+    const startOfWeekStr = startOfWeek.toISOString().split("T")[0];
 
     // === 4. CA (sur reservations.start_datetime) ===
     const [[{ total: todayTotal }]]: any = await db.query(
@@ -1569,6 +1583,15 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
        AND start_datetime::date = ?
        AND status IN ('confirmed','completed')`,
       [userId, today]
+    );
+
+    const [[{ total: weekTotal }]]: any = await db.query(
+      `SELECT COALESCE(SUM(price), 0) AS total
+       FROM reservations
+       WHERE pro_id = ?
+       AND start_datetime::date BETWEEN ? AND ?
+       AND status IN ('confirmed','completed')`,
+      [userId, startOfWeekStr, today]
     );
 
     const [[{ total: monthTotal }]]: any = await db.query(
@@ -1591,6 +1614,7 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
 
     // === 5. Prévision (casts AVANT calcul) ===
     const todayTotalNum = Number(todayTotal) || 0;
+    const weekTotalNum = Number(weekTotal) || 0;
     const monthTotalNum = Number(monthTotal) || 0;
     const lastMonthTotalNum = Number(lastMonthTotal) || 0;
 
@@ -1603,16 +1627,20 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
     if (monthTotalNum > lastMonthTotalNum * 1.05) trend = "up";
     else if (monthTotalNum < lastMonthTotalNum * 0.95) trend = "down";
 
+    // === 7. Top prestations du mois en cours ===
+    const topServices = await getTopServices(db, userId, startOfMonth, today, 5);
+
     return res.json({
       success: true,
       data: {
         today: todayTotalNum,
+        week: weekTotalNum,
         month: monthTotalNum,
         lastMonth: lastMonthTotalNum,
         objective: Number(user?.monthly_objective ?? 0),
         forecast: Number.isFinite(forecastNum) ? Math.round(forecastNum) : 0,
         trend,
-        topServices: [],
+        topServices,
       },
     });
   } catch (error) {
@@ -1682,6 +1710,211 @@ app.put("/api/pro/finance/objective", authenticateToken, validate(financeObjecti
       success: false,
       error: "Erreur lors de la mise à jour de l'objectif",
     });
+  }
+});
+
+// GET /api/pro/finance/reports - Historique des rapports auto (hebdo/mensuel)
+app.get("/api/pro/finance/reports", authenticateToken, async (req: any, res) => {
+  const rid = req.requestId;
+  try {
+    const userId = req.user.id;
+    const guard = await requireActiveSignaturePro(userId);
+    if (!guard.ok) return res.status(guard.status).json({ success: false, error: guard.error });
+
+    const [rows] = await db.query(
+      `SELECT id, period_type, period_start, period_end, revenue, previous_revenue,
+              bookings_count, avg_basket, viewed_at, created_at
+       FROM finance_reports
+       WHERE pro_id = ?
+       ORDER BY created_at DESC
+       LIMIT 30`,
+      [userId]
+    );
+
+    return res.json({
+      success: true,
+      data: (rows as any[]).map((r) => ({
+        id: r.id,
+        periodType: r.period_type,
+        periodStart: r.period_start,
+        periodEnd: r.period_end,
+        revenue: Number(r.revenue) || 0,
+        previousRevenue: Number(r.previous_revenue) || 0,
+        bookingsCount: Number(r.bookings_count) || 0,
+        avgBasket: Number(r.avg_basket) || 0,
+        viewedAt: r.viewed_at,
+        createdAt: r.created_at,
+      })),
+    });
+  } catch (error) {
+    console.error(`[FINANCE_REPORTS][${rid}] ERROR`, error);
+    return res.status(500).json({ success: false, error: "Erreur lors du chargement des rapports" });
+  }
+});
+
+// GET /api/pro/finance/reports/:id - Détail d'un rapport (marque comme vu)
+app.get("/api/pro/finance/reports/:id", authenticateToken, async (req: any, res) => {
+  const rid = req.requestId;
+  try {
+    const userId = req.user.id;
+    const guard = await requireActiveSignaturePro(userId);
+    if (!guard.ok) return res.status(guard.status).json({ success: false, error: guard.error });
+
+    const reportId = parseParamToInt(req.params.id);
+    if (reportId === null) {
+      return res.status(400).json({ success: false, error: "Identifiant invalide" });
+    }
+
+    const [rows] = await db.query(
+      `SELECT id, period_type, period_start, period_end, revenue, previous_revenue,
+              bookings_count, avg_basket, top_services, viewed_at, created_at
+       FROM finance_reports
+       WHERE id = ? AND pro_id = ?`,
+      [reportId, userId]
+    );
+    const report = (rows as any[])[0];
+    if (!report) {
+      return res.status(404).json({ success: false, error: "Rapport introuvable" });
+    }
+
+    if (!report.viewed_at) {
+      await db.query("UPDATE finance_reports SET viewed_at = NOW() WHERE id = ?", [reportId]);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        id: report.id,
+        periodType: report.period_type,
+        periodStart: report.period_start,
+        periodEnd: report.period_end,
+        revenue: Number(report.revenue) || 0,
+        previousRevenue: Number(report.previous_revenue) || 0,
+        bookingsCount: Number(report.bookings_count) || 0,
+        avgBasket: Number(report.avg_basket) || 0,
+        topServices: report.top_services ?? [],
+        viewedAt: report.viewed_at ?? new Date().toISOString(),
+        createdAt: report.created_at,
+      },
+    });
+  } catch (error) {
+    console.error(`[FINANCE_REPORT_DETAIL][${rid}] ERROR`, error);
+    return res.status(500).json({ success: false, error: "Erreur lors du chargement du rapport" });
+  }
+});
+
+// GET /api/pro/finance/performance - Analyses de performance
+app.get("/api/pro/finance/performance", authenticateToken, async (req: any, res) => {
+  const rid = req.requestId;
+  try {
+    const userId = req.user.id;
+    const guard = await requireActiveSignaturePro(userId);
+    if (!guard.ok) return res.status(guard.status).json({ success: false, error: guard.error });
+
+    const now = new Date();
+    const windowStart = new Date(now);
+    windowStart.setDate(now.getDate() - 90);
+    const windowStartStr = windowStart.toISOString().split("T")[0];
+    const todayStr = now.toISOString().split("T")[0];
+
+    // Meilleur jour de la semaine (CA total par jour, 90 derniers jours)
+    const [dayRows] = await db.query(
+      `SELECT EXTRACT(DOW FROM start_datetime)::int AS dow, SUM(price) AS revenue
+       FROM reservations
+       WHERE pro_id = ? AND start_datetime::date BETWEEN ? AND ?
+         AND status IN ('confirmed','completed')
+       GROUP BY dow
+       ORDER BY revenue DESC
+       LIMIT 1`,
+      [userId, windowStartStr, todayStr]
+    );
+    const DOW_LABELS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+    const bestDayRow = (dayRows as any[])[0];
+    const bestDay = bestDayRow ? DOW_LABELS[Number(bestDayRow.dow)] : null;
+
+    // Meilleur créneau horaire (nb de rdv par heure, 90 derniers jours)
+    const [hourRows] = await db.query(
+      `SELECT EXTRACT(HOUR FROM start_datetime)::int AS hour, COUNT(*) AS count
+       FROM reservations
+       WHERE pro_id = ? AND start_datetime::date BETWEEN ? AND ?
+         AND status IN ('confirmed','completed')
+       GROUP BY hour
+       ORDER BY count DESC
+       LIMIT 1`,
+      [userId, windowStartStr, todayStr]
+    );
+    const bestHourRow = (hourRows as any[])[0];
+    const bestHour = bestHourRow ? `${String(bestHourRow.hour).padStart(2, "0")}h` : null;
+
+    // Panier moyen + nb rdv (90 derniers jours)
+    const { revenue: windowRevenue, count: windowCount } = await getRevenueStats(db, userId, windowStartStr, todayStr);
+    const avgBasket = windowCount > 0 ? Math.round((windowRevenue / windowCount) * 100) / 100 : 0;
+
+    // Taux de remplissage (créneaux réservés / créneaux ouverts, 90 derniers jours)
+    const [[fillRow]]: any = await db.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status IN ('available', 'booked')) AS total,
+         COUNT(*) FILTER (WHERE status = 'booked') AS booked
+       FROM slots
+       WHERE pro_id = ? AND start_datetime::date BETWEEN ? AND ?`,
+      [userId, windowStartStr, todayStr]
+    );
+    const totalSlots = Number(fillRow?.total) || 0;
+    const bookedSlots = Number(fillRow?.booked) || 0;
+    const fillRate = totalSlots > 0 ? Math.round((bookedSlots / totalSlots) * 100) : 0;
+
+    // Nouvelles vs clientes fidèles — parmi les clientes vues sur la
+    // fenêtre, celles qui ont plus d'une résa au total (toutes périodes)
+    // avec cette pro sont "fidèles", les autres "nouvelles".
+    const [loyaltyRows] = await db.query(
+      `SELECT r.client_id, COUNT(*) OVER (PARTITION BY r.client_id) AS lifetime_count
+       FROM reservations r
+       WHERE r.pro_id = ? AND r.status IN ('confirmed','completed')
+         AND r.client_id IN (
+           SELECT DISTINCT client_id FROM reservations
+           WHERE pro_id = ? AND start_datetime::date BETWEEN ? AND ?
+             AND status IN ('confirmed','completed')
+         )`,
+      [userId, userId, windowStartStr, todayStr]
+    );
+    const byClient = new Map<number, number>();
+    for (const row of loyaltyRows as any[]) {
+      byClient.set(row.client_id, Number(row.lifetime_count));
+    }
+    let newClients = 0;
+    let returningClients = 0;
+    for (const count of byClient.values()) {
+      if (count > 1) returningClients++;
+      else newClients++;
+    }
+
+    // Évolution du CA sur les 6 derniers mois (mois en cours inclus)
+    const monthlyEvolution: Array<{ month: string; revenue: number }> = [];
+    const MONTH_LABELS = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
+    for (let i = 5; i >= 0; i--) {
+      const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthStart = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}-01`;
+      const monthEndDate = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+      const monthEnd = i === 0 ? todayStr : monthEndDate.toISOString().split("T")[0];
+      const { revenue } = await getRevenueStats(db, userId, monthStart, monthEnd);
+      monthlyEvolution.push({ month: MONTH_LABELS[monthDate.getMonth()], revenue });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        bestDay,
+        bestHour,
+        avgBasket,
+        fillRate,
+        newClients,
+        returningClients,
+        monthlyEvolution,
+      },
+    });
+  } catch (error) {
+    console.error(`[FINANCE_PERFORMANCE][${rid}] ERROR`, error);
+    return res.status(500).json({ success: false, error: "Erreur lors du chargement des analyses" });
   }
 });
 
@@ -1874,28 +2107,6 @@ app.get(
           .json({ success: false, message: "User not found" });
       }
 
-      let decryptedBankData: any = {};
-      if (user.IBAN && (user as any).iban_iv && (user as any).iban_tag) {
-        try {
-          const plainIban = decryptIban(user.IBAN as string, (user as any).iban_iv, (user as any).iban_tag);
-          decryptedBankData.IBAN = plainIban.replace(/.(?=.{4})/g, "•");
-        } catch (err) {
-          console.error("Error decrypting IBAN:", err);
-          decryptedBankData.IBAN = null;
-        }
-      }
-
-      if (user.bankaccountname) {
-        try {
-          decryptedBankData.bankaccountname = decryptSensitiveData(
-            user.bankaccountname as string
-          );
-        } catch (err) {
-          console.error("Error decrypting bank account name:", err);
-          decryptedBankData.bankaccountname = null;
-        }
-      }
-
       const [clientsRows] = await db.execute(
         `
         SELECT COUNT(DISTINCT client_id) AS clients_count
@@ -1956,7 +2167,6 @@ app.get(
 
       const payload = {
         ...userWithoutSensitive,
-        ...decryptedBankData,
         clients_count,
         avg_rating,
         years_on_blyss,
@@ -2372,130 +2582,28 @@ app.put(
 );
 
 
-/* UPDATE PAYMENTS */
+/* UPDATE PAYMENTS
+ * Bascule accept_online_payment. Les coordonnées bancaires réelles (IBAN)
+ * sont désormais entièrement gérées par Stripe Connect lors de l'onboarding
+ * (voir /api/pro/stripe/*) — ce champ IBAN self-service a été retiré côté
+ * app et n'est plus lu/écrit ici pour éviter la double saisie.
+ */
 app.put(
   "/api/users/payments",
   authMiddleware,
-  ibanUpdateLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const userId = req.user!.id;
-      const { bankaccountname, IBAN, accept_online_payment } =
-        req.body as UpdatePaymentsBody;
+      const { accept_online_payment } = req.body as UpdatePaymentsBody;
 
-      if (accept_online_payment) {
-        if (!bankaccountname || !bankaccountname.trim()) {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              message: "Le titulaire du compte est requis.",
-            });
-        }
-
-        if (bankaccountname.trim().length < 2) {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              message: "Le nom du titulaire doit contenir au moins 2 caractères.",
-            });
-        }
-
-        if (!IBAN || !IBAN.trim()) {
-          return res
-            .status(400)
-            .json({ success: false, message: "L'IBAN est requis." });
-        }
-
-        const formattedIban = electronicFormatIBAN(IBAN);
-        if (!formattedIban || !isValidIBAN(formattedIban)) {
-          return res
-            .status(400)
-            .json({ success: false, message: "IBAN invalide." });
-        }
-
-        const { ciphertext: ibanCiphertext, iv: ibanIv, tag: ibanTag } = encryptIban(formattedIban);
-        const encryptedAccountName = encryptSensitiveData(bankaccountname.trim());
-        const ibanLast4 = formattedIban.slice(-4);
-        const ibanHash = crypto.createHash("sha256").update(formattedIban).digest("hex");
-
-        const [existing] = await db.execute(
-          `SELECT id FROM users
-           WHERE id != ?
-           AND iban_hash = ?`,
-          [userId, ibanHash]
-        );
-
-        if ((existing as any[]).length > 0) {
-          return res.status(409).json({
-            success: false,
-            message: "Cet IBAN est déjà utilisé par un autre compte.",
-          });
-        }
-
-        await db.execute(
-          `UPDATE users
-           SET
-             bankaccountname = ?,
-             "IBAN" = ?,
-             iban_iv = ?,
-             iban_tag = ?,
-             iban_last4 = ?,
-             iban_hash = ?,
-             accept_online_payment = true,
-             bank_info_updated_at = NOW()
-           WHERE id = ?`,
-          [encryptedAccountName, ibanCiphertext, ibanIv, ibanTag, ibanLast4, ibanHash, userId]
-        );
-      } else {
-        await db.execute(
-          `
-          UPDATE users
-          SET accept_online_payment = false
-          WHERE id = ?
-        `,
-          [userId]
-        );
-      }
-
-      const [rows] = await db.execute(
-        `SELECT bankaccountname, "IBAN", iban_iv, iban_tag, iban_last4, accept_online_payment
-         FROM users WHERE id = ?`,
-        [userId]
+      await db.execute(
+        `UPDATE users SET accept_online_payment = ? WHERE id = ?`,
+        [Boolean(accept_online_payment), userId]
       );
-      const record = (rows as any[])[0];
-
-      let maskedIban: string | null = null;
-      let accountHolderName: string | null = null;
-
-      if (record.IBAN && record.iban_iv && record.iban_tag) {
-        try {
-          const plainIban = decryptIban(record.IBAN as string, record.iban_iv, record.iban_tag);
-          maskedIban = plainIban.replace(/.(?=.{4})/g, "•");
-        } catch (err) {
-          console.error("Error decrypting IBAN:", err);
-          maskedIban = null;
-        }
-      }
-
-      if (record.bankaccountname) {
-        try {
-          accountHolderName = decryptSensitiveData(record.bankaccountname as string);
-        } catch (err) {
-          console.error("Error decrypting account name:", err);
-          accountHolderName = null;
-        }
-      }
 
       res.json({
         success: true,
-        data: {
-          bankaccountname: accountHolderName,
-          IBAN: maskedIban,
-          iban_last4: record.iban_last4,
-          accept_online_payment: Boolean(record.accept_online_payment),
-        },
+        data: { accept_online_payment: Boolean(accept_online_payment) },
       });
     } catch (err) {
       console.error("Payment update error:", err);
@@ -3280,7 +3388,9 @@ app.get(
       const data = rows.map((r) => {
         const last = new Date(r.last_visit);
         const diffMs = now.getTime() - last.getTime();
-        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        // r.last_visit peut être un rendez-vous "confirmed" à venir (pas encore
+        // eu lieu) : borner à 0 pour éviter un décompte négatif ("il y a -57 jours").
+        const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
 
         let lastVisitLabel = "";
         if (diffDays === 0) lastVisitLabel = "Aujourd'hui";
@@ -6470,6 +6580,7 @@ if (process.env.NODE_ENV !== "test") {
     startPaymentCleanupCron();
     startRecallCron();
     startSubscriptionExpiryCron();
+    startFinanceReportsCron();
   });
 }
 
