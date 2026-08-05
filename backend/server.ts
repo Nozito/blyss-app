@@ -2301,6 +2301,118 @@ app.post(
   }
 );
 
+/* ── PORTFOLIO GALLERY (public-profile "réalisations") ──────────────────── */
+const uploadGalleryDir = path.join(UPLOADS_DIR, "gallery");
+if (!fs.existsSync(uploadGalleryDir)) {
+  fs.mkdirSync(uploadGalleryDir, { recursive: true });
+}
+const uploadGallery = multer({ storage: memStorage, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } });
+const MAX_GALLERY_IMAGES = 20;
+
+/* GET /api/pro/gallery */
+app.get(
+  "/api/pro/gallery",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const proId = getProId(req);
+      const [rows] = await db.query(
+        "SELECT id, url, thumbnail, created_at FROM gallery_images WHERE pro_id = ? ORDER BY created_at DESC",
+        [proId]
+      );
+      res.json({ success: true, data: rows });
+    } catch (error) {
+      console.error("Error fetching gallery:", error);
+      res.status(500).json({ success: false, message: "Erreur lors du chargement de la galerie" });
+    }
+  }
+);
+
+/* POST /api/pro/gallery */
+app.post(
+  "/api/pro/gallery",
+  authMiddleware,
+  uploadGallery.single("image"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const proId = getProId(req);
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: "Aucun fichier fourni" });
+      }
+
+      const [[{ count }]]: any = await db.query(
+        "SELECT COUNT(*) AS count FROM gallery_images WHERE pro_id = ?",
+        [proId]
+      );
+      if (Number(count) >= MAX_GALLERY_IMAGES) {
+        return res.status(400).json({ success: false, message: `Maximum ${MAX_GALLERY_IMAGES} photos.` });
+      }
+
+      const base = `gallery_${proId}_${Date.now()}`;
+      const fullFilename = `${base}.webp`;
+      const thumbFilename = `${base}_thumb.webp`;
+
+      await sharp(req.file.buffer)
+        .resize(1080, 1080, { fit: "cover", position: "center" })
+        .webp({ quality: 85 })
+        .toFile(path.join(uploadGalleryDir, fullFilename));
+
+      await sharp(req.file.buffer)
+        .resize(300, 300, { fit: "cover", position: "center" })
+        .webp({ quality: 75 })
+        .toFile(path.join(uploadGalleryDir, thumbFilename));
+
+      const url = `/uploads/gallery/${fullFilename}`;
+      const thumbnail = `/uploads/gallery/${thumbFilename}`;
+
+      const [rows] = await db.query(
+        `INSERT INTO gallery_images (pro_id, url, thumbnail) VALUES (?, ?, ?) RETURNING id, url, thumbnail, created_at`,
+        [proId, url, thumbnail]
+      );
+
+      res.json({ success: true, data: (rows as any[])[0] });
+    } catch (error) {
+      console.error("Error uploading gallery photo:", error);
+      res.status(500).json({ success: false, message: "Erreur lors de l'upload" });
+    }
+  }
+);
+
+/* DELETE /api/pro/gallery/:id */
+app.delete(
+  "/api/pro/gallery/:id",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const proId = getProId(req);
+      const imageId = parseParamToInt(req.params.id);
+      if (imageId === null) {
+        return res.status(400).json({ success: false, message: "Identifiant invalide" });
+      }
+
+      const [rows] = await db.query(
+        "SELECT url, thumbnail FROM gallery_images WHERE id = ? AND pro_id = ?",
+        [imageId, proId]
+      );
+      const image = (rows as any[])[0];
+      if (!image) {
+        return res.status(404).json({ success: false, message: "Photo introuvable" });
+      }
+
+      await db.execute("DELETE FROM gallery_images WHERE id = ? AND pro_id = ?", [imageId, proId]);
+
+      for (const relPath of [image.url, image.thumbnail]) {
+        const filePath = path.join(UPLOADS_DIR, relPath.replace(/^\/uploads\//, ""));
+        fs.unlink(filePath, () => {}); // best-effort — la ligne DB est déjà supprimée
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting gallery photo:", error);
+      res.status(500).json({ success: false, message: "Erreur lors de la suppression" });
+    }
+  }
+);
 
 /* ── PUSH NOTIFICATIONS ─────────────────────────────────────────────────── */
 
