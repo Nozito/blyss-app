@@ -47,19 +47,6 @@ vi.mock("stripe", () => {
   return { default: MockStripe };
 });
 
-// ─── 4. Mock InstagramService (import mid-file dans server.ts) ────────────
-vi.mock("../services/InstagramService", () => {
-  class MockInstagramService {
-    getConnectUrl() { return "http://mock-ig-url"; }
-    async handleOAuthCallback() { return null; }
-    async getStatus() { return null; }
-    async disconnect() {}
-    async syncMedia() { return { success: true }; }
-    async getMedia() { return []; }
-  }
-  return { InstagramService: MockInstagramService };
-});
-
 // ─── 5. Import du serveur (APRÈS les mocks) ───────────────────────────────
 import { app } from "../server";
 

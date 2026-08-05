@@ -6,8 +6,7 @@
  * 1. Anonymiser les réservations > 5 ans (obligation légale comptable)
  * 2. Envoyer email de préavis 30j avant suppression comptes inactifs > 2 ans 11 mois
  * 3. Supprimer comptes inactifs > 3 ans après préavis
- * 4. Purger tokens Instagram révoqués > 90 jours
- * 5. Logger chaque opération dans audit_log
+ * 4. Logger chaque opération dans audit_log
  */
 
 import { getDb } from "../lib/db";
@@ -19,7 +18,6 @@ const ROUTE = "/cron/data-retention";
 const BOOKING_ANONYMIZE_YEARS   = 5;
 const ACCOUNT_INACTIVE_MONTHS   = 36; // 3 ans
 const ACCOUNT_NOTICE_MONTHS     = 35; // 2 ans 11 mois → email préavis
-const INSTAGRAM_TOKEN_DAYS      = 90;
 
 // ── Envoi email préavis via Resend ───────────────────────────────────────────
 async function sendRetentionNotice(email: string, firstName: string): Promise<void> {
@@ -160,17 +158,6 @@ async function deleteInactiveAccounts(): Promise<{ deleted: number; anonymized: 
   return { deleted, anonymized, failed };
 }
 
-async function purgeRevokedInstagramTokens(): Promise<number> {
-  // Table is instagram_connections (not instagram_tokens); revoked rows have is_active = FALSE
-  const [result] = await getDb().execute(
-    `DELETE FROM instagram_connections
-     WHERE is_active = FALSE
-       AND updated_at < NOW() - INTERVAL '${INSTAGRAM_TOKEN_DAYS} days'`,
-    []
-  );
-  return (result as any).rowCount ?? 0;
-}
-
 async function logAudit(operation: string, rowsAffected: number): Promise<void> {
   try {
     await getDb().execute(
@@ -211,14 +198,6 @@ export async function runDataRetentionCycle(): Promise<void> {
     log.warn(ROUTE, `Deleted ${deleted}, anonymized ${anonymized}, failed ${failed} inactive account(s)`);
   } catch (err: unknown) {
     log.error(ROUTE, "delete_inactive_accounts failed", err instanceof Error ? err.stack : String(err));
-  }
-
-  try {
-    const purged = await purgeRevokedInstagramTokens();
-    await logAudit("purge_instagram_tokens", purged);
-    log.warn(ROUTE, `Purged ${purged} revoked Instagram tokens`);
-  } catch (err: unknown) {
-    log.error(ROUTE, "purge_instagram_tokens failed", err instanceof Error ? err.stack : String(err));
   }
 
   log.warn(ROUTE, "Data retention cycle complete");

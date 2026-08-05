@@ -5,9 +5,6 @@
 
 -- Nettoyage propre (ordre inverse des FK)
 TRUNCATE TABLE
-  instagram_sync_log,
-  instagram_media_cache,
-  instagram_connections,
   favorites,
   revenucat_webhooks,
   payment_methods,

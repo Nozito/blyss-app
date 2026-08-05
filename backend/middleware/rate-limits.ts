@@ -192,19 +192,6 @@ export const cancellationLimiter = rateLimit({
   },
 });
 
-// Instagram OAuth & sync — 30 requêtes par 15 min par IP (inclut syncs manuels)
-export const instagramLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: "too_many_requests",
-    message: "Trop de requêtes Instagram, réessayez dans 15 minutes.",
-  },
-});
-
 // 20 inscriptions liste d'attente par heure par IP (anti-spam notifications)
 export const waitingListLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,

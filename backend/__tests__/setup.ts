@@ -16,8 +16,3 @@ process.env.REVENUECAT_WEBHOOK_SECRET = "rc_test_fake_secret";
 process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test_blyss";
 process.env.PORT = "0";
 process.env.FRONTEND_URL = "http://localhost:5173";
-
-// Variables Instagram (optionnelles mais évitent des warnings)
-process.env.INSTAGRAM_APP_ID = "test_ig_app_id";
-process.env.INSTAGRAM_APP_SECRET = "test_ig_app_secret";
-process.env.INSTAGRAM_REDIRECT_URI = "http://localhost:3001/api/instagram/callback";
