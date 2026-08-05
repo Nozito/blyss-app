@@ -258,8 +258,7 @@ router.get(
         `SELECT
           id, first_name, last_name, email, phone_number, birth_date, role,
           is_admin, activity_name, city, instagram_account, profile_photo, banner_photo,
-          bio, profile_visibility, pro_status, bankaccountname, "IBAN",
-          iban_iv, iban_tag, iban_last4,
+          bio, profile_visibility, pro_status,
           accept_online_payment, created_at,
           geo_precision, address_line, postal_code, service_radius_km, service_area_label,
           acceptance_conditions
@@ -322,8 +321,6 @@ router.get(
           clients_count,
           avg_rating,
           years_on_blyss,
-          bankaccountname: user.bankaccountname,
-          IBAN: user.IBAN,
           accept_online_payment: user.accept_online_payment,
           created_at: user.created_at,
           geo_precision: user.geo_precision || "city",

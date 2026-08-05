@@ -103,8 +103,6 @@ async function anonymizeUser(userId: number): Promise<void> {
        phone_number = NULL, birth_date = NULL,
        activity_name = NULL, city = NULL, instagram_account = NULL,
        profile_photo = NULL, banner_photo = NULL, bio = NULL,
-       "IBAN" = NULL, iban_iv = NULL, iban_tag = NULL, iban_hash = NULL, iban_last4 = NULL,
-       bankaccountname = NULL,
        is_active = FALSE
      WHERE id = ?`,
     [userId]
