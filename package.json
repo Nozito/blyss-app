@@ -144,5 +144,8 @@
   "bugs": {
     "url": "https://github.com/Nozito/blyss-app/issues"
   },
-  "homepage": "https://github.com/Nozito/blyss-app#readme"
+  "homepage": "https://github.com/Nozito/blyss-app#readme",
+  "overrides": {
+    "keyv": "4.5.4"
+  }
 }
