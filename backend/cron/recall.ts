@@ -13,7 +13,7 @@
  * Uses FOR UPDATE SKIP LOCKED for concurrent-safe claiming.
  */
 
-import { sendPushToUser } from "../lib/push";
+import { sendPushToUser, sendExpoPushToUsers } from "../lib/push";
 import { getDb } from "../lib/db";
 import { log } from "../lib/logger";
 
@@ -26,10 +26,12 @@ const RECALL_CLAIM_QUERY = `
     FROM reservations r
     JOIN prestations p ON p.id = r.prestation_id
     JOIN users u_client ON u_client.id = r.client_id AND u_client.is_active = TRUE
+    LEFT JOIN client_notification_settings cns ON cns.user_id = r.client_id
     WHERE r.status = 'completed'
       AND r.recall_sent = FALSE
       AND p.recall_weeks IS NOT NULL
       AND r.start_datetime <= NOW() - (p.recall_weeks * INTERVAL '1 week')
+      AND COALESCE(cns.offers, true) = true
     FOR UPDATE OF r SKIP LOCKED
   ),
   claimed AS (
@@ -65,11 +67,18 @@ async function sendRecallReminders(): Promise<void> {
   let sent = 0;
   for (const row of rows as any[]) {
     try {
+      const title = "C'est l'heure de votre prochain rendez-vous ✨";
+      const body = `Votre ${row.prestation_name} avec ${row.pro_name} date de ${row.recall_weeks} semaine(s). Pensez à rebooker !`;
       await sendPushToUser(row.client_id, {
-        title: "C'est l'heure de votre prochain rendez-vous ✨",
-        body: `Votre ${row.prestation_name} avec ${row.pro_name} date de ${row.recall_weeks} semaine(s). Pensez à rebooker !`,
+        title,
+        body,
         url: `/pro/${row.pro_id}`,
         tag: `recall-${row.id}`,
+      });
+      await sendExpoPushToUsers([row.client_id], {
+        title,
+        body,
+        data: { type: "recall", pro_id: row.pro_id, prestation_id: row.prestation_id },
       });
 
       // Insert notification in DB for in-app display
@@ -78,7 +87,7 @@ async function sendRecallReminders(): Promise<void> {
          VALUES (?, 'recall', 'C'est l''heure de rebooker !', ?, ?)`,
         [
           row.client_id,
-          `Votre ${row.prestation_name} avec ${row.pro_name} date de ${row.recall_weeks} semaine(s). Pensez à rebooker !`,
+          body,
           JSON.stringify({ pro_id: row.pro_id, prestation_id: row.prestation_id }),
         ]
       );

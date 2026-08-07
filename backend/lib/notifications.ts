@@ -1,6 +1,7 @@
 import { WebSocket } from "ws";
 import { getDb } from "./db";
 import { log } from "./logger";
+import { sendExpoPushToUsers } from "./push";
 
 export const connectedClients = new Map<number, WebSocket>();
 
@@ -19,7 +20,9 @@ const PRO_NOTIFICATION_MAPPING: { [key: string]: string } = {
   new_booking: "new_reservation",
   booking_confirmed: "cancel_change",
   booking_cancelled: "cancel_change",
+  booking_rescheduled: "cancel_change",
   booking_reminder: "daily_reminder",
+  daily_reminder: "daily_reminder",
   message_received: "client_message",
   payment_received: "payment_alert",
   activity_summary: "activity_summary",
@@ -97,11 +100,20 @@ export async function sendNotificationToUser(
 
   const ws = connectedClients.get(userId);
   if (ws && ws.readyState === WebSocket.OPEN) {
+    // App foreground with a live socket: the client already turns this into
+    // a local banner (see NotificationContext.tsx) — sending a real Expo push
+    // too would show it twice.
     ws.send(JSON.stringify({ type: "new_notification", data: notification }));
     return true;
   }
 
-  // User offline — normal, not an error
+  // No live socket — app backgrounded/closed, this is the only way to reach it.
+  await sendExpoPushToUsers([userId], {
+    title: notification.title,
+    body: notification.message,
+    data: { type: notification.type, ...(notification.data ?? {}) },
+  });
+
   return false;
 }
 

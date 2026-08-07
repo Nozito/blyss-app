@@ -124,7 +124,10 @@ export const reservationSchema = z
     prestation_id: z.number("prestation_id doit être un nombre").int().positive(),
     start_datetime: z.string().datetime("start_datetime doit être une date ISO valide"),
     end_datetime: z.string().datetime("end_datetime doit être une date ISO valide"),
-    price: z.number("Le prix doit être un nombre").positive("Le prix doit être positif"),
+    // Le prix n'est plus utilisé — il est toujours recalculé côté serveur
+    // depuis prestations.price. Champ gardé optionnel le temps que les
+    // clients en circulation arrêtent de l'envoyer.
+    price: z.number().positive().optional(),
     slot_id: z.number().int().positive().optional(),
     payment_method: z.enum(["online", "on_site"], {
       message: "payment_method doit être 'online' ou 'on_site'",

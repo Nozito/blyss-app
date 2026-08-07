@@ -53,6 +53,7 @@ import { startFinanceReportsCron } from "./cron/finance-reports";
 import { initiateRefundsForReservation } from "./lib/refunds";
 import { getActiveEntitlement } from "./lib/revenuecat";
 import { startRecallCron } from "./cron/recall";
+import { startDailyRecapCron } from "./cron/daily-recap";
 import nailTechRouter, { notifyWaitingList } from "./routes/nail-tech.routes";
 import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
@@ -263,6 +264,39 @@ app.post(
               `UPDATE reservations SET payment_status = ?, total_paid = total_paid + ? WHERE id = ?`,
               [newStatus, payment.amount, payment.reservation_id]
             );
+
+            // Notify the pro that a payment/deposit landed (best-effort)
+            try {
+              const [resaRows] = await connection.query(
+                `SELECT pro_id FROM reservations WHERE id = ?`,
+                [payment.reservation_id]
+              );
+              const proId = (resaRows as any[])[0]?.pro_id;
+              if (proId) {
+                const amountLabel = (Number(payment.amount) || 0).toFixed(2);
+                const title = payment.type === "deposit" ? "Acompte encaissé" : "Paiement encaissé";
+                const message = `Un ${payment.type === "deposit" ? "acompte" : "paiement"} de ${amountLabel} € a été encaissé pour un rendez-vous.`;
+                const [notifRows] = await connection.query(
+                  `INSERT INTO notifications (user_id, type, title, message, data)
+                   VALUES (?, 'payment_received', ?, ?, ?)
+                   RETURNING id, created_at`,
+                  [proId, title, message, JSON.stringify({ reservation_id: payment.reservation_id })]
+                );
+                const notif = (notifRows as any[])[0];
+                if (notif) {
+                  await sendNotificationToUser(proId, {
+                    id: notif.id,
+                    type: "payment_received",
+                    title,
+                    message,
+                    data: { reservation_id: payment.reservation_id },
+                    created_at: notif.created_at,
+                  });
+                }
+              }
+            } catch (notifErr) {
+              log.warn("/api/webhooks/stripe", "payment_received notification error (non-fatal)", { piId: pi.id });
+            }
           }
           break;
         }
@@ -1507,11 +1541,17 @@ router.post('/prestations/:id/duplicate', authMiddleware, requireActiveProSubscr
 // FINANCE PRO ROUTES (Signature only)
 // =====================
 
-// Shared guard for the finance endpoints below — same rule as the existing
-// /finance/stats and /finance/objective (pro actif + abonnement Signature).
-async function requireActiveSignaturePro(
-  userId: number
-): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+// Shared guard for plan-gated pro endpoints — checks pro is active AND
+// their subscription plan is at least `minPlan` in the Start < Sérénité <
+// Signature hierarchy.
+type Plan = "start" | "serenite" | "signature";
+const PLAN_RANK: Record<Plan, number> = { start: 1, serenite: 2, signature: 3 };
+const PLAN_LABEL: Record<Plan, string> = { start: "Start", serenite: "Sérénité", signature: "Signature" };
+
+async function requirePlan(
+  userId: number,
+  minPlan: Plan
+): Promise<{ ok: true; plan: Plan } | { ok: false; status: number; error: string }> {
   const [userRows]: any = await db.query(
     "SELECT role, pro_status FROM users WHERE id = ?",
     [userId]
@@ -1529,11 +1569,16 @@ async function requireActiveSignaturePro(
   if (!subscription || subscription.status !== "active") {
     return { ok: false, status: 403, error: "Aucun abonnement actif" };
   }
-  if (subscription.plan !== "signature") {
-    return { ok: false, status: 403, error: `Fonctionnalité réservée à l'abonnement Signature (actuel : ${subscription.plan})` };
+  const plan = subscription.plan as Plan;
+  if (PLAN_RANK[plan] < PLAN_RANK[minPlan]) {
+    return {
+      ok: false,
+      status: 403,
+      error: `Fonctionnalité réservée à l'abonnement ${PLAN_LABEL[minPlan]} ou supérieur (actuel : ${PLAN_LABEL[plan] ?? plan})`,
+    };
   }
 
-  return { ok: true };
+  return { ok: true, plan };
 }
 
 // GET /api/pro/finance/stats - Dashboard Finance
@@ -1544,42 +1589,18 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
 
     log.info("/api/pro/finance/stats", 200, 0, userId);
 
-    // === 1. Vérifier pro actif ===
+    // === 1. Vérifier pro actif + abonnement (CA temps réel = dès Start) ===
+    const guard = await requirePlan(userId, "start");
+    if (!guard.ok) {
+      return res.status(guard.status).json({ success: false, error: guard.error });
+    }
+    const plan = guard.plan;
+
     const [userRows]: any = await db.query(
-      "SELECT role, pro_status, monthly_objective FROM users WHERE id = ?",
+      "SELECT monthly_objective FROM users WHERE id = ?",
       [userId]
     );
-
     const user = userRows?.[0];
-
-    if (!user || user.role !== "pro" || user.pro_status !== "active") {
-      return res.status(403).json({
-        success: false,
-        error: "Accès réservé aux professionnels actifs",
-      });
-    }
-
-    // === 2. Vérifier abonnement Signature ===
-    const [subscriptionRows]: any = await db.query(
-      "SELECT plan, status, id FROM subscriptions WHERE client_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1",
-      [userId]
-    );
-
-    const subscription = subscriptionRows?.[0];
-
-    if (!subscription || subscription.status !== "active") {
-      return res.status(403).json({
-        success: false,
-        error: "Aucun abonnement actif",
-      });
-    }
-
-    if (subscription.plan !== "signature") {
-      return res.status(403).json({
-        success: false,
-        error: `Fonctionnalité réservée à l'abonnement Signature (actuel : ${subscription.plan})`,
-      });
-    }
 
     // === 3. Dates ===
     const now = new Date();
@@ -1644,25 +1665,32 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
     const forecastNum =
       monthTotalNum + (monthTotalNum / Math.max(now.getDate(), 1)) * (daysInMonth - now.getDate());
 
-    // === 6. Tendance (comparaison en nombres) ===
-    let trend: "up" | "down" | "stable" = "stable";
-    if (monthTotalNum > lastMonthTotalNum * 1.05) trend = "up";
-    else if (monthTotalNum < lastMonthTotalNum * 0.95) trend = "down";
+    // === 6. Tendance + top prestations (Statistiques détaillées = Sérénité+) ===
+    const isSereniteOrAbove = PLAN_RANK[plan] >= PLAN_RANK.serenite;
+    let trend: "up" | "down" | "stable" | undefined;
+    let topServices: Awaited<ReturnType<typeof getTopServices>> | undefined;
+    if (isSereniteOrAbove) {
+      trend = "stable";
+      if (monthTotalNum > lastMonthTotalNum * 1.05) trend = "up";
+      else if (monthTotalNum < lastMonthTotalNum * 0.95) trend = "down";
+      topServices = await getTopServices(db, userId, startOfMonth, today, 5);
+    }
 
-    // === 7. Top prestations du mois en cours ===
-    const topServices = await getTopServices(db, userId, startOfMonth, today, 5);
+    // === 7. Prévision du CA (Signature uniquement) ===
+    const forecast = plan === "signature" && Number.isFinite(forecastNum) ? Math.round(forecastNum) : undefined;
 
     return res.json({
       success: true,
       data: {
+        plan,
         today: todayTotalNum,
         week: weekTotalNum,
         month: monthTotalNum,
         lastMonth: lastMonthTotalNum,
         objective: Number(user?.monthly_objective ?? 0),
-        forecast: Number.isFinite(forecastNum) ? Math.round(forecastNum) : 0,
-        trend,
-        topServices,
+        ...(forecast !== undefined ? { forecast } : {}),
+        ...(trend !== undefined ? { trend } : {}),
+        ...(topServices !== undefined ? { topServices } : {}),
       },
     });
   } catch (error) {
@@ -1684,36 +1712,10 @@ app.put("/api/pro/finance/objective", authenticateToken, validate(financeObjecti
 
     log.info("/api/pro/finance/objective", 200, 0, userId);
 
-    // 1) Vérifier pro actif
-    const [userRows]: any = await db.query(
-      "SELECT role, pro_status FROM users WHERE id = ?",
-      [userId]
-    );
-    const user = userRows?.[0];
-
-    if (!user || user.role !== "pro" || user.pro_status !== "active") {
-      return res.status(403).json({
-        success: false,
-        error: "Accès réservé aux professionnels actifs",
-      });
-    }
-
-    // 2) (Optionnel) Vérifier abonnement Signature — garde la même règle que /stats si tu veux
-    const [subscriptionRows]: any = await db.query(
-      "SELECT plan, status, id FROM subscriptions WHERE client_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1",
-      [userId]
-    );
-    const subscription = subscriptionRows?.[0];
-
-    if (!subscription || subscription.status !== "active") {
-      return res.status(403).json({ success: false, error: "Aucun abonnement actif" });
-    }
-
-    if (subscription.plan !== "signature") {
-      return res.status(403).json({
-        success: false,
-        error: `Fonctionnalité réservée à l'abonnement Signature (actuel : ${subscription.plan})`,
-      });
+    // 1) Vérifier pro actif + abonnement (objectif = dashboard CA, dès Start)
+    const guard = await requirePlan(userId, "start");
+    if (!guard.ok) {
+      return res.status(guard.status).json({ success: false, error: guard.error });
     }
 
     // 3) Update
@@ -1740,7 +1742,7 @@ app.get("/api/pro/finance/reports", authenticateToken, async (req: any, res) => 
   const rid = req.requestId;
   try {
     const userId = req.user.id;
-    const guard = await requireActiveSignaturePro(userId);
+    const guard = await requirePlan(userId, "signature");
     if (!guard.ok) return res.status(guard.status).json({ success: false, error: guard.error });
 
     const [rows] = await db.query(
@@ -1779,7 +1781,7 @@ app.get("/api/pro/finance/reports/:id", authenticateToken, async (req: any, res)
   const rid = req.requestId;
   try {
     const userId = req.user.id;
-    const guard = await requireActiveSignaturePro(userId);
+    const guard = await requirePlan(userId, "signature");
     if (!guard.ok) return res.status(guard.status).json({ success: false, error: guard.error });
 
     const reportId = parseParamToInt(req.params.id);
@@ -1830,7 +1832,7 @@ app.get("/api/pro/finance/performance", authenticateToken, async (req: any, res)
   const rid = req.requestId;
   try {
     const userId = req.user.id;
-    const guard = await requireActiveSignaturePro(userId);
+    const guard = await requirePlan(userId, "signature");
     if (!guard.ok) return res.status(guard.status).json({ success: false, error: guard.error });
 
     const now = new Date();
@@ -1949,19 +1951,10 @@ app.get("/api/pro/finance/export", authenticateToken, async (req: any, res) => {
     const userId = req.user.id;
     const period = req.query.period || "month"; // week | month | year
 
-    // Vérifier l'abonnement Signature
-    const [subRows]: any = await db.query(
-      "SELECT plan, status, id FROM subscriptions WHERE client_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1",
-      [userId]
-    );
-
-    const subscription = subRows?.[0];
-
-    if (!subscription || subscription.plan !== "signature") {
-      return res.status(403).json({
-        success: false,
-        error: "Fonctionnalité réservée à l'abonnement Signature",
-      });
+    // Export CSV/Excel = Sérénité ou supérieur
+    const guard = await requirePlan(userId, "serenite");
+    if (!guard.ok) {
+      return res.status(guard.status).json({ success: false, error: guard.error });
     }
 
     // Calculer les dates selon la période
@@ -2358,6 +2351,13 @@ app.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const proId = getProId(req);
+
+      // Portfolio photos = Sérénité ou supérieur
+      const guard = await requirePlan(proId, "serenite");
+      if (!guard.ok) {
+        return res.status(guard.status).json({ success: false, message: guard.error });
+      }
+
       if (!req.file) {
         return res.status(400).json({ success: false, message: "Aucun fichier fourni" });
       }
@@ -5409,7 +5409,7 @@ app.patch(
       connection = await db.getConnection();
 
       const [existing] = await connection.query(
-        `SELECT id, status, start_datetime, slot_id FROM reservations
+        `SELECT id, status, start_datetime, slot_id, pro_id FROM reservations
          WHERE id = ? AND client_id = ?`,
         [bookingId, clientId]
       ) as [any[], any];
@@ -5468,6 +5468,31 @@ app.patch(
         message: "Réservation annulée avec succès"
       });
 
+      // Notify the pro of the client's cancellation (best-effort, after response)
+      try {
+        const startAt = new Date(booking.start_datetime);
+        const message = `Une cliente a annulé son rendez-vous du ${startAt.toLocaleDateString("fr-FR")}.`;
+        const [notifRows] = await db.query(
+          `INSERT INTO notifications (user_id, type, title, message, data)
+           VALUES (?, 'booking_cancelled', 'RDV annulé par la cliente', ?, ?)
+           RETURNING id, created_at`,
+          [booking.pro_id, message, JSON.stringify({ reservation_id: bookingId })]
+        );
+        const notif = (notifRows as any[])[0];
+        if (notif) {
+          await sendNotificationToUser(booking.pro_id, {
+            id: notif.id,
+            type: "booking_cancelled",
+            title: "RDV annulé par la cliente",
+            message,
+            data: { reservation_id: bookingId },
+            created_at: notif.created_at,
+          });
+        }
+      } catch (notifErr) {
+        log.warn("/api/client/bookings/cancel", "pro notification error (non-fatal)", { bookingId });
+      }
+
     } catch (error) {
       console.error("❌ Error cancelling booking:", error);
       res.status(500).json({
@@ -5506,7 +5531,7 @@ app.patch(
       connection = await db.getConnection();
 
       const [existing] = await connection.query(
-        `SELECT id, status, start_datetime, slot_id FROM reservations WHERE id = ? AND client_id = ?`,
+        `SELECT id, status, start_datetime, slot_id, pro_id FROM reservations WHERE id = ? AND client_id = ?`,
         [bookingId, clientId]
       ) as [any[], any];
 
@@ -5544,6 +5569,30 @@ app.patch(
       );
 
       res.json({ success: true, message: "Rendez-vous reporté avec succès" });
+
+      // Notify the pro of the client's reschedule (best-effort, after response)
+      try {
+        const message = `Une cliente a reporté son rendez-vous au ${newStart.toLocaleDateString("fr-FR")} à ${newStart.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`;
+        const [notifRows] = await db.query(
+          `INSERT INTO notifications (user_id, type, title, message, data)
+           VALUES (?, 'booking_rescheduled', 'RDV reporté par la cliente', ?, ?)
+           RETURNING id, created_at`,
+          [booking.pro_id, message, JSON.stringify({ reservation_id: bookingId })]
+        );
+        const notif = (notifRows as any[])[0];
+        if (notif) {
+          await sendNotificationToUser(booking.pro_id, {
+            id: notif.id,
+            type: "booking_rescheduled",
+            title: "RDV reporté par la cliente",
+            message,
+            data: { reservation_id: bookingId },
+            created_at: notif.created_at,
+          });
+        }
+      } catch (notifErr) {
+        log.warn("/api/client/bookings/reschedule", "pro notification error (non-fatal)", { bookingId });
+      }
     } catch (error) {
       console.error("❌ Error rescheduling booking:", error);
       res.status(500).json({ success: false, message: "Erreur lors du report" });
@@ -5942,18 +5991,22 @@ app.put("/api/pro/stripe/deposit", authenticateToken, validate(depositSchema), a
 app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reservationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user?.id;
-    const { pro_id, prestation_id, start_datetime, end_datetime, price: parsedPrice, slot_id, payment_method } = req.body;
+    const { pro_id, prestation_id, start_datetime, end_datetime, slot_id, payment_method } = req.body;
     const paidOnline = payment_method === "online";
 
-    // Verify prestation belongs to the given pro + get its name and buffer for notification + overlap
+    // Verify prestation belongs to the given pro + get its name, price and buffer
+    // for the deposit calculation, notification and overlap check. The price is
+    // always read from here — never trusted from the client request body — so a
+    // tampered request can't book a prestation for an arbitrary amount.
     const [prestationRows] = await db.query(
-      `SELECT id, name, buffer_after_minutes FROM prestations WHERE id = ? AND pro_id = ?`,
+      `SELECT id, name, price, buffer_after_minutes FROM prestations WHERE id = ? AND pro_id = ?`,
       [prestation_id, pro_id]
     );
     if ((prestationRows as any[]).length === 0) {
       return res.status(403).json({ success: false, message: "Prestation invalide pour ce professionnel" });
     }
     const prestationName = (prestationRows as any[])[0].name as string;
+    const price = Number((prestationRows as any[])[0].price);
 
     // Guard: client must not be blacklisted by this pro
     const [blockedRows] = await db.query(
@@ -6021,12 +6074,12 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
         return res.status(404).json({ success: false, message: "Professionnel introuvable" });
       }
       depositPct = pro.deposit_percentage ?? 50;
-      depositAmount = depositPct > 0 ? Math.round(parsedPrice * depositPct) / 100 : null;
+      depositAmount = depositPct > 0 ? Math.round(price * depositPct) / 100 : null;
 
       const [resaRows] = await connection.execute(
         `INSERT INTO reservations (client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, payment_status, deposit_amount, paid_online, slot_id, created_at)
          VALUES (?, ?, ?, ?, ?, 'confirmed', ?, 'unpaid', ?, ?, ?, NOW()) RETURNING id`,
-        [clientId, pro_id, prestation_id, start_datetime, end_datetime, parsedPrice, depositAmount, paidOnline, slot_id || null]
+        [clientId, pro_id, prestation_id, start_datetime, end_datetime, price, depositAmount, paidOnline, slot_id || null]
       );
 
       insertId = (resaRows as any[])[0]?.id;
@@ -6069,9 +6122,9 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
       const timeStr = startAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
       const paymentLabel = paidOnline
         ? depositAmount
-          ? `En ligne — acompte ${depositAmount.toFixed(2)}€ / total ${parsedPrice.toFixed(2)}€`
-          : `En ligne — ${parsedPrice.toFixed(2)}€`
-        : `Sur place — ${parsedPrice.toFixed(2)}€`;
+          ? `En ligne — acompte ${depositAmount.toFixed(2)}€ / total ${price.toFixed(2)}€`
+          : `En ligne — ${price.toFixed(2)}€`
+        : `Sur place — ${price.toFixed(2)}€`;
 
       const notifMessage = `${clientName} a réservé « ${prestationName} » le ${dateStr} à ${timeStr}. Paiement : ${paymentLabel}.`;
 
@@ -6087,7 +6140,7 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
             prestation: prestationName,
             date: dateStr,
             time: timeStr,
-            price: parsedPrice,
+            price: price,
             deposit_amount: depositAmount,
             payment_method: payment_method ?? "on_site",
           }),
@@ -6114,7 +6167,7 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
         id: insertId,
         deposit_percentage: depositPct,
         deposit_amount: depositAmount,
-        price: parsedPrice,
+        price: price,
       },
     });
   } catch (error) {
@@ -6378,6 +6431,7 @@ if (process.env.NODE_ENV !== "test") {
     startRecallCron();
     startSubscriptionExpiryCron();
     startFinanceReportsCron();
+    startDailyRecapCron();
   });
 }
 

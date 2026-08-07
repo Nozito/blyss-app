@@ -2,17 +2,20 @@
  * Appointment reminder cron — runs every 15 minutes.
  *
  * Sends push notifications to clients:
- *   - J-1  : day before the appointment (sent once, any time that day)
- *   - H-2  : ~2 hours before the appointment (±10 min window for 15-min cycle)
+ *   - J-1   : day before the appointment (sent once, any time that day)
+ *   - H-2   : ~2 hours before the appointment (±10 min window for 15-min cycle)
+ *   - POST  : ~24h after a completed appointment, review + rebook nudge —
+ *             only for pros on Sérénité or Signature (feature grid: "Rappels
+ *             post-prestation").
  *
  * Respects client_notification_settings.reminders preference.
- * Each reminder is idempotent via reminder_j1_sent / reminder_h2_sent flags.
+ * Each reminder is idempotent via reminder_j1_sent / reminder_h2_sent / reminder_post_sent flags.
  *
  * Race condition prevention: a single CTE atomically marks rows (UPDATE...RETURNING)
  * with FOR UPDATE SKIP LOCKED so concurrent instances never double-send.
  */
 
-import { sendPushToUser } from "./push";
+import { sendPushToUser, sendExpoPushToUsers } from "./push";
 import { getDb } from "./db";
 import { log } from "./logger";
 
@@ -105,6 +108,97 @@ const H2_CLAIM_QUERY = `
   JOIN users u_pro ON u_pro.id = c.pro_id
 `;
 
+/**
+ * Atomically claims post-appointment reminders (completed reservations,
+ * end_datetime at least 24h in the past) for pros currently on Sérénité or
+ * Signature. Same CTE + SKIP LOCKED pattern as J1/H2.
+ */
+const POST_CLAIM_QUERY = `
+  WITH locked AS (
+    SELECT r.id
+    FROM reservations r
+    JOIN users u_client ON u_client.id = r.client_id AND u_client.is_active = true
+    LEFT JOIN client_notification_settings cns ON cns.user_id = r.client_id
+    WHERE
+      r.status = 'completed'
+      AND r.end_datetime <= (NOW() - INTERVAL '24 hours')
+      AND r.reminder_post_sent = false
+      AND COALESCE(cns.reminders, true) = true
+      AND EXISTS (
+        SELECT 1 FROM subscriptions s
+        WHERE s.client_id = r.pro_id
+          AND s.status = 'active'
+          AND s.plan IN ('serenite', 'signature')
+      )
+    FOR UPDATE OF r SKIP LOCKED
+  ),
+  claimed AS (
+    UPDATE reservations
+    SET reminder_post_sent = true
+    FROM locked
+    WHERE reservations.id = locked.id
+    RETURNING
+      reservations.id,
+      reservations.client_id,
+      reservations.pro_id,
+      reservations.prestation_id
+  )
+  SELECT
+    c.id,
+    c.client_id,
+    c.pro_id,
+    COALESCE(p.name, 'Soin') AS prestation_name,
+    COALESCE(
+      NULLIF(TRIM(u_pro.activity_name), ''),
+      u_pro.first_name || ' ' || u_pro.last_name
+    ) AS pro_name
+  FROM claimed c
+  LEFT JOIN prestations p ON p.id = c.prestation_id
+  JOIN users u_pro ON u_pro.id = c.pro_id
+`;
+
+async function sendPostReminders(): Promise<void> {
+  const db = getDb();
+  const [rows] = await db.query(POST_CLAIM_QUERY, []);
+
+  let sent = 0;
+  for (const row of rows as any[]) {
+    // Same reasoning as sendJ1Reminders: don't let one failed push abort
+    // the rest of an already-claimed batch.
+    try {
+      const title = "Comment s'est passé ton RDV ? 💬";
+      const body = `Ton rendez-vous avec ${row.pro_name} (${row.prestation_name}) est terminé. Laisse un avis et reprends ton prochain créneau dès maintenant !`;
+      await sendPushToUser(row.client_id, {
+        title,
+        body,
+        url: "/client/bookings",
+        tag: `rdv-post-${row.id}`,
+      });
+      await sendExpoPushToUsers([row.client_id], {
+        title,
+        body,
+        data: { type: "post_appointment", reservation_id: row.id },
+      });
+      await db.query(
+        `INSERT INTO notifications (user_id, type, title, message, data)
+         VALUES (?, 'post_appointment', ?, ?, ?)`,
+        [row.client_id, title, body, JSON.stringify({ reservation_id: row.id })]
+      );
+      sent++;
+    } catch (err) {
+      log.error(
+        "/cron/reminders",
+        `Post-appointment push failed for reservation ${row.id}`,
+        err instanceof Error ? err.stack : String(err)
+      );
+    }
+  }
+
+  if (sent > 0) {
+    log.warn("/cron/reminders", `POST: ${sent} reminder(s) sent`);
+  }
+}
+
 async function sendJ1Reminders(): Promise<void> {
   const db = getDb();
   const [rows] = await db.query(J1_CLAIM_QUERY, []);
@@ -120,12 +214,26 @@ async function sendJ1Reminders(): Promise<void> {
       if (row.preparation_instructions) {
         body += ` Préparation : ${row.preparation_instructions}`;
       }
+      const title = "Rappel rendez-vous demain ✨";
+      // sendPushToUser (VAPID) reaches a web PWA subscriber; sendExpoPushToUsers
+      // is what actually reaches the React Native mobile app — both are kept
+      // since a client can have either or both registered.
       await sendPushToUser(row.client_id, {
-        title: "Rappel rendez-vous demain ✨",
+        title,
         body,
         url: "/client/bookings",
         tag: `rdv-j1-${row.id}`,
       });
+      await sendExpoPushToUsers([row.client_id], {
+        title,
+        body,
+        data: { type: "booking_reminder", reservation_id: row.id },
+      });
+      await db.query(
+        `INSERT INTO notifications (user_id, type, title, message, data)
+         VALUES (?, 'booking_reminder', ?, ?, ?)`,
+        [row.client_id, title, body, JSON.stringify({ reservation_id: row.id })]
+      );
       sent++;
     } catch (err) {
       log.error(
@@ -150,12 +258,24 @@ async function sendH2Reminders(): Promise<void> {
     // Same reasoning as sendJ1Reminders: don't let one failed push abort
     // the rest of an already-claimed batch.
     try {
+      const title = "Ton RDV approche ⏰";
+      const body = `Ton rendez-vous à ${row.rdv_time} avec ${row.pro_name} est dans 2h !`;
       await sendPushToUser(row.client_id, {
-        title: "Ton RDV approche ⏰",
-        body: `Ton rendez-vous à ${row.rdv_time} avec ${row.pro_name} est dans 2h !`,
+        title,
+        body,
         url: "/client/bookings",
         tag: `rdv-h2-${row.id}`,
       });
+      await sendExpoPushToUsers([row.client_id], {
+        title,
+        body,
+        data: { type: "booking_reminder", reservation_id: row.id },
+      });
+      await db.query(
+        `INSERT INTO notifications (user_id, type, title, message, data)
+         VALUES (?, 'booking_reminder', ?, ?, ?)`,
+        [row.client_id, title, body, JSON.stringify({ reservation_id: row.id })]
+      );
       sent++;
     } catch (err) {
       log.error(
@@ -172,7 +292,7 @@ async function sendH2Reminders(): Promise<void> {
 }
 
 export async function runReminderCycle(): Promise<void> {
-  await Promise.allSettled([sendJ1Reminders(), sendH2Reminders()]);
+  await Promise.allSettled([sendJ1Reminders(), sendH2Reminders(), sendPostReminders()]);
 }
 
 /**
