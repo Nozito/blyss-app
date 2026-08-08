@@ -84,7 +84,7 @@ async function sendRecallReminders(): Promise<void> {
       // Insert notification in DB for in-app display
       await db.execute(
         `INSERT INTO notifications (user_id, type, title, message, data)
-         VALUES (?, 'recall', 'C'est l''heure de rebooker !', ?, ?)`,
+         VALUES (?, 'recall', 'C''est l''heure de rebooker !', ?, ?)`,
         [
           row.client_id,
           body,

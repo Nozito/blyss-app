@@ -344,3 +344,15 @@ export const adminNotificationSendSchema = z.object({
   title: z.string().min(1, "Le titre est requis").max(200, "Titre trop long"),
   body: z.string().min(1, "Le message est requis").max(2000, "Message trop long"),
 });
+
+export const liveActivityTokenSchema = z.object({
+  kind: z.enum(["start", "update"], { message: "kind invalide (start|update)" }),
+  token: z.string().min(1, "Token requis").max(500, "Token trop long"),
+  activityId: z.string().max(200).optional(),
+  reservationId: z.number().int().positive().optional(),
+});
+
+export const liveActivitySettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  privacy: z.enum(["full", "time_only", "countdown_only"]).optional(),
+});

@@ -48,6 +48,7 @@ supabase/.temp/
 *.pfx
 *.crt
 *.cert
+*.p8
 secrets/
 .secrets
 .vault-token

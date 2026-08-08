@@ -18,6 +18,8 @@
 import { sendPushToUser, sendExpoPushToUsers } from "./push";
 import { getDb } from "./db";
 import { log } from "./logger";
+import { sendLiveActivityStart } from "./apns";
+import { applyLiveActivityPrivacy } from "./liveActivityPrivacy";
 
 /**
  * Atomically claims J-1 reminders that have not been sent yet and returns
@@ -157,6 +159,89 @@ const POST_CLAIM_QUERY = `
   JOIN users u_pro ON u_pro.id = c.pro_id
 `;
 
+/**
+ * Claims reservations entering the Live Activity trigger window (up to 3h
+ * before start) for pros with the feature enabled and a push-to-start token
+ * registered. Idempotent via reservations.live_activity_started — unlike the
+ * J1/H2 windows this one is open-ended (now → +3h) rather than a narrow
+ * band, since the flag (not the window) is what prevents re-triggering
+ * across 15-min cycles.
+ */
+const LIVE_ACTIVITY_CLAIM_QUERY = `
+  WITH locked AS (
+    SELECT r.id
+    FROM reservations r
+    JOIN users u_pro ON u_pro.id = r.pro_id AND u_pro.live_activity_enabled = true
+    JOIN live_activity_tokens t ON t.user_id = r.pro_id AND t.kind = 'start'
+    WHERE
+      r.start_datetime BETWEEN NOW() AND (NOW() + INTERVAL '3 hours')
+      AND r.status = 'confirmed'
+      AND r.live_activity_started = false
+    FOR UPDATE OF r SKIP LOCKED
+  ),
+  claimed AS (
+    UPDATE reservations
+    SET live_activity_started = true
+    FROM locked
+    WHERE reservations.id = locked.id
+    RETURNING
+      reservations.id, reservations.pro_id, reservations.client_id, reservations.prestation_id,
+      reservations.start_datetime, reservations.end_datetime
+  )
+  SELECT
+    c.id, c.pro_id, c.start_datetime, c.end_datetime,
+    COALESCE(p.name, 'Soin') AS prestation_name,
+    u_client.first_name AS client_first_name,
+    u_pro.live_activity_privacy AS privacy,
+    t.push_token AS push_to_start_token
+  FROM claimed c
+  LEFT JOIN prestations p ON p.id = c.prestation_id
+  JOIN users u_client ON u_client.id = c.client_id
+  JOIN users u_pro ON u_pro.id = c.pro_id
+  JOIN live_activity_tokens t ON t.user_id = c.pro_id AND t.kind = 'start'
+`;
+
+async function manageLiveActivities(): Promise<void> {
+  const db = getDb();
+  const [rows] = await db.query(LIVE_ACTIVITY_CLAIM_QUERY, []);
+
+  let started = 0;
+  for (const row of rows as any[]) {
+    try {
+      const { clientFirstName, showTime } = applyLiveActivityPrivacy(row.privacy, row.client_first_name);
+      const contentState = {
+        startAt: row.start_datetime,
+        endAt: row.end_datetime,
+        prestationName: row.privacy === "full" ? row.prestation_name : null,
+        clientFirstName,
+        showTime,
+        privacyLevel: row.privacy,
+      };
+      const staleDate = Math.floor(new Date(row.end_datetime).getTime() / 1000);
+      const result = await sendLiveActivityStart(
+        row.push_to_start_token,
+        { reservationId: row.id },
+        contentState,
+        staleDate
+      );
+      if (result.tokenInvalid) {
+        await db.query("DELETE FROM live_activity_tokens WHERE user_id = ? AND kind = 'start'", [row.pro_id]);
+      }
+      if (result.ok) started++;
+    } catch (err) {
+      log.error(
+        "/cron/reminders",
+        `Live Activity push-to-start failed for reservation ${row.id}`,
+        err instanceof Error ? err.stack : String(err)
+      );
+    }
+  }
+
+  if (started > 0) {
+    log.warn("/cron/reminders", `LIVE ACTIVITY: ${started} started`);
+  }
+}
+
 async function sendPostReminders(): Promise<void> {
   const db = getDb();
   const [rows] = await db.query(POST_CLAIM_QUERY, []);
@@ -292,7 +377,7 @@ async function sendH2Reminders(): Promise<void> {
 }
 
 export async function runReminderCycle(): Promise<void> {
-  await Promise.allSettled([sendJ1Reminders(), sendH2Reminders(), sendPostReminders()]);
+  await Promise.allSettled([sendJ1Reminders(), sendH2Reminders(), sendPostReminders(), manageLiveActivities()]);
 }
 
 /**

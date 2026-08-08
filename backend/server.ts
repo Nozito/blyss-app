@@ -81,7 +81,9 @@ import {
   adminLimiter,
   pushLimiter,
 } from "./middleware/rate-limits";
-import { validate, userUpdateSchema, financeObjectiveSchema, prestationSchema, prestationPatchSchema, slotCreateSchema, reservationSchema, reviewSchema, depositSchema, paymentIntentSchema, favoriteSchema, unavailabilitySchema, reservationStatusSchema } from "./middleware/validate";
+import { validate, userUpdateSchema, financeObjectiveSchema, prestationSchema, prestationPatchSchema, slotCreateSchema, reservationSchema, reviewSchema, depositSchema, paymentIntentSchema, favoriteSchema, unavailabilitySchema, reservationStatusSchema, liveActivityTokenSchema, liveActivitySettingsSchema } from "./middleware/validate";
+import { sendLiveActivityEnd, sendLiveActivityUpdate } from "./lib/apns";
+import { applyLiveActivityPrivacy } from "./lib/liveActivityPrivacy";
 import authRouter from "./routes/auth.routes";
 import adminRouter from "./routes/admin.routes";
 import cancellationRouter from "./routes/cancellation.routes";
@@ -1579,6 +1581,248 @@ async function requirePlan(
   }
 
   return { ok: true, plan };
+}
+
+// =====================
+// LIVE ACTIVITY ROUTES (iOS lock screen / Dynamic Island — Live RDV)
+// =====================
+
+// GET /api/pro/live-activity/next-appointment
+app.get("/api/pro/live-activity/next-appointment", authenticateToken, async (req: any, res) => {
+  try {
+    const guard = await requirePlan(req.user.id, "start");
+    if (!guard.ok) return res.status(guard.status).json({ success: false, error: guard.error });
+    const userId = req.user.id;
+
+    const [userRows]: any = await db.query(
+      "SELECT live_activity_enabled, live_activity_privacy FROM users WHERE id = ?",
+      [userId]
+    );
+    const settings = userRows?.[0];
+    if (!settings?.live_activity_enabled) {
+      return res.json({ success: true, data: null });
+    }
+
+    const [rows]: any = await db.query(
+      `SELECT r.id, r.start_datetime, r.end_datetime, p.name AS prestation_name, u.first_name AS client_first_name
+       FROM reservations r
+       JOIN prestations p ON p.id = r.prestation_id
+       JOIN users u ON u.id = r.client_id
+       WHERE r.pro_id = ? AND r.status = 'confirmed' AND r.end_datetime > NOW()
+       ORDER BY r.start_datetime ASC
+       LIMIT 1`,
+      [userId]
+    );
+    const next = rows?.[0];
+    if (!next) return res.json({ success: true, data: null });
+
+    const { clientFirstName, showTime } = applyLiveActivityPrivacy(
+      settings.live_activity_privacy,
+      next.client_first_name
+    );
+
+    res.json({
+      success: true,
+      data: {
+        appointmentId: next.id,
+        startAt: next.start_datetime,
+        endAt: next.end_datetime,
+        prestationName: settings.live_activity_privacy === "full" ? next.prestation_name : null,
+        clientFirstName,
+        showTime,
+        privacyLevel: settings.live_activity_privacy,
+      },
+    });
+  } catch (err) {
+    console.error("[LIVE ACTIVITY next-appointment] error =", err);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+// GET /api/pro/live-activity/settings
+app.get("/api/pro/live-activity/settings", authenticateToken, async (req: any, res) => {
+  try {
+    const [rows]: any = await db.query(
+      "SELECT live_activity_enabled, live_activity_privacy FROM users WHERE id = ?",
+      [req.user.id]
+    );
+    const settings = rows?.[0];
+    res.json({
+      success: true,
+      data: {
+        enabled: settings?.live_activity_enabled ?? true,
+        privacy: settings?.live_activity_privacy ?? "full",
+      },
+    });
+  } catch (err) {
+    console.error("[LIVE ACTIVITY settings GET] error =", err);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+// PUT /api/pro/live-activity/settings
+app.put(
+  "/api/pro/live-activity/settings",
+  authenticateToken,
+  validate(liveActivitySettingsSchema),
+  async (req: any, res) => {
+    try {
+      const { enabled, privacy } = req.body;
+      const userId = req.user.id;
+
+      if (enabled === undefined && privacy === undefined) {
+        return res.status(400).json({ success: false, error: "Aucun champ à mettre à jour" });
+      }
+
+      // Disabling ends any tokens we hold — nothing further should be pushed
+      // to this pro's lock screen until they re-enable it.
+      if (enabled === false) {
+        await db.query("DELETE FROM live_activity_tokens WHERE user_id = ?", [userId]);
+      }
+
+      const sets: string[] = [];
+      const params: any[] = [];
+      if (enabled !== undefined) {
+        sets.push("live_activity_enabled = ?");
+        params.push(enabled);
+      }
+      if (privacy !== undefined) {
+        sets.push("live_activity_privacy = ?");
+        params.push(privacy);
+      }
+      params.push(userId);
+      await db.query(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, params);
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error("[LIVE ACTIVITY settings PUT] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    }
+  }
+);
+
+// POST /api/pro/live-activity/tokens — register a push-to-start or per-activity update token
+app.post(
+  "/api/pro/live-activity/tokens",
+  authenticateToken,
+  validate(liveActivityTokenSchema),
+  async (req: any, res) => {
+    try {
+      const { kind, token, activityId, reservationId } = req.body;
+      const userId = req.user.id;
+
+      if (kind === "update" && !activityId) {
+        return res.status(400).json({ success: false, error: "activityId requis pour un token 'update'" });
+      }
+
+      // reservationId is trusted here only to attach metadata for the cron/mutation
+      // hooks to look up — ownership is enforced by scoping every subsequent
+      // query to (user_id = req.user.id), never trusting reservationId alone.
+      if (reservationId) {
+        const [resRows]: any = await db.query(
+          "SELECT id FROM reservations WHERE id = ? AND pro_id = ?",
+          [reservationId, userId]
+        );
+        if (!resRows?.[0]) {
+          return res.status(403).json({ success: false, error: "Réservation invalide" });
+        }
+      }
+
+      await db.query(
+        `INSERT INTO live_activity_tokens (user_id, kind, activity_id, reservation_id, push_token, updated_at)
+         VALUES (?, ?, ?, ?, ?, NOW())
+         ON CONFLICT (user_id, kind, activity_id)
+         DO UPDATE SET push_token = EXCLUDED.push_token, reservation_id = EXCLUDED.reservation_id, updated_at = NOW()`,
+        [userId, kind, activityId ?? null, reservationId ?? null, token]
+      );
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error("[LIVE ACTIVITY tokens POST] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    }
+  }
+);
+
+// DELETE /api/pro/live-activity/tokens — teardown (logout, activity ended client-side)
+app.delete("/api/pro/live-activity/tokens", authenticateToken, async (req: any, res) => {
+  try {
+    const userId = req.user.id;
+    const activityId = req.query.activityId as string | undefined;
+
+    if (activityId) {
+      await db.query(
+        "DELETE FROM live_activity_tokens WHERE user_id = ? AND kind = 'update' AND activity_id = ?",
+        [userId, activityId]
+      );
+    } else {
+      // No activityId — full teardown (logout, subscription lost): drop every
+      // token for this user, including the push-to-start one.
+      await db.query("DELETE FROM live_activity_tokens WHERE user_id = ?", [userId]);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[LIVE ACTIVITY tokens DELETE] error =", err);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+/**
+ * Pushes a remote update/end to a reservation's Live Activity, if the pro
+ * has a registered update token for it. Best-effort: swallows all errors,
+ * since a failed push must never abort the reservation mutation that
+ * triggered it (annulation/reprogrammation succeeds regardless).
+ *
+ * For "update", the full content-state is re-fetched and rebuilt here
+ * (rather than accepting a partial payload from callers) — ActivityKit
+ * content-state pushes replace the whole struct, so a partial payload would
+ * blank out fields the widget expects (client first name, prestation name).
+ */
+async function pushLiveActivityMutation(reservationId: number, kind: "update" | "end"): Promise<void> {
+  try {
+    const [tokenRows]: any = await db.query(
+      "SELECT push_token FROM live_activity_tokens WHERE reservation_id = ? AND kind = 'update' LIMIT 1",
+      [reservationId]
+    );
+    const token = tokenRows?.[0]?.push_token;
+    if (!token) return;
+
+    if (kind === "end") {
+      await sendLiveActivityEnd(token);
+      await db.query(
+        "DELETE FROM live_activity_tokens WHERE reservation_id = ? AND kind = 'update'",
+        [reservationId]
+      );
+      return;
+    }
+
+    const [rows]: any = await db.query(
+      `SELECT r.start_datetime, r.end_datetime, p.name AS prestation_name,
+              u_client.first_name AS client_first_name,
+              u_pro.live_activity_privacy AS privacy
+       FROM reservations r
+       LEFT JOIN prestations p ON p.id = r.prestation_id
+       JOIN users u_client ON u_client.id = r.client_id
+       JOIN users u_pro ON u_pro.id = r.pro_id
+       WHERE r.id = ?`,
+      [reservationId]
+    );
+    const row = rows?.[0];
+    if (!row) return;
+
+    const { clientFirstName, showTime } = applyLiveActivityPrivacy(row.privacy, row.client_first_name);
+    await sendLiveActivityUpdate(token, {
+      startAt: row.start_datetime,
+      endAt: row.end_datetime,
+      prestationName: row.privacy === "full" ? row.prestation_name : null,
+      clientFirstName,
+      showTime,
+      privacyLevel: row.privacy,
+    });
+  } catch (err) {
+    log.warn("live-activity", "push mutation failed (non-fatal)", { reservationId, kind });
+  }
 }
 
 // GET /api/pro/finance/stats - Dashboard Finance
@@ -4356,7 +4600,7 @@ app.patch(
       connection = await db.getConnection();
 
       const [rows] = await connection.query(
-        "SELECT id, status, slot_id, client_id, payment_status, start_datetime FROM reservations WHERE id = ? AND pro_id = ?",
+        "SELECT id, status, slot_id, client_id, pro_id, payment_status, start_datetime FROM reservations WHERE id = ? AND pro_id = ?",
         [reservationId, proId]
       );
 
@@ -4440,12 +4684,16 @@ app.patch(
           ? reservation.start_datetime
           : new Date(reservation.start_datetime);
         notifyWaitingList(reservation.pro_id, startAt2).catch(() => {});
+
+        pushLiveActivityMutation(reservationId, "end").catch(() => {});
       } else {
         // status === "completed"
         await connection.query(
           "UPDATE reservations SET status = ? WHERE id = ?",
           [status, reservationId]
         );
+
+        pushLiveActivityMutation(reservationId, "end").catch(() => {});
       }
 
       res.json({ success: true, message: `Réservation ${status}` });
@@ -5493,6 +5741,8 @@ app.patch(
         log.warn("/api/client/bookings/cancel", "pro notification error (non-fatal)", { bookingId });
       }
 
+      pushLiveActivityMutation(bookingId, "end").catch(() => {});
+
     } catch (error) {
       console.error("❌ Error cancelling booking:", error);
       res.status(500).json({
@@ -5593,6 +5843,8 @@ app.patch(
       } catch (notifErr) {
         log.warn("/api/client/bookings/reschedule", "pro notification error (non-fatal)", { bookingId });
       }
+
+      pushLiveActivityMutation(bookingId, "update").catch(() => {});
     } catch (error) {
       console.error("❌ Error rescheduling booking:", error);
       res.status(500).json({ success: false, message: "Erreur lors du report" });
@@ -6172,6 +6424,14 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
     });
   } catch (error) {
     console.error("[RESERVATION_CREATE] Error:", error);
+    // The prestation existence check above runs before the transaction, so a
+    // pro deleting that prestation in the narrow window between the check
+    // and the INSERT (e.g. mid-checkout on the client) surfaces here as a
+    // foreign key violation rather than the earlier 403 — give it the same
+    // clear, actionable message instead of a generic 500.
+    if ((error as { code?: string })?.code === "23503") {
+      return res.status(409).json({ success: false, message: "Cette prestation n'est plus disponible. Merci de rafraîchir la page." });
+    }
     return res.status(500).json({ success: false, message: "Erreur création réservation" });
   }
 });
