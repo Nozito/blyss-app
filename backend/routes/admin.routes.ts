@@ -1398,6 +1398,14 @@ router.get(
       const page = Math.max(Number(req.query.page) || 1, 1);
       const offset = (page - 1) * limit;
 
+      const [totalRows] = await db.query(
+        `SELECT COUNT(DISTINCT r.id) AS total
+         FROM reviews r
+         ${flaggedOnly ? "JOIN" : "LEFT JOIN"} review_flags rf ON rf.review_id = r.id`,
+        []
+      );
+      const total = Number((totalRows as any[])[0]?.total ?? 0);
+
       const [rows] = await db.query(
         `SELECT
            r.id, r.rating, r.comment, r.created_at,
@@ -1416,6 +1424,7 @@ router.get(
 
       res.json({
         success: true,
+        total,
         data: (rows as any[]).map((r) => ({ ...r, flags_count: Number(r.flags_count) })),
       });
     } catch (error) {
