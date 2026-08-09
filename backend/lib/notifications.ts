@@ -36,6 +36,8 @@ const PRO_NOTIFICATION_MAPPING: { [key: string]: string } = {
   finance_report: "activity_summary",
   promotional: "activity_summary",
   info: "activity_summary",
+  review_deleted: "activity_summary",
+  review_restored: "activity_summary",
 };
 
 export async function checkNotificationPreference(

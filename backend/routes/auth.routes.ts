@@ -285,7 +285,7 @@ router.get(
         clients_count = (clientRows as any[])[0]?.count || 0;
 
         const [ratingRows] = await db.query(
-          `SELECT AVG(rating) as avg FROM reviews WHERE pro_id = ?`,
+          `SELECT AVG(rating) as avg FROM reviews WHERE pro_id = ? AND deleted_at IS NULL`,
           [userId]
         );
         avg_rating = (ratingRows as any[])[0]?.avg || null;

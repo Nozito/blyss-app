@@ -2410,7 +2410,7 @@ app.get(
         `
         SELECT AVG(rating) AS avg_rating
         FROM reviews
-        WHERE pro_id = ?
+        WHERE pro_id = ? AND deleted_at IS NULL
         `,
         [userId]
       );
@@ -3080,7 +3080,7 @@ app.get(
       const [countRows] = await connection.query(
         `SELECT COUNT(*) as total FROM (
           SELECT u.id FROM users u
-          LEFT JOIN reviews r ON r.pro_id = u.id
+          LEFT JOIN reviews r ON r.pro_id = u.id AND r.deleted_at IS NULL
           WHERE ${whereClause}
           GROUP BY u.id
           ${havingClause}
@@ -3098,7 +3098,7 @@ app.get(
           COALESCE(AVG(r.rating), 0) as avg_rating,
           COUNT(DISTINCT r.id) as reviews_count
         FROM users u
-        LEFT JOIN reviews r ON r.pro_id = u.id
+        LEFT JOIN reviews r ON r.pro_id = u.id AND r.deleted_at IS NULL
         WHERE ${whereClause}
         GROUP BY u.id
         ${havingClause}
@@ -3186,7 +3186,7 @@ app.get(
       connection = await db.getConnection();
 
       const [countRows] = await connection.query(
-        `SELECT COUNT(*) as total FROM reviews WHERE pro_id = ?`,
+        `SELECT COUNT(*) as total FROM reviews WHERE pro_id = ? AND deleted_at IS NULL`,
         [proId]
       );
       const total = (countRows as { total: number }[])[0]?.total ?? 0;
@@ -3200,7 +3200,7 @@ app.get(
           comment,
           created_at
          FROM reviews
-         WHERE pro_id = ?
+         WHERE pro_id = ? AND deleted_at IS NULL
          ORDER BY created_at DESC
          LIMIT ? OFFSET ?`,
         [proId, limit, offset]
@@ -4963,7 +4963,7 @@ app.get(
           COUNT(DISTINCT r.id) as reviews_count,
           'Prothésiste ongulaire' as specialty
         FROM users u
-        LEFT JOIN reviews r ON r.pro_id = u.id
+        LEFT JOIN reviews r ON r.pro_id = u.id AND r.deleted_at IS NULL
         ${whereClause}
         GROUP BY u.id
         ORDER BY rating DESC, reviews_count DESC
@@ -5030,7 +5030,7 @@ app.get(
           COUNT(DISTINCT r.id) as reviews_count,
           'Prothésiste ongulaire' as specialty
         FROM users u
-        LEFT JOIN reviews r ON r.pro_id = u.id
+        LEFT JOIN reviews r ON r.pro_id = u.id AND r.deleted_at IS NULL
         WHERE u.id = ? AND u.role = 'pro' AND u.pro_status = 'active'
         GROUP BY u.id
         `,
@@ -5335,8 +5335,12 @@ app.post("/api/reviews", authenticateToken, validate(reviewSchema), async (req: 
     );
 
     if (Array.isArray(existing) && existing.length > 0) {
+      // deleted_at reset: a client re-submitting a review that an admin had
+      // soft-deleted brings it back active with the new content, since the
+      // UNIQUE(client_id, pro_id) constraint means there's only ever one
+      // row for this pair regardless of its deletion state.
       await connection.query(
-        "UPDATE reviews SET rating = ?, comment = ? WHERE client_id = ? AND pro_id = ?",
+        "UPDATE reviews SET rating = ?, comment = ?, deleted_at = NULL WHERE client_id = ? AND pro_id = ?",
         [rating, comment, clientId, pro_id]
       );
     } else {
@@ -5368,7 +5372,7 @@ app.post("/api/reviews/:id/flag", authMiddleware, async (req: AuthenticatedReque
     const reviewId = parseParamToInt(req.params.id);
     const { reason } = req.body as { reason?: string };
 
-    const [reviewRows] = await db.query(`SELECT id, pro_id FROM reviews WHERE id = ?`, [reviewId]);
+    const [reviewRows] = await db.query(`SELECT id, pro_id FROM reviews WHERE id = ? AND deleted_at IS NULL`, [reviewId]);
     const review = (reviewRows as any[])[0];
     if (!review) return res.status(404).json({ success: false, message: "Avis introuvable" });
     if (review.pro_id !== proId) {
@@ -5404,7 +5408,7 @@ app.get("/api/pro/reviews", authenticateToken, async (req: AuthenticatedRequest,
        FROM reviews r
        JOIN users c ON c.id = r.client_id
        LEFT JOIN review_flags rf ON rf.review_id = r.id AND rf.flagged_by = ?
-       WHERE r.pro_id = ?
+       WHERE r.pro_id = ? AND r.deleted_at IS NULL
        ORDER BY r.created_at DESC`,
       [proId, proId]
     );
@@ -5853,7 +5857,7 @@ app.get("/api/favorites", authenticateToken, async (req: Request, res: Response)
         COUNT(DISTINCT r.id) as reviews_count
        FROM favorites f
        JOIN users u ON u.id = f.pro_id
-       LEFT JOIN reviews r ON r.pro_id = f.pro_id
+       LEFT JOIN reviews r ON r.pro_id = f.pro_id AND r.deleted_at IS NULL
        WHERE f.client_id = ? AND u.pro_status = 'active'
        GROUP BY f.id, f.pro_id, f.created_at, u.first_name, u.last_name,
                 u.activity_name, u.city, u.profile_photo, u.banner_photo,

@@ -1387,21 +1387,26 @@ router.get(
 // POST /api/reviews/:id/flag (a pro reporting a review on her own profile).
 
 /* GET /reviews?flagged=true — only flagged reviews are ever requested by
- * the mobile screen today, but an unfiltered browse is supported too. */
+ * the mobile screen today, but an unfiltered browse is supported too.
+ * GET /reviews?deleted=true — the "Supprimés" tab, so an admin can restore
+ * a review deleted by mistake or after reconsidering. */
 router.get(
   "/reviews",
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const db = getDb();
       const flaggedOnly = req.query.flagged === "true";
+      const deletedOnly = req.query.deleted === "true";
       const limit = Math.min(Number(req.query.limit) || 50, 100);
       const page = Math.max(Number(req.query.page) || 1, 1);
       const offset = (page - 1) * limit;
+      const deletedCondition = deletedOnly ? "r.deleted_at IS NOT NULL" : "r.deleted_at IS NULL";
 
       const [totalRows] = await db.query(
         `SELECT COUNT(DISTINCT r.id) AS total
          FROM reviews r
-         ${flaggedOnly ? "JOIN" : "LEFT JOIN"} review_flags rf ON rf.review_id = r.id`,
+         ${flaggedOnly ? "JOIN" : "LEFT JOIN"} review_flags rf ON rf.review_id = r.id
+         WHERE ${deletedCondition}`,
         []
       );
       const total = Number((totalRows as any[])[0]?.total ?? 0);
@@ -1416,6 +1421,7 @@ router.get(
          JOIN users c ON c.id = r.client_id
          JOIN users p ON p.id = r.pro_id
          ${flaggedOnly ? "JOIN" : "LEFT JOIN"} review_flags rf ON rf.review_id = r.id
+         WHERE ${deletedCondition}
          GROUP BY r.id, c.first_name, c.last_name, p.activity_name, p.first_name, p.last_name
          ORDER BY MAX(rf.created_at) DESC NULLS LAST, r.created_at DESC
          LIMIT ? OFFSET ?`,
@@ -1433,14 +1439,93 @@ router.get(
   }
 );
 
-/* DELETE /reviews/:id — removes the review outright (cascades review_flags). */
+/* DELETE /reviews/:id — soft delete (so it can be undone via /restore) and
+ * notifies the pro it was removed from her profile. */
 router.delete(
   "/reviews/:id",
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const db = getDb();
       const reviewId = parseParamToInt(req.params.id);
-      await db.query(`DELETE FROM reviews WHERE id = ?`, [reviewId]);
+
+      const [rows] = await db.query(
+        `UPDATE reviews SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL RETURNING pro_id`,
+        [reviewId]
+      );
+      const proId = (rows as any[])[0]?.pro_id;
+
+      if (proId) {
+        try {
+          const message = "Un avis laissé sur ton profil a été supprimé par l'équipe Blyss.";
+          const [notifRows] = await db.query(
+            `INSERT INTO notifications (user_id, type, title, message, data)
+             VALUES (?, 'review_deleted', 'Avis supprimé', ?, ?)
+             RETURNING id, created_at`,
+            [proId, message, JSON.stringify({ review_id: reviewId })]
+          );
+          const notif = (notifRows as any[])[0];
+          if (notif) {
+            await sendNotificationToUser(proId, {
+              id: notif.id,
+              type: "review_deleted",
+              title: "Avis supprimé",
+              message,
+              data: { review_id: reviewId },
+              created_at: notif.created_at,
+            });
+          }
+        } catch {
+          // non-fatal — the deletion itself already succeeded
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* PATCH /reviews/:id/restore — undoes a moderation delete, notifies the pro
+ * it's back on her profile. */
+router.patch(
+  "/reviews/:id/restore",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const db = getDb();
+      const reviewId = parseParamToInt(req.params.id);
+
+      const [rows] = await db.query(
+        `UPDATE reviews SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL RETURNING pro_id`,
+        [reviewId]
+      );
+      const proId = (rows as any[])[0]?.pro_id;
+
+      if (proId) {
+        try {
+          const message = "L'avis précédemment supprimé a été remis en ligne sur ton profil.";
+          const [notifRows] = await db.query(
+            `INSERT INTO notifications (user_id, type, title, message, data)
+             VALUES (?, 'review_restored', 'Avis remis en ligne', ?, ?)
+             RETURNING id, created_at`,
+            [proId, message, JSON.stringify({ review_id: reviewId })]
+          );
+          const notif = (notifRows as any[])[0];
+          if (notif) {
+            await sendNotificationToUser(proId, {
+              id: notif.id,
+              type: "review_restored",
+              title: "Avis remis en ligne",
+              message,
+              data: { review_id: reviewId },
+              created_at: notif.created_at,
+            });
+          }
+        } catch {
+          // non-fatal — the restore itself already succeeded
+        }
+      }
+
       res.json({ success: true });
     } catch (error) {
       next(error);
