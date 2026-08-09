@@ -3681,6 +3681,67 @@ app.get(
   }
 );
 
+/* PRO RESERVATIONS SEARCH — by client name or prestation, across all time
+ * (past + future), unlike /api/pro/calendar which is always date-bounded to
+ * whatever month the UI has loaded. */
+app.get(
+  "/api/pro/reservations/search",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const q = String(req.query.q ?? "").trim();
+      if (!q) return res.json({ success: true, data: [] });
+
+      connection = await db.getConnection();
+
+      const like = `%${q}%`;
+      const [rows] = (await connection.query(
+        `
+        SELECT
+          r.id,
+          r.start_datetime::date AS date,
+          TO_CHAR(r.start_datetime, 'HH24:MI') AS time,
+          p.duration_minutes AS duration_minutes,
+          r.price,
+          r.status,
+          u.first_name,
+          u.last_name,
+          p.name AS prestation_name
+        FROM reservations r
+        JOIN users u ON u.id = r.client_id
+        JOIN prestations p ON p.id = r.prestation_id
+        WHERE r.pro_id = ?
+          AND r.status IN ('confirmed','completed')
+          AND (CONCAT(u.first_name, ' ', u.last_name) ILIKE ? OR p.name ILIKE ?)
+        ORDER BY r.start_datetime DESC
+        LIMIT 100
+        `,
+        [proId, like, like]
+      )) as [any[], any];
+
+      const data = rows.map((r) => ({
+        id: r.id,
+        date: r.date,
+        time: r.time,
+        duration: r.duration_minutes,
+        price: Number(r.price),
+        status: r.status,
+        client_name: `${r.first_name} ${r.last_name}`,
+        prestation_name: r.prestation_name,
+      }));
+
+      res.json({ success: true, data });
+    } catch (err) {
+      console.error("[RESERVATIONS SEARCH] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
 /* PRO CALENDAR */
 app.get(
   "/api/pro/calendar",
