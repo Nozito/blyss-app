@@ -1863,6 +1863,7 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
     const now = new Date();
     const today = now.toISOString().split("T")[0]; // YYYY-MM-DD
     const startOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    const startOfYear = `${now.getFullYear()}-01-01`;
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
       .toISOString()
       .split("T")[0];
@@ -1912,11 +1913,23 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
       [userId, startOfLastMonth, endOfLastMonth]
     );
 
+    // "Cette année" used to be month * 12, a client-side guess presented as
+    // a real figure — actual year-to-date revenue instead.
+    const [[{ total: yearTotal }]]: any = await db.query(
+      `SELECT COALESCE(SUM(price), 0) AS total
+       FROM reservations
+       WHERE pro_id = ?
+       AND start_datetime::date >= ?
+       AND status IN ('confirmed','completed')`,
+      [userId, startOfYear]
+    );
+
     // === 5. Prévision (casts AVANT calcul) ===
     const todayTotalNum = Number(todayTotal) || 0;
     const weekTotalNum = Number(weekTotal) || 0;
     const monthTotalNum = Number(monthTotal) || 0;
     const lastMonthTotalNum = Number(lastMonthTotal) || 0;
+    const yearTotalNum = Number(yearTotal) || 0;
 
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const forecastNum =
@@ -1944,6 +1957,7 @@ app.get("/api/pro/finance/stats", authenticateToken, async (req: any, res) => {
         week: weekTotalNum,
         month: monthTotalNum,
         lastMonth: lastMonthTotalNum,
+        year: yearTotalNum,
         objective: Number(user?.monthly_objective ?? 0),
         ...(forecast !== undefined ? { forecast } : {}),
         ...(trend !== undefined ? { trend } : {}),
