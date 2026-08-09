@@ -1500,6 +1500,16 @@ router.delete('/prestations/:id', authMiddleware, requireActiveProSubscription, 
     res.json({ success: true, data: { id: parseInt(id) } });
   } catch (error) {
     console.error('DELETE /prestations/:id error:', error);
+    // Postgres refuses the delete if any reservation (past or future) still
+    // references this prestation — expected and desirable (keeps historical
+    // bookings intact), but the pro needs an actionable message instead of
+    // a raw 500. They can deactivate it instead via PATCH { active: false }.
+    if ((error as { code?: string })?.code === '23503') {
+      return res.status(409).json({
+        success: false,
+        error: "Impossible de supprimer cette prestation : elle a des réservations associées. Désactive-la plutôt pour qu'elle n'apparaisse plus aux clientes.",
+      });
+    }
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
