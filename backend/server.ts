@@ -3907,6 +3907,18 @@ app.put(
 
       connection = await db.getConnection();
 
+      // This legacy route had no ownership check at all — any authenticated
+      // pro could overwrite notes on a client_id they'd never worked with,
+      // just by guessing/enumerating IDs. Same relationship check as the
+      // newer PATCH endpoint on this same path (routes/nail-tech.routes.ts).
+      const [relRows] = await connection.query(
+        `SELECT id FROM reservations WHERE pro_id = ? AND client_id = ? LIMIT 1`,
+        [proId, clientId]
+      );
+      if ((relRows as any[]).length === 0) {
+        return res.status(403).json({ success: false, message: "Aucun rendez-vous avec cette cliente." });
+      }
+
       await connection.query(
         `
         INSERT INTO pro_client_notes (pro_id, client_id, notes)
@@ -5279,212 +5291,6 @@ app.delete(
 // NOTIFICATION SETTINGS - CLIENT
 // ==========================================
 
-/* GET CLIENT NOTIFICATION SETTINGS */
-app.get(
-  "/api/client/notification-settings",
-  authMiddleware,
-  async (req: AuthenticatedRequest, res: Response) => {
-    let connection;
-    try {
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: "Utilisateur non authentifié"
-        });
-      }
-
-      connection = await db.getConnection();
-
-      const [rows] = await connection.query(
-        `SELECT 
-          reminders, 
-          changes, 
-          messages, 
-          late, 
-          offers, 
-          email_summary,
-          created_at,
-          updated_at
-         FROM client_notification_settings 
-         WHERE user_id = ?`,
-        [userId]
-      ) as [any[], any];
-
-      if (!rows || rows.length === 0) {
-        await connection.query(
-          `INSERT INTO client_notification_settings 
-           (user_id, reminders, changes, messages, late, offers, email_summary)
-           VALUES (?, 1, 1, 1, 1, 1, 0)`,
-          [userId]
-        );
-
-        return res.json({
-          success: true,
-          data: {
-            reminders: true,
-            changes: true,
-            messages: true,
-            late: true,
-            offers: true,
-            emailSummary: false
-          }
-        });
-      }
-
-      const settings = rows[0];
-
-      res.json({
-        success: true,
-        data: {
-          reminders: Boolean(settings.reminders),
-          changes: Boolean(settings.changes),
-          messages: Boolean(settings.messages),
-          late: Boolean(settings.late),
-          offers: Boolean(settings.offers),
-          emailSummary: Boolean(settings.email_summary)
-        }
-      });
-
-    } catch (error) {
-      console.error("❌ Erreur notification-settings GET:", error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur serveur"
-      });
-    } finally {
-      if (connection) connection.release();
-    }
-  }
-);
-
-/* UPDATE CLIENT NOTIFICATION SETTINGS */
-app.put(
-  "/api/client/notification-settings",
-  authMiddleware,
-  async (req: AuthenticatedRequest, res: Response) => {
-    let connection;
-    try {
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: "Utilisateur non authentifié"
-        });
-      }
-
-      const { reminders, changes, messages, late, offers, emailSummary } = req.body;
-
-      const fields = { reminders, changes, messages, late, offers, emailSummary };
-      for (const [key, value] of Object.entries(fields)) {
-        if (value !== undefined && typeof value !== "boolean") {
-          return res.status(400).json({
-            success: false,
-            message: `Le champ '${key}' doit être un booléen`
-          });
-        }
-      }
-
-      connection = await db.getConnection();
-
-      const [existing] = await connection.query(
-        `SELECT id FROM client_notification_settings WHERE user_id = ?`,
-        [userId]
-      ) as [any[], any];
-
-      if (existing.length === 0) {
-        await connection.query(
-          `INSERT INTO client_notification_settings 
-           (user_id, reminders, changes, messages, late, offers, email_summary)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [
-            userId,
-            reminders ?? true,
-            changes ?? true,
-            messages ?? true,
-            late ?? true,
-            offers ?? true,
-            emailSummary ?? false
-          ]
-        );
-      } else {
-        const updates: string[] = [];
-        const values: any[] = [];
-
-        if (reminders !== undefined) {
-          updates.push("reminders = ?");
-          values.push(reminders);
-        }
-        if (changes !== undefined) {
-          updates.push("changes = ?");
-          values.push(changes);
-        }
-        if (messages !== undefined) {
-          updates.push("messages = ?");
-          values.push(messages);
-        }
-        if (late !== undefined) {
-          updates.push("late = ?");
-          values.push(late);
-        }
-        if (offers !== undefined) {
-          updates.push("offers = ?");
-          values.push(offers);
-        }
-        if (emailSummary !== undefined) {
-          updates.push("email_summary = ?");
-          values.push(emailSummary);
-        }
-
-        if (updates.length > 0) {
-          values.push(userId);
-          await connection.query(
-            `UPDATE client_notification_settings 
-             SET ${updates.join(", ")}
-             WHERE user_id = ?`,
-            values
-          );
-        }
-      }
-
-      const [updated] = await connection.query(
-        `SELECT 
-          reminders, 
-          changes, 
-          messages, 
-          late, 
-          offers, 
-          email_summary
-         FROM client_notification_settings 
-         WHERE user_id = ?`,
-        [userId]
-      ) as [any[], any];
-
-      res.json({
-        success: true,
-        data: {
-          reminders: Boolean(updated[0].reminders),
-          changes: Boolean(updated[0].changes),
-          messages: Boolean(updated[0].messages),
-          late: Boolean(updated[0].late),
-          offers: Boolean(updated[0].offers),
-          emailSummary: Boolean(updated[0].email_summary)
-        }
-      });
-
-    } catch (error) {
-      console.error("❌ Erreur notification-settings PUT:", error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur serveur"
-      });
-    } finally {
-      if (connection) connection.release();
-    }
-  }
-);
 
 /* CREATE REVIEW */
 app.post("/api/reviews", authenticateToken, validate(reviewSchema), async (req: Request, res: Response) => {
@@ -5833,27 +5639,62 @@ app.patch(
         return res.status(400).json({ success: false, message: "Impossible de reporter moins de 24h avant le rendez-vous" });
       }
 
-      // Free old slot
-      if (booking.slot_id) {
-        await connection.query(`UPDATE slots SET status = 'available' WHERE id = ?`, [booking.slot_id]);
-      }
-
-      // Book new slot
       const newSlotId = slot_id ? parseInt(slot_id) : null;
-      if (newSlotId) {
-        const [slotRows] = await connection.query(
-          `SELECT id, status FROM slots WHERE id = ?`, [newSlotId]
-        ) as [any[], any];
-        if (slotRows.length === 0 || slotRows[0].status !== "available") {
-          return res.status(409).json({ success: false, message: "Ce créneau n'est plus disponible" });
-        }
-        await connection.query(`UPDATE slots SET status = 'booked' WHERE id = ?`, [newSlotId]);
-      }
 
-      await connection.query(
-        `UPDATE reservations SET start_datetime = ?, end_datetime = ?, slot_id = ? WHERE id = ?`,
-        [start_datetime, end_datetime, newSlotId, bookingId]
-      );
+      // Same contention risk POST /api/reservations already guards against
+      // (two requests for the same pro racing a check-then-write): this used
+      // to be a plain SELECT-then-UPDATE with no transaction at all. Also
+      // fixes a second bug — the old slot was freed *before* confirming the
+      // new one, so a failed reschedule (new slot taken) left the original
+      // slot marked "available" while the reservation still pointed at it,
+      // exposing it to being booked out from under the client.
+      await connection.beginTransaction();
+      try {
+        await connection.query(`SELECT pg_advisory_xact_lock(?)`, [booking.pro_id]);
+
+        if (newSlotId) {
+          const [slotUpdateRows] = await connection.query(
+            `UPDATE slots SET status = 'booked' WHERE id = ? AND status = 'available' RETURNING id`,
+            [newSlotId]
+          );
+          if ((slotUpdateRows as any[]).length === 0) {
+            await connection.rollback();
+            return res.status(409).json({ success: false, message: "Ce créneau n'est plus disponible" });
+          }
+        } else {
+          // No specific slot targeted — still must not collide with another
+          // reservation for this pro (mirrors the overlap check in POST
+          // /api/reservations, excluding this booking itself).
+          const [overlapRows] = await connection.query(
+            `SELECT r.id FROM reservations r
+             LEFT JOIN prestations prev_p ON prev_p.id = r.prestation_id
+             WHERE r.pro_id = ?
+               AND r.id != ?
+               AND r.status NOT IN ('cancelled', 'rejected')
+               AND r.start_datetime < ?
+               AND (r.end_datetime + COALESCE(prev_p.buffer_after_minutes, 0) * INTERVAL '1 minute') > ?`,
+            [booking.pro_id, bookingId, end_datetime, start_datetime]
+          );
+          if ((overlapRows as any[]).length > 0) {
+            await connection.rollback();
+            return res.status(409).json({ success: false, message: "Ce créneau est déjà réservé ou trop proche d'un autre rendez-vous" });
+          }
+        }
+
+        if (booking.slot_id) {
+          await connection.query(`UPDATE slots SET status = 'available' WHERE id = ?`, [booking.slot_id]);
+        }
+
+        await connection.query(
+          `UPDATE reservations SET start_datetime = ?, end_datetime = ?, slot_id = ? WHERE id = ?`,
+          [start_datetime, end_datetime, newSlotId, bookingId]
+        );
+
+        await connection.commit();
+      } catch (txErr) {
+        await connection.rollback();
+        throw txErr;
+      }
 
       res.json({ success: true, message: "Rendez-vous reporté avec succès" });
 

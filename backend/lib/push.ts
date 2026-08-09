@@ -45,13 +45,6 @@ export async function sendPushToUser(userId: number, payload: PushPayload): Prom
   }
 }
 
-/**
- * Envoie une notification push à plusieurs utilisateurs en parallèle.
- */
-export async function sendPushToUsers(userIds: number[], payload: PushPayload): Promise<void> {
-  await Promise.allSettled(userIds.map((id) => sendPushToUser(id, payload)));
-}
-
 const isExpoPushToken = (t: string) => /^Expo(nent)?PushToken\[.+\]$/.test(t);
 
 /**
