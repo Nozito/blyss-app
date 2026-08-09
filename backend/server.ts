@@ -3513,9 +3513,10 @@ app.get(
             AND start_datetime >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'`,
           [proId]
         ),
-        // 2. Prévision du jour
+        // 2. Prévision du jour (montant + nombre de RDV — distinct des
+        // "prochaines clientes" qui, elles, regardent au-delà d'aujourd'hui)
         db.query(
-          `SELECT COALESCE(SUM(price), 0) AS total
+          `SELECT COALESCE(SUM(price), 0) AS total, COUNT(*) AS count
           FROM reservations
           WHERE pro_id = ?
             AND status IN ('confirmed', 'completed')
@@ -3577,7 +3578,10 @@ app.get(
           LIMIT 5`,
           [proId]
         ),
-        // 7. Revenus hebdomadaires
+        // 7. Revenus hebdomadaires — le dimanche est exclu explicitement
+        // (jamais bookable via l'app) plutôt que de compter sur l'absence
+        // de données : une réservation insérée manuellement un dimanche ne
+        // doit jamais apparaître dans ce graphe.
         db.query(
           `SELECT
             jour,
@@ -3591,6 +3595,7 @@ app.get(
             WHERE pro_id = ?
               AND status IN ('confirmed', 'completed')
               AND DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE)
+              AND EXTRACT(DOW FROM start_datetime) != 0
             GROUP BY start_datetime::date
           ) AS t
           ORDER BY jour`,
@@ -3611,6 +3616,7 @@ app.get(
 
       // ── Prévision du jour ───────────────────────────────────────────────────
       const todayForecast = Number(todayRows[0]?.total ?? 0);
+      const todayAppointmentsCount = Number(todayRows[0]?.count ?? 0);
 
       // ── Prochaines clientes ─────────────────────────────────────────────────
       const upcomingClients = upcomingRows.map((row: any) => {
@@ -3658,6 +3664,7 @@ app.get(
       res.json({
         weeklyStats: { services: servicesThisWeek, change, isUp },
         todayForecast,
+        todayAppointmentsCount,
         upcomingClients,
         fillRate,
         clientsThisWeek,
