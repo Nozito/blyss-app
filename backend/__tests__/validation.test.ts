@@ -133,7 +133,8 @@ describe("POST /api/reviews — validation Zod", () => {
   });
 
   it("200 avec des données valides (mock DB)", async () => {
-    // getConnection → query (check duplicate) → query (insert)
+    // getConnection → query (réservation terminée éligible) → query (check duplicate) → query (insert)
+    mockQuery.mockResolvedValueOnce([[{ id: 1 }]]); // réservation completed trouvée
     mockQuery.mockResolvedValueOnce([[]]); // pas d'avis existant
     mockQuery.mockResolvedValueOnce([{}]); // INSERT OK
 
@@ -144,6 +145,18 @@ describe("POST /api/reviews — validation Zod", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
+  });
+
+  it("403 si le client n'a pas de réservation terminée avec cette pro", async () => {
+    mockQuery.mockResolvedValueOnce([[]]); // aucune réservation completed
+
+    const res = await request(app)
+      .post("/api/reviews")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ pro_id: 1, rating: 5, comment: "Parfait !" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.success).toBe(false);
   });
 });
 
