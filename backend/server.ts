@@ -5306,7 +5306,10 @@ app.delete(
 // ==========================================
 
 
-/* CREATE REVIEW */
+/* CREATE REVIEW — only allowed once the client has an actual completed
+ * booking with this pro; enforced server-side since the mobile UI's own
+ * "completed booking" gating is trivially bypassable by calling the API
+ * directly. */
 app.post("/api/reviews", authenticateToken, validate(reviewSchema), async (req: Request, res: Response) => {
   let connection;
   try {
@@ -5314,6 +5317,17 @@ app.post("/api/reviews", authenticateToken, validate(reviewSchema), async (req: 
     const { pro_id, rating, comment } = req.body;
 
     connection = await db.getConnection();
+
+    const [eligible] = await connection.query(
+      "SELECT id FROM reservations WHERE client_id = ? AND pro_id = ? AND status = 'completed' LIMIT 1",
+      [clientId, pro_id]
+    );
+    if (!Array.isArray(eligible) || eligible.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: "Tu dois avoir terminé une prestation avec ce professionnel pour laisser un avis."
+      });
+    }
 
     const [existing] = await connection.query(
       "SELECT id FROM reviews WHERE client_id = ? AND pro_id = ?",
@@ -5371,6 +5385,33 @@ app.post("/api/reviews/:id/flag", authMiddleware, async (req: AuthenticatedReque
     res.json({ success: true, message: "Avis signalé, un admin va l'examiner." });
   } catch (error) {
     console.error("Erreur flag review:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+/* MY REVIEWS (PRO) — the pro's own reviews, with the client's name and
+ * whether she already flagged each one, so the app can show a "Signalé"
+ * state instead of letting her flag twice. */
+app.get("/api/pro/reviews", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const proId = req.user?.id;
+
+    const [rows] = await db.query(
+      `SELECT
+         r.id, r.rating, r.comment, r.created_at,
+         CONCAT(c.first_name, ' ', c.last_name) AS client_name,
+         (rf.id IS NOT NULL) AS flagged_by_me
+       FROM reviews r
+       JOIN users c ON c.id = r.client_id
+       LEFT JOIN review_flags rf ON rf.review_id = r.id AND rf.flagged_by = ?
+       WHERE r.pro_id = ?
+       ORDER BY r.created_at DESC`,
+      [proId, proId]
+    );
+
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error("Erreur récupération avis pro:", error);
     res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
