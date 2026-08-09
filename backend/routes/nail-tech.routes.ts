@@ -19,6 +19,7 @@ import { waitingListLimiter, nailTechWriteLimiter } from "../middleware/rate-lim
 import { getDb } from "../lib/db";
 import { log } from "../lib/logger";
 import { sendNotificationToUser } from "../lib/notifications";
+import { formatRdvWhen } from "../lib/notifyDate";
 import { parseParamToInt } from "../lib/helpers";
 import type { AuthenticatedRequest } from "../lib/types";
 
@@ -119,9 +120,8 @@ router.patch(
       // Notify client (best-effort) — single source of truth for the copy,
       // reused for the API confirmation below too (used to be three
       // slightly different phrasings for the same event).
-      const dateStr = startAt.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
       const noShowTitle = "Absence notée";
-      const noShowMessage = `Ton absence du ${dateStr} a été notée. L'acompte est retenu.`;
+      const noShowMessage = `Ton absence du ${formatRdvWhen(startAt)} a été notée. L'acompte est retenu.`;
       try {
         const [notifRows] = await db.query(
           `INSERT INTO notifications (user_id, type, title, message, data)
@@ -490,9 +490,11 @@ export async function notifyWaitingList(proId: number, slotDate?: Date): Promise
   try {
     const [rows] = await db.query(
       `SELECT wl.id, wl.client_id, wl.preferred_date,
-              u.first_name
+              u.first_name,
+              COALESCE(NULLIF(TRIM(u_pro.activity_name), ''), u_pro.first_name || ' ' || u_pro.last_name) AS pro_name
        FROM waiting_list wl
        JOIN users u ON u.id = wl.client_id
+       JOIN users u_pro ON u_pro.id = wl.pro_id
        WHERE wl.pro_id = ?
          AND (wl.notified_at IS NULL OR wl.notified_at < NOW() - INTERVAL '24 hours')
        ORDER BY wl.created_at ASC`,
@@ -515,8 +517,10 @@ export async function notifyWaitingList(proId: number, slotDate?: Date): Promise
       try {
         // Single source of truth for this notification's copy — inserted and
         // pushed text used to drift apart (title even had a stray "!").
-        const title = "Créneau disponible !";
-        const message = "Un créneau vient de se libérer ! Réserve vite avant qu'il soit pris.";
+        const title = "Un créneau vient de se libérer";
+        const message = slotDate
+          ? `${entry.pro_name ?? "Ton pro"} a un créneau libre le ${formatRdvWhen(slotDate)}. Réserve-le vite avant qu'il soit pris !`
+          : "Un créneau vient de se libérer. Réserve-le vite avant qu'il soit pris !";
         const [notifRows] = await db.query(
           `INSERT INTO notifications (user_id, type, title, message, data)
            VALUES (?, 'slot_available', ?, ?, ?)

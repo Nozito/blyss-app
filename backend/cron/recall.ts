@@ -5,7 +5,7 @@
  * cliente X semaines après son dernier RDV complété avec cette prestation.
  *
  * Exemples métier prothésiste ongulaire :
- *   - Pose gel : recall à 3 semaines ("Ça fait 3 semaines... Pense à rebooker !")
+ *   - Pose gel : recall à 3 semaines ("Ça fait 3 semaines... Reprends rendez-vous !")
  *   - Semi-permanent : recall à 2 semaines
  *   - Manucure classique : recall à 4 semaines
  *
@@ -71,8 +71,8 @@ async function sendRecallReminders(): Promise<void> {
       // front of an arbitrary pro-defined prestation name (masculine "ton"
       // vs feminine "ta") — this phrasing avoids the possessive entirely
       // instead of guessing.
-      const title = "C'est l'heure de rebooker ✨";
-      const body = `Ça fait ${row.recall_weeks} semaine(s) que tu n'es pas passée pour ${row.prestation_name} chez ${row.pro_name}. Pense à rebooker !`;
+      const title = "Envie d'y retourner ?";
+      const body = `Ça fait ${row.recall_weeks} semaine(s) que tu n'as pas refait ${row.prestation_name} chez ${row.pro_name}. Reprends rendez-vous quand tu veux !`;
       await sendPushToUser(row.client_id, {
         title,
         body,

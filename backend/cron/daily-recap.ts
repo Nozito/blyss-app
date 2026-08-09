@@ -56,7 +56,7 @@ async function sendMorningRecaps(): Promise<void> {
   for (const proId of proIds) {
     try {
       const [rows] = await db.query(
-        `SELECT COUNT(*) AS cnt, MIN(TO_CHAR(start_datetime AT TIME ZONE 'Europe/Paris', 'HH24:MI')) AS first_time
+        `SELECT COUNT(*) AS cnt, MIN(TO_CHAR(start_datetime AT TIME ZONE 'Europe/Paris', 'HH24"h"MI')) AS first_time
          FROM reservations
          WHERE pro_id = ?
            AND DATE(start_datetime AT TIME ZONE 'Europe/Paris') = (NOW() AT TIME ZONE 'Europe/Paris')::date
@@ -67,7 +67,7 @@ async function sendMorningRecaps(): Promise<void> {
       const count = Number(row?.cnt) || 0;
       if (count === 0) continue; // rien à récapituler, pas de notif creuse
 
-      const title = "Ton programme du jour ✨";
+      const title = "Ton programme du jour";
       const body = count === 1
         ? `1 rendez-vous aujourd'hui, à ${row.first_time}.`
         : `${count} rendez-vous aujourd'hui, le premier à ${row.first_time}.`;
@@ -102,8 +102,10 @@ async function sendEveningSummaries(): Promise<void> {
       const stats = await getRevenueStats(db, proId, today, today);
       if (stats.count === 0) continue; // rien à résumer
 
-      const title = "Résumé de ta journée 📊";
-      const body = `${stats.revenue.toFixed(0)} € de CA sur ${stats.count} rendez-vous aujourd'hui.`;
+      const title = "Résumé de ta journée";
+      const body = stats.count === 1
+        ? `${stats.revenue.toFixed(0)} € encaissés sur 1 rendez-vous aujourd'hui.`
+        : `${stats.revenue.toFixed(0)} € encaissés sur ${stats.count} rendez-vous aujourd'hui.`;
 
       await db.query(
         `INSERT INTO notifications (user_id, type, title, message, data)

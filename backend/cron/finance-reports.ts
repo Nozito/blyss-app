@@ -75,8 +75,9 @@ async function generateReportsForPeriod(
         // Same title/body for the in-app row and the push — a shared batch
         // push across every pro used to force a generic body that dropped
         // the revenue figure; sending one push per pro keeps it personal.
-        const label = periodType === "week" ? "Ton rapport hebdomadaire est prêt ✨" : "Ton rapport mensuel est prêt ✨";
-        const body = `${current.revenue.toFixed(0)} € de CA sur la période — consulte le détail dans Finances.`;
+        const label = periodType === "week" ? "Ton rapport de la semaine est prêt" : "Ton rapport du mois est prêt";
+        const periodLabel = periodType === "week" ? "cette semaine" : "ce mois-ci";
+        const body = `${current.revenue.toFixed(0)} € de chiffre d'affaires ${periodLabel} — le détail t'attend dans Finances.`;
 
         await db.query(
           `INSERT INTO notifications (user_id, type, title, message, data)

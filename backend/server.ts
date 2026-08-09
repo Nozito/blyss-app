@@ -32,6 +32,7 @@ import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
 import bcrypt from "bcrypt";
 import { getDb, DbTimeoutError } from "./lib/db";
+import { formatRdvWhen, formatRdvDate, formatRdvTime, formatEuros } from "./lib/notifyDate";
 import dotenv from "dotenv";
 import multer, { FileFilterCallback } from "multer";
 import path from "path";
@@ -270,14 +271,20 @@ app.post(
             // Notify the pro that a payment/deposit landed (best-effort)
             try {
               const [resaRows] = await connection.query(
-                `SELECT pro_id FROM reservations WHERE id = ?`,
+                `SELECT r.pro_id, r.start_datetime, u.first_name, u.last_name
+                 FROM reservations r
+                 JOIN users u ON u.id = r.client_id
+                 WHERE r.id = ?`,
                 [payment.reservation_id]
               );
-              const proId = (resaRows as any[])[0]?.pro_id;
+              const resa = (resaRows as any[])[0];
+              const proId = resa?.pro_id;
               if (proId) {
-                const amountLabel = (Number(payment.amount) || 0).toFixed(2);
+                const amountLabel = formatEuros(Number(payment.amount) || 0);
                 const title = payment.type === "deposit" ? "Acompte encaissé" : "Paiement encaissé";
-                const message = `Un ${payment.type === "deposit" ? "acompte" : "paiement"} de ${amountLabel} € a été encaissé pour un rendez-vous.`;
+                const clientName = resa.first_name ? `${resa.first_name} ${resa.last_name}` : "Une cliente";
+                const when = resa.start_datetime ? ` pour le RDV du ${formatRdvWhen(new Date(resa.start_datetime))}` : "";
+                const message = `${clientName} a réglé ${amountLabel} €${payment.type === "deposit" ? " d'acompte" : ""}${when}.`;
                 const [notifRows] = await connection.query(
                   `INSERT INTO notifications (user_id, type, title, message, data)
                    VALUES (?, 'payment_received', ?, ?, ?)
@@ -310,21 +317,19 @@ app.post(
           );
           // Notify client that payment failed so they can retry
           const [failedPayRows] = await connection.query(
-            `SELECT client_id, reservation_id FROM payments WHERE stripe_payment_intent_id = ?`,
+            `SELECT client_id, reservation_id, amount FROM payments WHERE stripe_payment_intent_id = ?`,
             [pi.id]
           );
           const failedPay = (failedPayRows as any[])[0];
           if (failedPay) {
             try {
+              const failedAmount = formatEuros(Number(failedPay.amount) || 0);
+              const failedMessage = `Ton paiement de ${failedAmount} € a été refusé. Réessaie avec une autre carte.`;
               const [notifRows] = await connection.query(
                 `INSERT INTO notifications (user_id, type, title, message, data)
                  VALUES (?, 'payment_failed', 'Paiement échoué', ?, ?)
                  RETURNING id, created_at`,
-                [
-                  failedPay.client_id,
-                  "Ton paiement a été refusé. Réessaie avec une autre carte.",
-                  JSON.stringify({ reservation_id: failedPay.reservation_id }),
-                ]
+                [failedPay.client_id, failedMessage, JSON.stringify({ reservation_id: failedPay.reservation_id })]
               );
               const notif = (notifRows as any[])[0];
               if (notif) {
@@ -332,7 +337,7 @@ app.post(
                   id: notif.id,
                   type: "payment_failed",
                   title: "Paiement échoué",
-                  message: "Ton paiement a été refusé. Réessaie avec une autre carte.",
+                  message: failedMessage,
                   data: { reservation_id: failedPay.reservation_id },
                   created_at: notif.created_at,
                 });
@@ -375,15 +380,13 @@ app.post(
               }
               // Notify client of the refund (best-effort)
               try {
+                const refundAmount = formatEuros((charge.amount_refunded ?? 0) / 100);
+                const refundMessage = `Ton remboursement de ${refundAmount} € a été initié. Il apparaîtra sous 5 à 10 jours ouvrés.`;
                 const [notifRows] = await connection.query(
                   `INSERT INTO notifications (user_id, type, title, message, data)
                    VALUES (?, 'payment_refunded', 'Remboursement initié', ?, ?)
                    RETURNING id, created_at`,
-                  [
-                    chargePay.client_id,
-                    "Ton remboursement a bien été initié. Il apparaîtra sous 5 à 10 jours ouvrés.",
-                    JSON.stringify({ reservation_id: chargePay.reservation_id }),
-                  ]
+                  [chargePay.client_id, refundMessage, JSON.stringify({ reservation_id: chargePay.reservation_id })]
                 );
                 const notif = (notifRows as any[])[0];
                 if (notif) {
@@ -391,7 +394,7 @@ app.post(
                     id: notif.id,
                     type: "payment_refunded",
                     title: "Remboursement initié",
-                    message: "Ton remboursement a bien été initié. Il apparaîtra sous 5 à 10 jours ouvrés.",
+                    message: refundMessage,
                     data: { reservation_id: chargePay.reservation_id },
                     created_at: notif.created_at,
                   });
@@ -4735,7 +4738,7 @@ app.patch(
             ? reservation.start_datetime
             : new Date(reservation.start_datetime);
           const cancelTitle = "RDV annulé par le pro";
-          const cancelMessage = `Ton rendez-vous du ${startAt.toLocaleDateString("fr-FR")} à ${startAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} a été annulé par le pro.`;
+          const cancelMessage = `Ton rendez-vous du ${formatRdvWhen(startAt)} a été annulé par le pro.`;
           const [notifRows] = await db.query(
             `INSERT INTO notifications (user_id, type, title, message, data)
              VALUES (?, 'booking_cancelled', ?, ?, ?)
@@ -5797,7 +5800,7 @@ app.patch(
       // Notify the pro of the client's cancellation (best-effort, after response)
       try {
         const startAt = new Date(booking.start_datetime);
-        const message = `Une cliente a annulé son rendez-vous du ${startAt.toLocaleDateString("fr-FR")} à ${startAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`;
+        const message = `Une cliente a annulé son rendez-vous du ${formatRdvWhen(startAt)}.`;
         const [notifRows] = await db.query(
           `INSERT INTO notifications (user_id, type, title, message, data)
            VALUES (?, 'booking_cancelled', 'RDV annulé par la cliente', ?, ?)
@@ -5900,7 +5903,7 @@ app.patch(
 
       // Notify the pro of the client's reschedule (best-effort, after response)
       try {
-        const message = `Une cliente a reporté son rendez-vous au ${newStart.toLocaleDateString("fr-FR")} à ${newStart.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`;
+        const message = `Une cliente a reporté son rendez-vous au ${formatRdvWhen(newStart)}.`;
         const [notifRows] = await db.query(
           `INSERT INTO notifications (user_id, type, title, message, data)
            VALUES (?, 'booking_rescheduled', 'RDV reporté par la cliente', ?, ?)
@@ -6446,17 +6449,18 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
       const clientName = client ? `${client.first_name} ${client.last_name}` : "Un client";
 
       const startAt = new Date(start_datetime);
-      const dateStr = startAt.toLocaleDateString("fr-FR", {
-        weekday: "long", day: "numeric", month: "long", year: "numeric",
-      });
-      const timeStr = startAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+      // Kept separately (not just parsed back out of notifMessage) because
+      // the `data` payload below is structured data for the client, not
+      // display text.
+      const dateStr = formatRdvDate(startAt);
+      const timeStr = formatRdvTime(startAt);
       const paymentLabel = paidOnline
         ? depositAmount
-          ? `En ligne — acompte ${depositAmount.toFixed(2)}€ / total ${price.toFixed(2)}€`
-          : `En ligne — ${price.toFixed(2)}€`
-        : `Sur place — ${price.toFixed(2)}€`;
+          ? `acompte de ${formatEuros(depositAmount)}€ réglé en ligne (total ${formatEuros(price)}€)`
+          : `${formatEuros(price)}€ réglés en ligne`
+        : `${formatEuros(price)}€ à encaisser sur place`;
 
-      const notifMessage = `${clientName} a réservé « ${prestationName} » le ${dateStr} à ${timeStr}. Paiement : ${paymentLabel}.`;
+      const notifMessage = `${clientName} a réservé « ${prestationName} » le ${formatRdvWhen(startAt)} — ${paymentLabel}.`;
 
       const [notifRows] = await db.query(
         `INSERT INTO notifications (user_id, type, title, message, data)

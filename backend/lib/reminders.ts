@@ -49,7 +49,7 @@ const J1_CLAIM_QUERY = `
       reservations.client_id,
       reservations.pro_id,
       reservations.prestation_id,
-      TO_CHAR(reservations.start_datetime AT TIME ZONE 'Europe/Paris', 'HH24:MI') AS rdv_time
+      TO_CHAR(reservations.start_datetime AT TIME ZONE 'Europe/Paris', 'HH24"h"MI') AS rdv_time
   )
   SELECT
     c.id,
@@ -94,7 +94,7 @@ const H2_CLAIM_QUERY = `
       reservations.client_id,
       reservations.pro_id,
       reservations.prestation_id,
-      TO_CHAR(reservations.start_datetime AT TIME ZONE 'Europe/Paris', 'HH24:MI') AS rdv_time
+      TO_CHAR(reservations.start_datetime AT TIME ZONE 'Europe/Paris', 'HH24"h"MI') AS rdv_time
   )
   SELECT
     c.id,
@@ -295,11 +295,11 @@ async function sendJ1Reminders(): Promise<void> {
     // dropping the push for every remaining row in this batch too, not just
     // this one (all already marked "sent" regardless of whether it happened).
     try {
-      let body = `Ton RDV à ${row.rdv_time} avec ${row.pro_name} (${row.prestation_name}) est demain !`;
+      let body = `${row.prestation_name} avec ${row.pro_name} demain à ${row.rdv_time}.`;
       if (row.preparation_instructions) {
-        body += ` Préparation : ${row.preparation_instructions}`;
+        body += ` ${row.preparation_instructions}`;
       }
-      const title = "Rappel rendez-vous demain ✨";
+      const title = "Ton RDV, c'est demain";
       // sendPushToUser (VAPID) reaches a web PWA subscriber; sendExpoPushToUsers
       // is what actually reaches the React Native mobile app — both are kept
       // since a client can have either or both registered.
@@ -343,8 +343,8 @@ async function sendH2Reminders(): Promise<void> {
     // Same reasoning as sendJ1Reminders: don't let one failed push abort
     // the rest of an already-claimed batch.
     try {
-      const title = "Ton RDV approche ⏰";
-      const body = `Ton rendez-vous à ${row.rdv_time} avec ${row.pro_name} est dans 2h !`;
+      const title = "Ton RDV dans 2h";
+      const body = `${row.pro_name} t'attend à ${row.rdv_time}.`;
       await sendPushToUser(row.client_id, {
         title,
         body,

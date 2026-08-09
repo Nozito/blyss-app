@@ -21,6 +21,7 @@ import {
   CancellationWindowExpiredError,
 } from "../lib/cancellation";
 import { sendNotificationToUser } from "../lib/notifications";
+import { formatRdvWhen, formatEuros } from "../lib/notifyDate";
 import { parseParamToInt } from "../lib/helpers";
 import { initiateClientCancellationRefunds } from "../lib/refunds";
 import { notifyWaitingList } from "./nail-tech.routes";
@@ -294,7 +295,7 @@ router.post(
       // ── 7. Notification au professionnel (best-effort)
       try {
         const cancelTitle = "RDV annulé par la cliente";
-        const cancelMessage = `Une cliente a annulé son rendez-vous du ${startAt.toLocaleDateString("fr-FR")} à ${startAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`;
+        const cancelMessage = `Une cliente a annulé son rendez-vous du ${formatRdvWhen(startAt)}.`;
         const [notifRows] = await db.query(
           `INSERT INTO notifications (user_id, type, title, message, data)
            VALUES (?, 'booking_cancelled', ?, ?, ?)
@@ -335,7 +336,7 @@ router.post(
           ? {
               initiated: true,
               amount: refundInfo.totalRefunded,
-              message: `Un remboursement de ${refundInfo.totalRefunded.toFixed(2)}€ a été initié (5 à 10 jours ouvrés). L'acompte reste acquis au professionnel.`,
+              message: `Un remboursement de ${formatEuros(refundInfo.totalRefunded)}€ a été initié (5 à 10 jours ouvrés). L'acompte reste acquis au professionnel.`,
             }
           : reservation.payment_status === "deposit_paid"
           ? {
