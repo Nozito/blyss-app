@@ -5092,49 +5092,115 @@ app.get(
   }
 );
 
-/* ADD PAYMENT METHOD */
+/**
+ * ADD PAYMENT METHOD — Stripe SetupIntent flow, in two steps:
+ *   1. POST .../setup-intent — server creates a SetupIntent, client confirms
+ *      it directly with Stripe (card number/CVC never touch this backend).
+ *   2. POST .../confirm — client hands back the resulting paymentMethodId;
+ *      server fetches the card's brand/last4/expiry from Stripe and stores
+ *      only that + the Stripe PaymentMethod ID (payment_methods.stripe_pm_id).
+ *
+ * This replaces a previous endpoint that stored the raw card number and
+ * CVC directly in Postgres — a serious PCI-DSS violation (CVC in particular
+ * must never be persisted past authorization, encrypted or not). That
+ * endpoint also targeted `card_number`/`cvc` columns the schema doesn't
+ * even have (see stripe_pm_id in the 20260227000001 migration, added when
+ * this table was already switched to tokenized storage), so it was
+ * throwing a 500 on every real call — and the client-side SetupIntent flow
+ * it was supposed to be replaced by (lib/api.ts's createSetupIntent /
+ * confirmSetup, already shipped in the mobile app) had no backend routes
+ * at all until now.
+ */
 app.post(
-  "/api/client/payment-methods",
+  "/api/client/payment-methods/setup-intent",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Non authentifié" });
+
+      const [userRows] = await db.query(
+        `SELECT stripe_customer_id, email, first_name, last_name FROM users WHERE id = ?`,
+        [userId]
+      );
+      const user = (userRows as any[])[0];
+      if (!user) return res.status(404).json({ success: false, message: "Utilisateur introuvable" });
+
+      let stripeCustomerId: string = user.stripe_customer_id;
+      if (!stripeCustomerId) {
+        const customer = await stripe.customers.create({
+          email: user.email,
+          name: `${user.first_name} ${user.last_name}`,
+          metadata: { blyss_user_id: String(userId) },
+        });
+        stripeCustomerId = customer.id;
+        await db.execute(`UPDATE users SET stripe_customer_id = ? WHERE id = ?`, [stripeCustomerId, userId]);
+      }
+
+      const setupIntent = await stripe.setupIntents.create({
+        customer: stripeCustomerId,
+        payment_method_types: ["card"],
+      });
+
+      res.json({ success: true, data: { clientSecret: setupIntent.client_secret } });
+    } catch (error) {
+      console.error("Erreur setup-intent:", error);
+      res.status(500).json({ success: false, message: "Erreur lors de l'initialisation" });
+    }
+  }
+);
+
+app.post(
+  "/api/client/payment-methods/confirm",
   authMiddleware,
   async (req: AuthenticatedRequest, res: Response) => {
     let connection;
     try {
       const userId = req.user?.id;
-      const { card_number, cardholder_name, exp_month, exp_year, cvc, set_default } = req.body;
+      const { paymentMethodId } = req.body;
 
-      if (!userId) {
-        return res.status(401).json({ success: false, message: "Non authentifié" });
+      if (!userId) return res.status(401).json({ success: false, message: "Non authentifié" });
+      if (!paymentMethodId) return res.status(400).json({ success: false, message: "paymentMethodId requis" });
+
+      const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+      if (!pm.card) {
+        return res.status(400).json({ success: false, message: "Moyen de paiement invalide" });
       }
 
-      // Déterminer la marque
-      let brand: "visa" | "mastercard" | "amex" = "visa";
-      if (card_number.startsWith("4")) brand = "visa";
-      else if (card_number.startsWith("5")) brand = "mastercard";
-      else if (card_number.startsWith("3")) brand = "amex";
-
-      const last4 = card_number.slice(-4);
+      const brandMap: Record<string, "visa" | "mastercard" | "amex"> = { visa: "visa", mastercard: "mastercard", amex: "amex" };
+      const brand = brandMap[pm.card.brand] ?? "visa";
 
       connection = await db.getConnection();
 
-      // Si set_default, retirer le défaut des autres
-      if (set_default) {
-        await connection.query(
-          `UPDATE payment_methods SET is_default = FALSE WHERE user_id = ?`,
-          [userId]
-        );
+      const [existingRows] = await connection.query(
+        `SELECT COUNT(*) AS cnt FROM payment_methods WHERE user_id = ?`,
+        [userId]
+      ) as [any[], any];
+      const isFirstCard = Number(existingRows[0]?.cnt ?? 0) === 0;
+
+      if (isFirstCard) {
+        await connection.query(`UPDATE payment_methods SET is_default = FALSE WHERE user_id = ?`, [userId]);
       }
 
-      // ⚠️ STOCKAGE EN CLAIR (V1 uniquement)
       await connection.query(
-        `INSERT INTO payment_methods 
-         (user_id, brand, last4, exp_month, exp_year, cardholder_name, card_number, cvc, is_default) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [userId, brand, last4, exp_month, exp_year, cardholder_name, card_number, cvc, set_default ? true : false]
+        `INSERT INTO payment_methods
+         (user_id, brand, last4, exp_month, exp_year, cardholder_name, stripe_pm_id, is_default)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          userId,
+          brand,
+          pm.card.last4,
+          pm.card.exp_month,
+          pm.card.exp_year,
+          pm.billing_details?.name ?? null,
+          paymentMethodId,
+          isFirstCard,
+        ]
       );
 
       res.json({ success: true, message: "Carte enregistrée" });
     } catch (error) {
-      console.error("Erreur:", error);
+      console.error("Erreur confirm payment method:", error);
       res.status(500).json({ success: false, message: "Erreur lors de l'enregistrement" });
     } finally {
       if (connection) connection.release();
