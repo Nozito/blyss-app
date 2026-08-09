@@ -5332,6 +5332,35 @@ app.post("/api/reviews", authenticateToken, validate(reviewSchema), async (req: 
   }
 });
 
+/* FLAG A REVIEW — a pro reporting an unfair/abusive review left on her own
+ * profile, feeding the admin moderation queue (GET /api/admin/reviews). */
+app.post("/api/reviews/:id/flag", authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const proId = req.user?.id;
+    const reviewId = parseParamToInt(req.params.id);
+    const { reason } = req.body as { reason?: string };
+
+    const [reviewRows] = await db.query(`SELECT id, pro_id FROM reviews WHERE id = ?`, [reviewId]);
+    const review = (reviewRows as any[])[0];
+    if (!review) return res.status(404).json({ success: false, message: "Avis introuvable" });
+    if (review.pro_id !== proId) {
+      return res.status(403).json({ success: false, message: "Tu ne peux signaler que les avis sur ton propre profil" });
+    }
+
+    await db.query(
+      `INSERT INTO review_flags (review_id, flagged_by, reason)
+       VALUES (?, ?, ?)
+       ON CONFLICT (review_id, flagged_by) DO UPDATE SET reason = EXCLUDED.reason`,
+      [reviewId, proId, reason ?? null]
+    );
+
+    res.json({ success: true, message: "Avis signalé, un admin va l'examiner." });
+  } catch (error) {
+    console.error("Erreur flag review:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
 // ============================================
 // CLIENT BOOKING ROUTES
 // ============================================

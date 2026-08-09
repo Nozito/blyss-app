@@ -1380,4 +1380,78 @@ router.get(
   }
 );
 
+// ── Reviews moderation ────────────────────────────────────────────────────
+// Backs app/(admin-tools)/reviews.tsx, which existed with no matching
+// routes at all — every call 404'd. flags_count implies several distinct
+// reporters can flag the same review (review_flags join table), fed by
+// POST /api/reviews/:id/flag (a pro reporting a review on her own profile).
+
+/* GET /reviews?flagged=true — only flagged reviews are ever requested by
+ * the mobile screen today, but an unfiltered browse is supported too. */
+router.get(
+  "/reviews",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const db = getDb();
+      const flaggedOnly = req.query.flagged === "true";
+      const limit = Math.min(Number(req.query.limit) || 50, 100);
+      const page = Math.max(Number(req.query.page) || 1, 1);
+      const offset = (page - 1) * limit;
+
+      const [rows] = await db.query(
+        `SELECT
+           r.id, r.rating, r.comment, r.created_at,
+           CONCAT(c.first_name, ' ', c.last_name) AS author_name,
+           COALESCE(NULLIF(TRIM(p.activity_name), ''), p.first_name || ' ' || p.last_name) AS pro_name,
+           COUNT(rf.id) AS flags_count
+         FROM reviews r
+         JOIN users c ON c.id = r.client_id
+         JOIN users p ON p.id = r.pro_id
+         ${flaggedOnly ? "JOIN" : "LEFT JOIN"} review_flags rf ON rf.review_id = r.id
+         GROUP BY r.id, c.first_name, c.last_name, p.activity_name, p.first_name, p.last_name
+         ORDER BY MAX(rf.created_at) DESC NULLS LAST, r.created_at DESC
+         LIMIT ? OFFSET ?`,
+        [limit, offset]
+      );
+
+      res.json({
+        success: true,
+        data: (rows as any[]).map((r) => ({ ...r, flags_count: Number(r.flags_count) })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* DELETE /reviews/:id — removes the review outright (cascades review_flags). */
+router.delete(
+  "/reviews/:id",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const db = getDb();
+      const reviewId = parseParamToInt(req.params.id);
+      await db.query(`DELETE FROM reviews WHERE id = ?`, [reviewId]);
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* PATCH /reviews/:id/ignore — dismisses the flag(s), keeps the review. */
+router.patch(
+  "/reviews/:id/ignore",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const db = getDb();
+      const reviewId = parseParamToInt(req.params.id);
+      await db.query(`DELETE FROM review_flags WHERE review_id = ?`, [reviewId]);
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 export default router;
