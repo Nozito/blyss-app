@@ -3516,6 +3516,7 @@ app.get(
         db.query(
           `SELECT
             r.id,
+            r.client_id AS client_user_id,
             CONCAT(u.first_name, ' ', u.last_name) AS client_name,
             p.name AS prestation_name,
             TO_CHAR(r.start_datetime, 'HH24:MI') AS start_time,
@@ -3612,6 +3613,7 @@ app.get(
         const status = row.status === "completed" ? "completed" : "upcoming";
         return {
           id: row.id,
+          client_user_id: row.client_user_id,
           name: row.client_name,
           service: row.prestation_name,
           time: row.start_time,
