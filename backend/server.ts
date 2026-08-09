@@ -5470,8 +5470,9 @@ app.get('/api/client/my-booking', authenticateToken, async (req: AuthenticatedRe
     const clientId = req.user?.id;
 
     const [rows] = await db.query(
-      `SELECT 
+      `SELECT
         r.id,
+        r.pro_id,
         r.start_datetime,
         r.end_datetime,
         r.status,
@@ -5507,9 +5508,16 @@ app.get('/api/client/my-booking', authenticateToken, async (req: AuthenticatedRe
           duration_minutes: row.duration_minutes
         },
         pro: {
+          // id/activity_name were missing — every list item's pro_id and
+          // business name silently fell back to undefined/first+last name
+          // (both the mobile app and web read `pro.id`/`pro.activity_name`,
+          // not `name`), which broke rescheduling from this list (it needs
+          // pro_id to fetch that pro's available slots).
+          id: row.pro_id,
           first_name: row.pro_first_name,
           last_name: row.pro_last_name,
           name: row.activity_name,
+          activity_name: row.activity_name,
           profile_photo: row.profile_photo,
           city: row.city,
           cancellation_notice_hours: row.cancellation_notice_hours ?? 24
@@ -5589,124 +5597,6 @@ app.get(
     } catch (err) {
       console.error("Erreur GET booking-detail:", err);
       res.status(500).json({ success: false, message: "Erreur serveur" });
-    }
-  }
-);
-
-/* GET SINGLE BOOKING DETAILS */
-app.get(
-  "/api/client/my-booking/:id",
-  authMiddleware,
-  async (req: AuthenticatedRequest, res: Response) => {
-    let connection;
-    try {
-      const clientId = req.user?.id;
-      const bookingId = parseParamToInt(req.params.id);
-
-      if (!clientId) {
-        return res.status(401).json({
-          success: false,
-          message: "Utilisateur non authentifié"
-        });
-      }
-
-      if (isNaN(bookingId)) {
-        return res.status(400).json({
-          success: false,
-          message: "ID de réservation invalide"
-        });
-      }
-
-      connection = await db.getConnection();
-
-      const [rows] = await connection.query(
-        `SELECT 
-          r.id,
-          r.pro_id,
-          r.prestation_id,
-          r.slot_id,
-          r.start_datetime,
-          r.end_datetime,
-          r.status,
-          r.price,
-          r.paid_online,
-          r.created_at,
-          u.first_name AS pro_first_name,
-          u.last_name AS pro_last_name,
-          u.activity_name AS pro_activity_name,
-          u.profile_photo AS pro_profile_photo,
-          u.banner_photo AS pro_banner_photo,
-          u.city AS pro_city,
-          u.instagram_account AS pro_instagram,
-          u.phone_number AS pro_phone,
-          u.address_line AS pro_address_line,
-          u.postal_code AS pro_postal_code,
-          p.name AS prestation_name,
-          p.description AS prestation_description,
-          p.duration_minutes AS prestation_duration
-         FROM reservations r
-         JOIN users u ON u.id = r.pro_id
-         LEFT JOIN prestations p ON p.id = r.prestation_id
-         WHERE r.id = ? AND r.client_id = ?`,
-        [bookingId, clientId]
-      );
-
-      if ((rows as any[]).length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "Réservation non trouvée"
-        });
-      }
-
-      const row = (rows as any[])[0];
-
-      // See booking-detail/:id for the rationale: exact address only once the client
-      // actually has a confirmed/completed reason to visit the pro's address.
-      const canRevealAddress = row.status === "confirmed" || row.status === "completed";
-
-      const booking = {
-        id: row.id,
-        pro: {
-          id: row.pro_id,
-          name: row.pro_activity_name || `${row.pro_first_name} ${row.pro_last_name}`,
-          first_name: row.pro_first_name,
-          last_name: row.pro_last_name,
-          profile_photo: row.pro_profile_photo,
-          banner_photo: row.pro_banner_photo,
-          city: row.pro_city,
-          instagram: row.pro_instagram,
-          phone: row.pro_phone,
-          ...(canRevealAddress
-            ? { address_line: row.pro_address_line, postal_code: row.pro_postal_code }
-            : {}),
-        },
-        prestation: row.prestation_id ? {
-          id: row.prestation_id,
-          name: row.prestation_name,
-          description: row.prestation_description,
-          duration_minutes: row.prestation_duration
-        } : null,
-        start_datetime: row.start_datetime,
-        end_datetime: row.end_datetime,
-        price: Number(row.price),
-        status: row.status,
-        paid_online: Boolean(row.paid_online),
-        created_at: row.created_at
-      };
-
-      res.json({
-        success: true,
-        data: booking
-      });
-
-    } catch (error) {
-      console.error("❌ Error fetching booking details:", error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur lors de la récupération de la réservation"
-      });
-    } finally {
-      if (connection) connection.release();
     }
   }
 );

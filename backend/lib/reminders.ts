@@ -8,6 +8,13 @@
  *             only for pros on Sérénité or Signature (feature grid: "Rappels
  *             post-prestation").
  *
+ * Also keeps a pro's Live Activity phase in sync with the clock even while
+ * their app is backgrounded/killed (manageLiveActivities / start,
+ * pushLiveActivityInProgress / upcoming -> en cours,
+ * endExpiredLiveActivities / en cours -> ended) — the widget's own phase
+ * label only recomputes when something pushes a new content-state, it
+ * doesn't tick on its own.
+ *
  * Respects client_notification_settings.reminders preference.
  * Each reminder is idempotent via reminder_j1_sent / reminder_h2_sent / reminder_post_sent flags.
  *
@@ -18,7 +25,7 @@
 import { sendPushToUser, sendExpoPushToUsers } from "./push";
 import { getDb } from "./db";
 import { log } from "./logger";
-import { sendLiveActivityStart } from "./apns";
+import { sendLiveActivityStart, sendLiveActivityUpdate, sendLiveActivityEnd } from "./apns";
 import { applyLiveActivityPrivacy } from "./liveActivityPrivacy";
 
 /**
@@ -242,6 +249,136 @@ async function manageLiveActivities(): Promise<void> {
   }
 }
 
+/**
+ * Claims reservations whose Live Activity has been running (push-to-start
+ * already sent) and whose start time has now passed — pushing a fresh
+ * content-state update is what actually flips the widget's phase label from
+ * "Prochain" to "En cours" for a backgrounded app. Without this, that
+ * transition only ever happened to occur when something unrelated (5-min
+ * foreground poll, a reschedule) forced a re-render.
+ */
+const LIVE_ACTIVITY_INPROGRESS_QUERY = `
+  WITH locked AS (
+    SELECT r.id
+    FROM reservations r
+    WHERE
+      r.start_datetime <= NOW()
+      AND r.end_datetime > NOW()
+      AND r.status = 'confirmed'
+      AND r.live_activity_started = true
+      AND r.live_activity_inprogress_pushed = false
+    FOR UPDATE OF r SKIP LOCKED
+  ),
+  claimed AS (
+    UPDATE reservations
+    SET live_activity_inprogress_pushed = true
+    FROM locked
+    WHERE reservations.id = locked.id
+    RETURNING
+      reservations.id, reservations.pro_id, reservations.client_id, reservations.prestation_id,
+      reservations.start_datetime, reservations.end_datetime
+  )
+  SELECT
+    c.id, c.start_datetime, c.end_datetime,
+    COALESCE(p.name, 'Soin') AS prestation_name,
+    u_client.first_name AS client_first_name,
+    u_pro.live_activity_privacy AS privacy,
+    t.push_token AS update_token
+  FROM claimed c
+  LEFT JOIN prestations p ON p.id = c.prestation_id
+  JOIN users u_client ON u_client.id = c.client_id
+  JOIN users u_pro ON u_pro.id = c.pro_id
+  LEFT JOIN live_activity_tokens t ON t.reservation_id = c.id AND t.kind = 'update'
+`;
+
+async function pushLiveActivityInProgress(): Promise<void> {
+  const db = getDb();
+  const [rows] = await db.query(LIVE_ACTIVITY_INPROGRESS_QUERY, []);
+
+  let sent = 0;
+  for (const row of rows as any[]) {
+    // The reservation is claimed (flag flipped) regardless — no update
+    // token yet just means the device never registered one (app not opened
+    // since the activity was push-started); nothing to push to.
+    if (!row.update_token) continue;
+    try {
+      const { clientFirstName, showTime } = applyLiveActivityPrivacy(row.privacy, row.client_first_name);
+      const staleDate = Math.floor(new Date(row.end_datetime).getTime() / 1000);
+      const result = await sendLiveActivityUpdate(
+        row.update_token,
+        {
+          startAt: row.start_datetime,
+          endAt: row.end_datetime,
+          prestationName: row.privacy === "full" ? row.prestation_name : null,
+          clientFirstName,
+          showTime,
+          privacyLevel: row.privacy,
+        },
+        staleDate
+      );
+      if (result.tokenInvalid) {
+        await db.query("DELETE FROM live_activity_tokens WHERE reservation_id = ? AND kind = 'update'", [row.id]);
+      }
+      if (result.ok) sent++;
+    } catch (err) {
+      log.error(
+        "/cron/reminders",
+        `Live Activity in-progress push failed for reservation ${row.id}`,
+        err instanceof Error ? err.stack : String(err)
+      );
+    }
+  }
+
+  if (sent > 0) {
+    log.warn("/cron/reminders", `LIVE ACTIVITY: ${sent} transitioned to en cours`);
+  }
+}
+
+/**
+ * Ends any Live Activity whose reservation's end time has passed. The
+ * client only ever ends+restarts activities while foregrounded (5-min
+ * poll) — a pro who backgrounds or kills the app mid-appointment would
+ * otherwise be left with a stale "En cours" activity forever, since nothing
+ * else calls sendLiveActivityEnd on a schedule. Deleting the 'update' token
+ * row is itself the idempotency marker (same row a running activity is
+ * pushed through), so no separate "already ended" flag is needed — an
+ * activity dropped here is simply gone from the next cycle's WHERE clause.
+ */
+const LIVE_ACTIVITY_EXPIRED_QUERY = `
+  WITH claimed AS (
+    DELETE FROM live_activity_tokens lat
+    USING reservations r
+    WHERE lat.kind = 'update'
+      AND lat.reservation_id = r.id
+      AND r.end_datetime <= NOW()
+    RETURNING lat.reservation_id, lat.push_token
+  )
+  SELECT * FROM claimed
+`;
+
+async function endExpiredLiveActivities(): Promise<void> {
+  const db = getDb();
+  const [rows] = await db.query(LIVE_ACTIVITY_EXPIRED_QUERY, []);
+
+  let ended = 0;
+  for (const row of rows as any[]) {
+    try {
+      const result = await sendLiveActivityEnd(row.push_token);
+      if (result.ok) ended++;
+    } catch (err) {
+      log.error(
+        "/cron/reminders",
+        `Live Activity end push failed for reservation ${row.reservation_id}`,
+        err instanceof Error ? err.stack : String(err)
+      );
+    }
+  }
+
+  if (ended > 0) {
+    log.warn("/cron/reminders", `LIVE ACTIVITY: ${ended} ended (appointment over)`);
+  }
+}
+
 async function sendPostReminders(): Promise<void> {
   const db = getDb();
   const [rows] = await db.query(POST_CLAIM_QUERY, []);
@@ -377,7 +514,14 @@ async function sendH2Reminders(): Promise<void> {
 }
 
 export async function runReminderCycle(): Promise<void> {
-  await Promise.allSettled([sendJ1Reminders(), sendH2Reminders(), sendPostReminders(), manageLiveActivities()]);
+  await Promise.allSettled([
+    sendJ1Reminders(),
+    sendH2Reminders(),
+    sendPostReminders(),
+    manageLiveActivities(),
+    pushLiveActivityInProgress(),
+    endExpiredLiveActivities(),
+  ]);
 }
 
 /**
