@@ -5,7 +5,7 @@
  * cliente X semaines après son dernier RDV complété avec cette prestation.
  *
  * Exemples métier prothésiste ongulaire :
- *   - Pose gel : recall à 3 semaines ("Votre gel a 3 semaines, heure de renouveler !")
+ *   - Pose gel : recall à 3 semaines ("Ça fait 3 semaines... Pense à rebooker !")
  *   - Semi-permanent : recall à 2 semaines
  *   - Manucure classique : recall à 4 semaines
  *
@@ -49,7 +49,7 @@ const RECALL_CLAIM_QUERY = `
     c.id,
     c.client_id,
     c.pro_id,
-    COALESCE(p.name, 'votre soin') AS prestation_name,
+    COALESCE(p.name, 'un soin') AS prestation_name,
     p.recall_weeks,
     COALESCE(
       NULLIF(TRIM(u_pro.activity_name), ''),
@@ -67,8 +67,12 @@ async function sendRecallReminders(): Promise<void> {
   let sent = 0;
   for (const row of rows as any[]) {
     try {
-      const title = "C'est l'heure de votre prochain rendez-vous ✨";
-      const body = `Votre ${row.prestation_name} avec ${row.pro_name} date de ${row.recall_weeks} semaine(s). Pensez à rebooker !`;
+      // "votre" sidestepped the gender agreement a possessive would need in
+      // front of an arbitrary pro-defined prestation name (masculine "ton"
+      // vs feminine "ta") — this phrasing avoids the possessive entirely
+      // instead of guessing.
+      const title = "C'est l'heure de rebooker ✨";
+      const body = `Ça fait ${row.recall_weeks} semaine(s) que tu n'es pas passée pour ${row.prestation_name} chez ${row.pro_name}. Pense à rebooker !`;
       await sendPushToUser(row.client_id, {
         title,
         body,
@@ -84,9 +88,10 @@ async function sendRecallReminders(): Promise<void> {
       // Insert notification in DB for in-app display
       await db.execute(
         `INSERT INTO notifications (user_id, type, title, message, data)
-         VALUES (?, 'recall', 'C''est l''heure de rebooker !', ?, ?)`,
+         VALUES (?, 'recall', ?, ?, ?)`,
         [
           row.client_id,
+          title,
           body,
           JSON.stringify({ pro_id: row.pro_id, prestation_id: row.prestation_id }),
         ]

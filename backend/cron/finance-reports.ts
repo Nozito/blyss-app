@@ -47,8 +47,6 @@ async function generateReportsForPeriod(
   const previousStartStr = toDateStr(previousStart);
   const previousEndStr = toDateStr(previousEnd);
 
-  const notifyIds: number[] = [];
-
   for (const proId of proIds) {
     try {
       const current = await getRevenueStats(db, proId, periodStartStr, periodEndStr);
@@ -74,9 +72,10 @@ async function generateReportsForPeriod(
       );
 
       if ((inserted as any[]).length > 0) {
-        notifyIds.push(proId);
-
-        const label = periodType === "week" ? "Ton rapport hebdomadaire est prêt" : "Ton rapport mensuel est prêt";
+        // Same title/body for the in-app row and the push — a shared batch
+        // push across every pro used to force a generic body that dropped
+        // the revenue figure; sending one push per pro keeps it personal.
+        const label = periodType === "week" ? "Ton rapport hebdomadaire est prêt ✨" : "Ton rapport mensuel est prêt ✨";
         const body = `${current.revenue.toFixed(0)} € de CA sur la période — consulte le détail dans Finances.`;
 
         await db.query(
@@ -84,20 +83,15 @@ async function generateReportsForPeriod(
            VALUES (?, 'finance_report', ?, ?, ?)`,
           [proId, label, body, JSON.stringify({ periodType, periodStart: periodStartStr })]
         );
+        await sendExpoPushToUsers([proId], {
+          title: label,
+          body,
+          data: { type: "finance_report", periodType },
+        });
       }
     } catch (err) {
       log.error(ROUTE, `Failed to generate ${periodType} report for pro ${proId}`, err instanceof Error ? err.stack : String(err));
     }
-  }
-
-  if (notifyIds.length > 0) {
-    const label = periodType === "week" ? "Ton rapport hebdomadaire est prêt ✨" : "Ton rapport mensuel est prêt ✨";
-    await sendExpoPushToUsers(notifyIds, {
-      title: label,
-      body: "Découvre le résumé de ton activité dans l'app.",
-      data: { type: "finance_report", periodType },
-    });
-    log.warn(ROUTE, `Generated ${notifyIds.length} ${periodType} report(s)`);
   }
 }
 

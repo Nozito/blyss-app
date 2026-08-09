@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useMemo, ReactNode } from "react";
 import { useAuth } from "./AuthContext";
 import { useLocation } from "react-router-dom";
-import { Bell, X, CheckCircle, AlertCircle, AlertTriangle, Clock, MessageSquare, CreditCard, Gift, Mail } from "lucide-react";
+import { Bell, X, CheckCircle, AlertCircle, Clock, CreditCard, Gift, Mail, XCircle, CalendarCheck, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:3001";
@@ -48,15 +48,18 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
+// booking_confirmed, message_received, and late_alert removed — no backend
+// code path ever emits those types. Added the real types that previously
+// had no entry: no_show, slot_available, recall.
 const notificationConfig: { [key: string]: { icon: any; color: string; bg: string } } = {
     new_booking: { icon: CheckCircle, color: "#34C759", bg: "rgba(52, 199, 89, 0.12)" },
-    booking_confirmed: { icon: CheckCircle, color: "#007AFF", bg: "rgba(0, 122, 255, 0.12)" },
     booking_cancelled: { icon: AlertCircle, color: "#FF3B30", bg: "rgba(255, 59, 48, 0.12)" },
     booking_reminder: { icon: Clock, color: "#FF9500", bg: "rgba(255, 149, 0, 0.12)" },
-    message_received: { icon: MessageSquare, color: "#5856D6", bg: "rgba(88, 86, 214, 0.12)" },
     payment_received: { icon: CreditCard, color: "#34C759", bg: "rgba(52, 199, 89, 0.12)" },
     promotional: { icon: Gift, color: "#FF2D55", bg: "rgba(255, 45, 85, 0.12)" },
-    late_alert: { icon: AlertTriangle, color: "#FF9500", bg: "rgba(255, 149, 0, 0.12)" },
+    no_show: { icon: XCircle, color: "#FF3B30", bg: "rgba(255, 59, 48, 0.12)" },
+    slot_available: { icon: CalendarCheck, color: "#34C759", bg: "rgba(52, 199, 89, 0.12)" },
+    recall: { icon: RefreshCw, color: "#5856D6", bg: "rgba(88, 86, 214, 0.12)" },
     email_summary: { icon: Mail, color: "#8E8E93", bg: "rgba(142, 142, 147, 0.12)" },
     default: { icon: Bell, color: "#8E8E93", bg: "rgba(142, 142, 147, 0.12)" },
 };
@@ -188,13 +191,13 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     const getDuration = (type: string) => {
         const durations: { [key: string]: number } = {
             new_booking: 5000,
-            booking_confirmed: 4000,
             booking_cancelled: 6000,
             booking_reminder: 5000,
-            message_received: 4000,
             payment_received: 4000,
             promotional: 5000,
-            late_alert: 6000,
+            no_show: 6000,
+            slot_available: 5000,
+            recall: 5000,
             default: 4000,
         };
         return durations[type] || durations.default;

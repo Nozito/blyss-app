@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import {
   ChevronLeft, Bell, CheckCheck,
   CheckCircle, AlertCircle, AlertTriangle, Clock,
-  MessageSquare, CreditCard, Gift, Mail, Tag, Loader2,
-  Settings, Calendar,
+  CreditCard, Gift, Mail, Tag, Loader2,
+  Settings, XCircle, CalendarCheck, RefreshCw,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import MobileLayout from "@/components/MobileLayout";
@@ -19,15 +19,18 @@ type NotificationKey = keyof ClientNotificationSettings;
 
 // ── Config icônes ─────────────────────────────────────────────────────────────
 
+// booking_confirmed, message_received, and late_alert removed — no backend
+// code path ever emits those types. Added the real types that previously
+// had no entry: no_show, slot_available, recall.
 const NOTIF_CFG: Record<string, { icon: any; color: string; bg: string }> = {
   new_booking:       { icon: CheckCircle,   color: "#34C759", bg: "rgba(52,199,89,.12)"   },
-  booking_confirmed: { icon: CheckCircle,   color: "#007AFF", bg: "rgba(0,122,255,.12)"   },
   booking_cancelled: { icon: AlertCircle,   color: "#FF3B30", bg: "rgba(255,59,48,.12)"   },
   booking_reminder:  { icon: Clock,         color: "#FF9500", bg: "rgba(255,149,0,.12)"   },
-  message_received:  { icon: MessageSquare, color: "#5856D6", bg: "rgba(88,86,214,.12)"   },
   payment_received:  { icon: CreditCard,    color: "#34C759", bg: "rgba(52,199,89,.12)"   },
   promotional:       { icon: Gift,          color: "#FF2D55", bg: "rgba(255,45,85,.12)"   },
-  late_alert:        { icon: AlertTriangle, color: "#FF9500", bg: "rgba(255,149,0,.12)"   },
+  no_show:           { icon: XCircle,       color: "#FF3B30", bg: "rgba(255,59,48,.12)"   },
+  slot_available:    { icon: CalendarCheck, color: "#34C759", bg: "rgba(52,199,89,.12)"   },
+  recall:            { icon: RefreshCw,     color: "#5856D6", bg: "rgba(88,86,214,.12)"   },
   email_summary:     { icon: Mail,          color: "#8E8E93", bg: "rgba(142,142,147,.12)" },
   default:           { icon: Bell,          color: "#8E8E93", bg: "rgba(142,142,147,.12)" },
 };
@@ -326,15 +329,9 @@ const ClientNotifications = () => {
                     <PrefRow icon={AlertTriangle} iconBg="bg-amber-100 dark:bg-amber-900/30" iconColor="text-amber-600"
                       title="Modifications & annulations" description="Si l'experte change ou annule ton créneau"
                       prefKey="changes" isEnabled={preferences.changes} savingKey={savingKey} onToggle={togglePref} />
-                    <PrefRow icon={Calendar} iconBg="bg-sky-100 dark:bg-sky-900/30" iconColor="text-sky-500"
-                      title="Retard de l'experte" description="Si ton rendez-vous prend du retard"
-                      prefKey="late" isEnabled={preferences.late} savingKey={savingKey} onToggle={togglePref} />
-                  </PrefSection>
-
-                  <PrefSection label="Messages">
-                    <PrefRow icon={MessageSquare} iconBg="bg-emerald-100 dark:bg-emerald-900/30" iconColor="text-emerald-600"
-                      title="Nouveaux messages" description="Quand une experte t'envoie un message"
-                      prefKey="messages" isEnabled={preferences.messages} savingKey={savingKey} onToggle={togglePref} />
+                    {/* "Retard de l'experte" (late) and the "Messages" section
+                        (message_received) were removed — no backend code path
+                        ever sends either notification type. */}
                   </PrefSection>
 
                   <PrefSection label="Promotions">

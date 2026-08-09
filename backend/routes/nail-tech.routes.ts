@@ -116,26 +116,26 @@ router.patch(
         );
       }
 
-      // Notify client (best-effort)
+      // Notify client (best-effort) — single source of truth for the copy,
+      // reused for the API confirmation below too (used to be three
+      // slightly different phrasings for the same event).
+      const dateStr = startAt.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+      const noShowTitle = "Absence notée";
+      const noShowMessage = `Ton absence du ${dateStr} a été notée. L'acompte est retenu.`;
       try {
-        const dateStr = startAt.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
         const [notifRows] = await db.query(
           `INSERT INTO notifications (user_id, type, title, message, data)
-           VALUES (?, 'no_show', 'Absence notée', ?, ?)
+           VALUES (?, 'no_show', ?, ?, ?)
            RETURNING id, created_at`,
-          [
-            reservation.client_id,
-            `Votre absence à votre rendez-vous du ${dateStr} a été enregistrée. Votre acompte a été retenu.`,
-            JSON.stringify({ reservation_id: reservationId }),
-          ]
+          [reservation.client_id, noShowTitle, noShowMessage, JSON.stringify({ reservation_id: reservationId })]
         );
         const notif = (notifRows as any[])[0];
         if (notif) {
           await sendNotificationToUser(reservation.client_id, {
             id: notif.id,
             type: "no_show",
-            title: "Absence notée",
-            message: `Votre absence du ${dateStr} a été notée. L'acompte est retenu.`,
+            title: noShowTitle,
+            message: noShowMessage,
             data: { reservation_id: reservationId },
             created_at: notif.created_at,
           });
@@ -146,7 +146,7 @@ router.patch(
 
       log.warn("nail-tech/no-show", "No-show recorded", { reservationId, proId, clientId: reservation.client_id });
 
-      res.json({ success: true, message: "Absence enregistrée. L'acompte est conservé." });
+      res.json({ success: true, message: "Absence enregistrée. L'acompte est retenu." });
     } catch (e) {
       log.error("nail-tech/no-show", errMsg(e), errStack(e));
       res.status(500).json({ success: false, error: "internal_error" });
@@ -513,23 +513,23 @@ export async function notifyWaitingList(proId: number, slotDate?: Date): Promise
       }
 
       try {
+        // Single source of truth for this notification's copy — inserted and
+        // pushed text used to drift apart (title even had a stray "!").
+        const title = "Créneau disponible !";
+        const message = "Un créneau vient de se libérer ! Réserve vite avant qu'il soit pris.";
         const [notifRows] = await db.query(
           `INSERT INTO notifications (user_id, type, title, message, data)
-           VALUES (?, 'slot_available', 'Créneau disponible', ?, ?)
+           VALUES (?, 'slot_available', ?, ?, ?)
            RETURNING id, created_at`,
-          [
-            entry.client_id,
-            "Un créneau vient de se libérer ! Réservez vite avant qu'il soit pris.",
-            JSON.stringify({ pro_id: proId }),
-          ]
+          [entry.client_id, title, message, JSON.stringify({ pro_id: proId })]
         );
         const notif = (notifRows as any[])[0];
         if (notif) {
           await sendNotificationToUser(entry.client_id, {
             id: notif.id,
             type: "slot_available",
-            title: "Créneau disponible !",
-            message: "Un créneau vient de se libérer ! Réservez vite.",
+            title,
+            message,
             data: { pro_id: proId },
             created_at: notif.created_at,
           });

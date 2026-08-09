@@ -3,7 +3,6 @@ import {
   Bell,
   ChevronLeft,
   Calendar,
-  MessageSquare,
   CreditCard,
   TrendingUp,
   Settings,
@@ -228,16 +227,9 @@ const ProNotifications = () => {
               isEnabled={prefs.todayReminders}
               onToggle={toggle}
             />
-            <NotifRow
-              icon={MessageSquare}
-              iconBg="bg-emerald-100 dark:bg-emerald-900/30"
-              iconColor="text-emerald-600"
-              title="Messages clientes"
-              description="Quand une cliente t'envoie un message"
-              prefKey="clientMessages"
-              isEnabled={prefs.clientMessages}
-              onToggle={toggle}
-            />
+            {/* "Messages clientes" (client_message) removed — no backend code
+                path ever sends a message_received notification, and the
+                mobile app never had this toggle either. */}
           </Section>
 
           {/* Paiement & activité */}

@@ -4,7 +4,6 @@ import {
     User,
     Users,
     Bell,
-    CheckCircle,
     AlertCircle,
     Calendar,
     Clock,
@@ -12,10 +11,8 @@ import {
     Filter,
     Sparkles,
     BellOff,
-    MessageSquare,
     CreditCard,
     BarChart3,
-    AlertTriangle,
     Gift,
     Mail,
     TrendingUp,
@@ -35,20 +32,22 @@ interface User {
 }
 
 // ✅ Configuration des types de notifications
+// message_received, late_alert, and booking_confirmed are not listed here —
+// no backend code path ever emits those types (verified against
+// backend/lib/notifications.ts and every notification insert in the repo),
+// so they were removed rather than offer templates for notifications the
+// system can never actually send automatically.
 const notificationTypesForPro = [
     { value: "new_booking", label: "Nouvelle réservation", icon: Calendar, gradient: "from-green-500 to-emerald-600", column: "new_reservation" },
     { value: "booking_cancelled", label: "Annulation/Modification", icon: AlertCircle, gradient: "from-red-500 to-rose-600", column: "cancel_change" },
     { value: "booking_reminder", label: "Rappel quotidien", icon: Clock, gradient: "from-blue-500 to-indigo-600", column: "daily_reminder" },
-    { value: "message_received", label: "Message client", icon: MessageSquare, gradient: "from-purple-500 to-violet-600", column: "client_message" },
     { value: "payment_received", label: "Alerte paiement", icon: CreditCard, gradient: "from-emerald-500 to-teal-600", column: "payment_alert" },
     { value: "activity_summary", label: "Résumé d'activité", icon: BarChart3, gradient: "from-indigo-500 to-purple-600", column: "activity_summary" },
 ];
 
 const notificationTypesForClient = [
     { value: "booking_reminder", label: "Rappels", icon: Bell, gradient: "from-blue-500 to-indigo-600", column: "reminders" },
-    { value: "booking_confirmed", label: "Changements RDV", icon: CheckCircle, gradient: "from-green-500 to-emerald-600", column: "changes" },
-    { value: "message_received", label: "Messages", icon: MessageSquare, gradient: "from-purple-500 to-violet-600", column: "messages" },
-    { value: "late_alert", label: "Alerte retard", icon: AlertTriangle, gradient: "from-orange-500 to-amber-600", column: "late" },
+    { value: "booking_cancelled", label: "Changements RDV", icon: AlertCircle, gradient: "from-red-500 to-rose-600", column: "changes" },
     { value: "promotional", label: "Offres promo", icon: Gift, gradient: "from-pink-500 to-rose-600", column: "offers" },
     { value: "email_summary", label: "Résumé email", icon: Mail, gradient: "from-gray-500 to-slate-600", column: "email_summary" },
 ];
@@ -59,16 +58,12 @@ const templates: { [key: string]: { title: string; message: string } } = {
         message: "Tu as une nouvelle réservation pour [date] à [heure]",
     },
     booking_cancelled: {
-        title: "Réservation modifiée",
-        message: "Une réservation a été modifiée ou annulée",
+        title: "RDV annulé",
+        message: "Ton rendez-vous a été annulé — plus de détails dans l'app.",
     },
     booking_reminder: {
         title: "Rappel de rendez-vous",
         message: "N'oublie pas ton RDV demain à [heure]",
-    },
-    message_received: {
-        title: "Nouveau message",
-        message: "Tu as reçu un nouveau message",
     },
     payment_received: {
         title: "Paiement reçu",
@@ -78,17 +73,9 @@ const templates: { [key: string]: { title: string; message: string } } = {
         title: "Résumé de la journée",
         message: "Tu as eu [nombre] réservations aujourd'hui",
     },
-    late_alert: {
-        title: "Alerte retard",
-        message: "Ton pro t'informe d'un léger retard",
-    },
     promotional: {
         title: "Offre spéciale",
         message: "-20% sur ta prochaine prestation ! 💅",
-    },
-    booking_confirmed: {
-        title: "Réservation confirmée",
-        message: "Ta réservation pour [date] est confirmée",
     },
     email_summary: {
         title: "Résumé hebdomadaire",

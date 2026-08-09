@@ -5,12 +5,20 @@ import { sendExpoPushToUsers } from "./push";
 
 export const connectedClients = new Map<number, WebSocket>();
 
+// booking_confirmed, message_received, and late_alert are intentionally
+// absent — no backend code path ever emits those types (and their
+// corresponding preference toggles were removed from the UI). Every type
+// that IS actually sent must have an entry here, or it silently falls
+// through to the default column below — that's how no_show and
+// slot_available used to end up sharing an on/off switch with
+// promotional offers.
 const CLIENT_NOTIFICATION_MAPPING: { [key: string]: string } = {
-  booking_confirmed: "changes",
   booking_reminder: "reminders",
   booking_cancelled: "changes",
-  message_received: "messages",
-  late_alert: "late",
+  no_show: "changes",
+  slot_available: "reminders",
+  post_appointment: "offers",
+  recall: "offers",
   promotional: "offers",
   email_summary: "email_summary",
   info: "offers",
@@ -18,13 +26,12 @@ const CLIENT_NOTIFICATION_MAPPING: { [key: string]: string } = {
 
 const PRO_NOTIFICATION_MAPPING: { [key: string]: string } = {
   new_booking: "new_reservation",
-  booking_confirmed: "cancel_change",
   booking_cancelled: "cancel_change",
   booking_rescheduled: "cancel_change",
   booking_reminder: "daily_reminder",
   daily_reminder: "daily_reminder",
-  message_received: "client_message",
   payment_received: "payment_alert",
+  subscription_billing_issue: "payment_alert",
   activity_summary: "activity_summary",
   finance_report: "activity_summary",
   promotional: "activity_summary",

@@ -293,23 +293,21 @@ router.post(
 
       // ── 7. Notification au professionnel (best-effort)
       try {
+        const cancelTitle = "RDV annulé par la cliente";
+        const cancelMessage = `Une cliente a annulé son rendez-vous du ${startAt.toLocaleDateString("fr-FR")} à ${startAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`;
         const [notifRows] = await db.query(
           `INSERT INTO notifications (user_id, type, title, message, data)
-           VALUES (?, 'booking_cancelled', 'RDV annulé', ?, ?)
+           VALUES (?, 'booking_cancelled', ?, ?, ?)
            RETURNING id, created_at`,
-          [
-            reservation.pro_id,
-            `Un client a annulé son rendez-vous du ${startAt.toLocaleDateString("fr-FR")}.`,
-            JSON.stringify({ reservation_id: reservationId }),
-          ]
+          [reservation.pro_id, cancelTitle, cancelMessage, JSON.stringify({ reservation_id: reservationId })]
         );
         const notifList = notifRows as Array<{ id: number; created_at: string }>;
         if (notifList.length > 0) {
           await sendNotificationToUser(reservation.pro_id, {
             id: notifList[0].id,
             type: "booking_cancelled",
-            title: "RDV annulé",
-            message: `Un client a annulé son rendez-vous du ${startAt.toLocaleDateString("fr-FR")}.`,
+            title: cancelTitle,
+            message: cancelMessage,
             data: { reservation_id: reservationId },
             created_at: notifList[0].created_at,
           });

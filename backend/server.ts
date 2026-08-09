@@ -322,7 +322,7 @@ app.post(
                  RETURNING id, created_at`,
                 [
                   failedPay.client_id,
-                  "Votre paiement a été refusé. Veuillez réessayer avec une autre carte.",
+                  "Ton paiement a été refusé. Réessaie avec une autre carte.",
                   JSON.stringify({ reservation_id: failedPay.reservation_id }),
                 ]
               );
@@ -332,7 +332,7 @@ app.post(
                   id: notif.id,
                   type: "payment_failed",
                   title: "Paiement échoué",
-                  message: "Votre paiement a été refusé. Veuillez réessayer avec une autre carte.",
+                  message: "Ton paiement a été refusé. Réessaie avec une autre carte.",
                   data: { reservation_id: failedPay.reservation_id },
                   created_at: notif.created_at,
                 });
@@ -381,7 +381,7 @@ app.post(
                    RETURNING id, created_at`,
                   [
                     chargePay.client_id,
-                    "Votre remboursement a bien été initié. Il apparaîtra sous 5 à 10 jours ouvrés.",
+                    "Ton remboursement a bien été initié. Il apparaîtra sous 5 à 10 jours ouvrés.",
                     JSON.stringify({ reservation_id: chargePay.reservation_id }),
                   ]
                 );
@@ -391,7 +391,7 @@ app.post(
                     id: notif.id,
                     type: "payment_refunded",
                     title: "Remboursement initié",
-                    message: "Votre remboursement a bien été initié. Il apparaîtra sous 5 à 10 jours ouvrés.",
+                    message: "Ton remboursement a bien été initié. Il apparaîtra sous 5 à 10 jours ouvrés.",
                     data: { reservation_id: chargePay.reservation_id },
                     created_at: notif.created_at,
                   });
@@ -4734,23 +4734,21 @@ app.patch(
           const startAt = reservation.start_datetime instanceof Date
             ? reservation.start_datetime
             : new Date(reservation.start_datetime);
+          const cancelTitle = "RDV annulé par le pro";
+          const cancelMessage = `Ton rendez-vous du ${startAt.toLocaleDateString("fr-FR")} à ${startAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} a été annulé par le pro.`;
           const [notifRows] = await db.query(
             `INSERT INTO notifications (user_id, type, title, message, data)
-             VALUES (?, 'booking_cancelled', 'RDV annulé par le professionnel', ?, ?)
+             VALUES (?, 'booking_cancelled', ?, ?, ?)
              RETURNING id, created_at`,
-            [
-              reservation.client_id,
-              `Votre rendez-vous du ${startAt.toLocaleDateString("fr-FR")} a été annulé par le professionnel.`,
-              JSON.stringify({ reservation_id: reservationId }),
-            ]
+            [reservation.client_id, cancelTitle, cancelMessage, JSON.stringify({ reservation_id: reservationId })]
           );
           const notif = (notifRows as any[])[0];
           if (notif) {
             await sendNotificationToUser(reservation.client_id, {
               id: notif.id,
               type: "booking_cancelled",
-              title: "RDV annulé par le professionnel",
-              message: `Votre rendez-vous du ${startAt.toLocaleDateString("fr-FR")} a été annulé par le professionnel.`,
+              title: cancelTitle,
+              message: cancelMessage,
               data: { reservation_id: reservationId },
               created_at: notif.created_at,
             });
@@ -5799,7 +5797,7 @@ app.patch(
       // Notify the pro of the client's cancellation (best-effort, after response)
       try {
         const startAt = new Date(booking.start_datetime);
-        const message = `Une cliente a annulé son rendez-vous du ${startAt.toLocaleDateString("fr-FR")}.`;
+        const message = `Une cliente a annulé son rendez-vous du ${startAt.toLocaleDateString("fr-FR")} à ${startAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`;
         const [notifRows] = await db.query(
           `INSERT INTO notifications (user_id, type, title, message, data)
            VALUES (?, 'booking_cancelled', 'RDV annulé par la cliente', ?, ?)
