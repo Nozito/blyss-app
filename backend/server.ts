@@ -3522,12 +3522,12 @@ app.get(
         // 1. Stats semaine actuelle + semaine passée (fusionnées en 1 requête)
         db.query(
           `SELECT
-            COUNT(*) FILTER (WHERE DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE)) AS this_week,
-            COUNT(*) FILTER (WHERE DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days') AS last_week
+            COUNT(*) FILTER (WHERE DATE_TRUNC('week', start_datetime AT TIME ZONE 'Europe/Paris') = DATE_TRUNC('week', NOW() AT TIME ZONE 'Europe/Paris')) AS this_week,
+            COUNT(*) FILTER (WHERE DATE_TRUNC('week', start_datetime AT TIME ZONE 'Europe/Paris') = DATE_TRUNC('week', NOW() AT TIME ZONE 'Europe/Paris') - INTERVAL '7 days') AS last_week
           FROM reservations
           WHERE pro_id = ?
             AND status IN ('confirmed', 'completed')
-            AND start_datetime >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'`,
+            AND start_datetime >= (DATE_TRUNC('week', NOW() AT TIME ZONE 'Europe/Paris') - INTERVAL '7 days') AT TIME ZONE 'Europe/Paris'`,
           [proId]
         ),
         // 2. Prévision du jour (montant + nombre de RDV — distinct des
