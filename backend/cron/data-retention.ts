@@ -94,6 +94,11 @@ async function sendNoticesForSoonExpiredAccounts(): Promise<number> {
  * by the admin ban action, so the account becomes unusable the same way.
  */
 async function anonymizeUser(userId: number): Promise<void> {
+  // The row survives (FK-blocked DELETE fallback), so every PII column that
+  // exists on `users` must be blanked here — not just the ones the delete-
+  // account flow happens to touch first. Past audit found this list missing
+  // address/geo/Stripe IDs, leaving exact location + payment identifiers on
+  // "deleted" inactive accounts indefinitely.
   await getDb().execute(
     `UPDATE users SET
        first_name = 'Compte', last_name = 'supprimé',
@@ -101,10 +106,19 @@ async function anonymizeUser(userId: number): Promise<void> {
        phone_number = NULL, birth_date = NULL,
        activity_name = NULL, city = NULL, instagram_account = NULL,
        profile_photo = NULL, banner_photo = NULL, bio = NULL,
+       address_line = NULL, postal_code = NULL,
+       latitude = NULL, longitude = NULL,
+       public_latitude = NULL, public_longitude = NULL,
+       service_area_label = NULL,
+       stripe_customer_id = NULL, stripe_account_id = NULL,
        is_active = FALSE
      WHERE id = ?`,
     [userId]
   );
+  // payment_methods carries last4/cardholder_name — not covered by any FK
+  // cascade off `users`, so it survives an anonymize-in-place just like the
+  // address/geo columns did until this fix.
+  await getDb().execute(`DELETE FROM payment_methods WHERE user_id = ?`, [userId]);
 }
 
 /**

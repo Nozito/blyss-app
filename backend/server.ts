@@ -724,9 +724,19 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
   let connection;
   try {
     // ── 1. Vérification du secret ────────────────────────────────────────────
-    const authHeader = req.headers.authorization;
+    const authHeader = req.headers.authorization ?? "";
     const expectedSecret = process.env.REVENUECAT_WEBHOOK_SECRET;
-    if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
+    const expectedHeader = `Bearer ${expectedSecret ?? ""}`;
+    // timingSafeEqual throws on length mismatch, so pad/compare a fixed-size
+    // digest instead of the raw strings — avoids leaking secret length via
+    // early-exit timing on top of the byte values themselves.
+    const authMatches =
+      !!expectedSecret &&
+      crypto.timingSafeEqual(
+        crypto.createHash("sha256").update(authHeader).digest(),
+        crypto.createHash("sha256").update(expectedHeader).digest()
+      );
+    if (!authMatches) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
@@ -3548,6 +3558,7 @@ app.get(
             CONCAT(u.first_name, ' ', u.last_name) AS client_name,
             p.name AS prestation_name,
             TO_CHAR(r.start_datetime, 'HH24:MI') AS start_time,
+            r.start_datetime,
             r.price,
             r.status
           FROM reservations r
@@ -3650,6 +3661,7 @@ app.get(
           name: row.client_name,
           service: row.prestation_name,
           time: row.start_time,
+          startDatetime: row.start_datetime,
           price: Number(row.price),
           status,
           avatar: initials,
@@ -3911,12 +3923,18 @@ app.put(
     try {
       const proId = getProId(req);
       const clientId = Number(req.params.clientId);
-      const { notes } = req.body as { notes: string };
+      let { notes } = req.body as { notes: string };
 
       if (!clientId || Number.isNaN(clientId)) {
         return res
           .status(400)
           .json({ success: false, message: "Client invalide" });
+      }
+      if (notes != null) {
+        if (typeof notes !== "string") {
+          return res.status(400).json({ success: false, message: "notes invalide" });
+        }
+        notes = notes.slice(0, 2000);
       }
 
       connection = await db.getConnection();
@@ -5193,6 +5211,20 @@ app.post(
         return res.status(400).json({ success: false, message: "Moyen de paiement invalide" });
       }
 
+      // Without this check, any authenticated user submitting a pm_... id
+      // they don't own (leaked, guessed, or captured from another flow)
+      // would get its brand/last4/cardholder_name persisted locally under
+      // their own account — a PaymentMethod is only proof it exists on
+      // Stripe, not that it belongs to the caller.
+      const [userRows] = await db.query(
+        `SELECT stripe_customer_id FROM users WHERE id = ?`,
+        [userId]
+      );
+      const stripeCustomerId = (userRows as any[])[0]?.stripe_customer_id;
+      if (!stripeCustomerId || pm.customer !== stripeCustomerId) {
+        return res.status(403).json({ success: false, message: "Ce moyen de paiement ne t'appartient pas" });
+      }
+
       const brandMap: Record<string, "visa" | "mastercard" | "amex"> = { visa: "visa", mastercard: "mastercard", amex: "amex" };
       const brand = brandMap[pm.card.brand] ?? "visa";
 
@@ -5370,7 +5402,13 @@ app.post("/api/reviews/:id/flag", authMiddleware, async (req: AuthenticatedReque
   try {
     const proId = req.user?.id;
     const reviewId = parseParamToInt(req.params.id);
-    const { reason } = req.body as { reason?: string };
+    let { reason } = req.body as { reason?: string };
+    if (reason != null) {
+      if (typeof reason !== "string") {
+        return res.status(400).json({ success: false, message: "reason invalide" });
+      }
+      reason = reason.slice(0, 500);
+    }
 
     const [reviewRows] = await db.query(`SELECT id, pro_id FROM reviews WHERE id = ? AND deleted_at IS NULL`, [reviewId]);
     const review = (reviewRows as any[])[0];
