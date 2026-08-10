@@ -3537,7 +3537,7 @@ app.get(
           FROM reservations
           WHERE pro_id = ?
             AND status IN ('confirmed', 'completed')
-            AND start_datetime::date = CURRENT_DATE`,
+            AND (start_datetime AT TIME ZONE 'Europe/Paris')::date = (NOW() AT TIME ZONE 'Europe/Paris')::date`,
           [proId]
         ),
         // 3. Prochaines clientes
