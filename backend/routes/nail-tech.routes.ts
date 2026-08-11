@@ -398,8 +398,13 @@ router.post(
     try {
       const db = getDb();
 
-      // Verify pro exists
-      const [proRows] = await db.query(`SELECT id FROM users WHERE id = ? AND role = 'pro'`, [pro_id]);
+      // Verify pro exists and is actually bookable — no waiting list entry
+      // (and the notification it triggers once a slot frees up) for a
+      // banned or private pro.
+      const [proRows] = await db.query(
+        `SELECT id FROM users WHERE id = ? AND role = 'pro' AND is_active = TRUE AND pro_status = 'active' AND profile_visibility = 'public'`,
+        [pro_id]
+      );
       if ((proRows as any[]).length === 0) {
         res.status(404).json({ success: false, error: "not_found", message: "Professionnel introuvable." });
         return;

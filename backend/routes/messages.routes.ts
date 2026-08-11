@@ -123,8 +123,12 @@ router.post("/threads", authMiddleware, async (req: AuthenticatedRequest, res: R
     }
 
     const db = getDb();
-    const [proRows] = await db.query("SELECT id FROM users WHERE id = ? AND role = 'pro'", [proIdNum]);
-    if ((proRows as any[]).length === 0) {
+    const [proRows] = await db.query(
+      "SELECT id, is_active, pro_status, profile_visibility FROM users WHERE id = ? AND role = 'pro'",
+      [proIdNum]
+    );
+    const proRow = (proRows as any[])[0];
+    if (!proRow) {
       return res.status(404).json({ success: false, message: "Professionnelle introuvable" });
     }
 
@@ -139,6 +143,14 @@ router.post("/threads", authMiddleware, async (req: AuthenticatedRequest, res: R
         await db.query("UPDATE message_threads SET last_reservation_id = ? WHERE id = ?", [reservationId, existingThread.id]);
       }
       return res.json({ success: true, data: { id: existingThread.id } });
+    }
+
+    // Un tout nouveau fil exige que la pro soit active/visible — contacter
+    // une pro bannie ou privée pour la première fois ne doit pas être
+    // possible. Une conversation déjà entamée reste consultable même si
+    // son statut change ensuite (voir le "return" plus haut, avant ce check).
+    if (!proRow.is_active || proRow.pro_status !== "active" || proRow.profile_visibility !== "public") {
+      return res.status(404).json({ success: false, message: "Professionnelle introuvable" });
     }
 
     // Garde-fou anti-démarchage : seuls les fils "à froid" (jamais réservé

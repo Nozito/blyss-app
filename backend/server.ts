@@ -1053,7 +1053,7 @@ app.get(
           geo_precision, address_line, postal_code, latitude, longitude,
           public_latitude, public_longitude, service_radius_km, service_area_label
         FROM users
-        WHERE id = ? AND role = 'pro' AND pro_status = 'active' AND profile_visibility = 'public'`,
+        WHERE id = ? AND role = 'pro' AND pro_status = 'active' AND profile_visibility = 'public' AND is_active = TRUE`,
         [proId]
       );
 
@@ -1103,11 +1103,18 @@ app.get(
     try {
       const proId = parseParamToInt(req.params.id);
 
+      // active = TRUE : une prestation désactivée par la pro ne doit pas
+      // apparaître côté client. Le join sur users applique le même trio
+      // is_active/pro_status/profile_visibility que la fiche pro elle-même —
+      // cet endpoint est appelable directement par proId, donc doit rester
+      // cohérent même si quelqu'un le requête sans passer par la fiche.
       const [rows] = await db.query(
-        `SELECT id, name, description, price, duration_minutes, active
-         FROM prestations
-         WHERE pro_id = ?
-         ORDER BY name ASC`,
+        `SELECT p.id, p.name, p.description, p.price, p.duration_minutes, p.active
+         FROM prestations p
+         JOIN users u ON u.id = p.pro_id
+         WHERE p.pro_id = ? AND p.active = TRUE
+           AND u.is_active = TRUE AND u.pro_status = 'active' AND u.profile_visibility = 'public'
+         ORDER BY p.name ASC`,
         [proId]
       );
 
@@ -1130,7 +1137,12 @@ app.get(
       }
 
       const [rows] = await db.query(
-        "SELECT id, url, thumbnail, created_at FROM gallery_images WHERE pro_id = ? ORDER BY created_at DESC",
+        `SELECT g.id, g.url, g.thumbnail, g.created_at
+         FROM gallery_images g
+         JOIN users u ON u.id = g.pro_id
+         WHERE g.pro_id = ?
+           AND u.is_active = TRUE AND u.pro_status = 'active' AND u.profile_visibility = 'public'
+         ORDER BY g.created_at DESC`,
         [proId]
       );
 
@@ -4988,7 +5000,7 @@ app.get(
 
       connection = await db.getConnection();
 
-      let whereClause = "WHERE u.role = 'pro' AND u.pro_status = 'active' AND u.profile_visibility = 'public'";
+      let whereClause = "WHERE u.role = 'pro' AND u.pro_status = 'active' AND u.profile_visibility = 'public' AND u.is_active = TRUE";
       const params: any[] = [];
 
       if (search) {
@@ -5089,7 +5101,7 @@ app.get(
           'Prothésiste ongulaire' as specialty
         FROM users u
         LEFT JOIN reviews r ON r.pro_id = u.id AND r.deleted_at IS NULL
-        WHERE u.id = ? AND u.role = 'pro' AND u.pro_status = 'active' AND u.profile_visibility = 'public'
+        WHERE u.id = ? AND u.role = 'pro' AND u.pro_status = 'active' AND u.profile_visibility = 'public' AND u.is_active = TRUE
         GROUP BY u.id
         `,
         [specialistId]
@@ -5936,7 +5948,7 @@ app.get("/api/favorites", authenticateToken, async (req: Request, res: Response)
        FROM favorites f
        JOIN users u ON u.id = f.pro_id
        LEFT JOIN reviews r ON r.pro_id = f.pro_id AND r.deleted_at IS NULL
-       WHERE f.client_id = ? AND u.pro_status = 'active' AND u.profile_visibility = 'public'
+       WHERE f.client_id = ? AND u.pro_status = 'active' AND u.profile_visibility = 'public' AND u.is_active = TRUE
        GROUP BY f.id, f.pro_id, f.created_at, u.first_name, u.last_name,
                 u.activity_name, u.city, u.profile_photo, u.banner_photo,
                 u.bio, u.instagram_account
