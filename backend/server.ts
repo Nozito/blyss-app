@@ -88,6 +88,7 @@ import { applyLiveActivityPrivacy } from "./lib/liveActivityPrivacy";
 import authRouter from "./routes/auth.routes";
 import adminRouter from "./routes/admin.routes";
 import cancellationRouter from "./routes/cancellation.routes";
+import messagesRouter from "./routes/messages.routes";
 import { getTopServices, getRevenueStats } from "./lib/finance";
 
 // ==========================================
@@ -496,6 +497,7 @@ app.use("/api/pro", authMiddleware, requireProAccess);
 app.use("/api/pro", router);
 app.use("/api", cancellationRouter);
 app.use("/api", nailTechRouter);
+app.use("/api/messages", messagesRouter);
 
 // ── Health check (no auth) ──────────────────────────────────────────────────
 app.get("/api/health", async (_req: Request, res: Response) => {

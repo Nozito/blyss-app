@@ -497,6 +497,19 @@ router.delete(
       await connection.execute(`UPDATE reviews SET client_id = NULL WHERE client_id = ?`, [userId]);
       await connection.execute(`UPDATE reviews SET pro_id = NULL WHERE pro_id = ?`, [userId]);
 
+      // Messages : contrairement à un avis (qui vit sur le profil public de
+      // l'autre partie), le contenu d'un message est une donnée personnelle
+      // de son auteur sans base de conservation légale — on l'efface
+      // vraiment (pas juste l'attribution), en gardant le fil intact pour
+      // l'autre participant.
+      await connection.execute(
+        `UPDATE messages SET sender_id = NULL, body = NULL, attachment_url = NULL, attachment_thumbnail = NULL, deleted_at = NOW()
+         WHERE sender_id = ? AND deleted_at IS NULL`,
+        [userId]
+      );
+      await connection.execute(`UPDATE message_threads SET client_id = NULL WHERE client_id = ?`, [userId]);
+      await connection.execute(`UPDATE message_threads SET pro_id = NULL WHERE pro_id = ?`, [userId]);
+
       // Supprime l'utilisateur (les autres tables cascadent via FK ON DELETE CASCADE)
       await connection.execute(`DELETE FROM users WHERE id = ?`, [userId]);
 
@@ -528,7 +541,7 @@ router.get(
 
     const db = getDb();
     try {
-      const [[users], [reservations], [reviews], [notifications]] = await Promise.all([
+      const [[users], [reservations], [reviews], [notifications], [messages]] = await Promise.all([
         db.query(
           `SELECT id, first_name, last_name, email, phone_number, birth_date, role,
             activity_name, city, bio, profile_visibility, created_at
@@ -551,6 +564,12 @@ router.get(
            FROM notifications WHERE user_id = ?`,
           [userId]
         ) as Promise<[any[], any]>,
+        db.query(
+          `SELECT m.id, m.thread_id, m.body, m.attachment_url, m.created_at
+           FROM messages m
+           WHERE m.sender_id = ? AND m.deleted_at IS NULL`,
+          [userId]
+        ) as Promise<[any[], any]>,
       ]);
 
       const profile = (users as any[])[0] ?? null;
@@ -563,6 +582,7 @@ router.get(
         reservations,
         reviews,
         notifications,
+        messages,
       });
     } catch (err) {
       const [msg, stack] = errInfo(err);

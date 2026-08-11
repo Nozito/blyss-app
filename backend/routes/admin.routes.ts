@@ -663,6 +663,13 @@ router.delete(
       );
       await connection.execute(`UPDATE reviews SET client_id = NULL WHERE client_id = ?`, [userId]);
       await connection.execute(`UPDATE reviews SET pro_id = NULL WHERE pro_id = ?`, [userId]);
+      await connection.execute(
+        `UPDATE messages SET sender_id = NULL, body = NULL, attachment_url = NULL, attachment_thumbnail = NULL, deleted_at = NOW()
+         WHERE sender_id = ? AND deleted_at IS NULL`,
+        [userId]
+      );
+      await connection.execute(`UPDATE message_threads SET client_id = NULL WHERE client_id = ?`, [userId]);
+      await connection.execute(`UPDATE message_threads SET pro_id = NULL WHERE pro_id = ?`, [userId]);
 
       await connection.execute("DELETE FROM users WHERE id = ?", [userId]);
       await connection.commit();
@@ -1541,6 +1548,176 @@ router.patch(
       const db = getDb();
       const reviewId = parseParamToInt(req.params.id);
       await db.query(`DELETE FROM review_flags WHERE review_id = ?`, [reviewId]);
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* ── MESSAGES MODERATION (app/(admin-tools)/messages.tsx) ──────────────────
+ * Modération sur signalement uniquement — un fil n'apparaît ici que si une
+ * cliente ou une pro l'a signalé via POST /api/messages/threads/:id/report.
+ * Pas de scan proactif des conversations. */
+
+/* GET /messages/threads?flagged=true — file de modération.
+ * GET /messages/threads?deleted=true — fils déjà modérés (contenu effacé), pour restauration. */
+router.get(
+  "/messages/threads",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const db = getDb();
+      const flaggedOnly = req.query.flagged === "true";
+      const deletedOnly = req.query.deleted === "true";
+      const limit = Math.min(Number(req.query.limit) || 50, 100);
+      const page = Math.max(Number(req.query.page) || 1, 1);
+      const offset = (page - 1) * limit;
+      const deletedCondition = deletedOnly
+        ? "EXISTS (SELECT 1 FROM messages m WHERE m.thread_id = t.id AND m.deleted_at IS NOT NULL)"
+        : "TRUE";
+
+      const [totalRows] = await db.query(
+        `SELECT COUNT(DISTINCT t.id) AS total
+         FROM message_threads t
+         ${flaggedOnly ? "JOIN" : "LEFT JOIN"} message_flags f ON f.thread_id = t.id
+         WHERE ${deletedCondition}`,
+        []
+      );
+      const total = Number((totalRows as any[])[0]?.total ?? 0);
+
+      const [rows] = await db.query(
+        `SELECT
+           t.id, t.last_message_preview, t.last_message_at, t.created_at,
+           COALESCE(cu.first_name || ' ' || cu.last_name, 'Compte supprimé') AS client_name,
+           COALESCE(NULLIF(TRIM(pu.activity_name), ''), pu.first_name || ' ' || pu.last_name, 'Compte supprimé') AS pro_name,
+           COUNT(f.id) AS flags_count,
+           MAX(f.reason) AS last_reason
+         FROM message_threads t
+         LEFT JOIN users cu ON cu.id = t.client_id
+         LEFT JOIN users pu ON pu.id = t.pro_id
+         ${flaggedOnly ? "JOIN" : "LEFT JOIN"} message_flags f ON f.thread_id = t.id
+         WHERE ${deletedCondition}
+         GROUP BY t.id, cu.first_name, cu.last_name, pu.activity_name, pu.first_name, pu.last_name
+         ORDER BY MAX(f.created_at) DESC NULLS LAST, t.last_message_at DESC NULLS LAST
+         LIMIT ? OFFSET ?`,
+        [limit, offset]
+      );
+
+      res.json({
+        success: true,
+        total,
+        data: (rows as any[]).map((r) => ({ ...r, flags_count: Number(r.flags_count) })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* GET /messages/threads/:id — contenu complet du fil, pour l'examen admin. */
+router.get(
+  "/messages/threads/:id",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const db = getDb();
+      const threadId = parseParamToInt(req.params.id);
+
+      const [messages] = await db.query(
+        `SELECT m.id, m.sender_id, m.body, m.attachment_url, m.created_at, m.deleted_at,
+           CASE WHEN m.sender_id = t.client_id THEN 'client' WHEN m.sender_id = t.pro_id THEN 'pro' ELSE NULL END AS sender_role
+         FROM messages m
+         JOIN message_threads t ON t.id = m.thread_id
+         WHERE m.thread_id = ?
+         ORDER BY m.created_at ASC`,
+        [threadId]
+      );
+
+      const [flags] = await db.query(
+        `SELECT f.id, f.reason, f.created_at, COALESCE(u.first_name || ' ' || u.last_name, 'Compte supprimé') AS flagged_by_name
+         FROM message_flags f LEFT JOIN users u ON u.id = f.flagged_by
+         WHERE f.thread_id = ? ORDER BY f.created_at DESC`,
+        [threadId]
+      );
+
+      res.json({ success: true, data: { messages, flags } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* DELETE /messages/threads/:id — efface le contenu du fil (modération) et
+ * prévient les deux participants. Soft-delete (deleted_at), comme les avis. */
+router.delete(
+  "/messages/threads/:id",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const db = getDb();
+      const threadId = parseParamToInt(req.params.id);
+
+      const [threadRows] = await db.query(
+        `UPDATE messages SET deleted_at = NOW() WHERE thread_id = ? AND deleted_at IS NULL
+         RETURNING (SELECT client_id FROM message_threads WHERE id = ?) AS client_id,
+                    (SELECT pro_id FROM message_threads WHERE id = ?) AS pro_id`,
+        [threadId, threadId, threadId]
+      );
+      const participants = (threadRows as any[])[0];
+
+      for (const participantId of [participants?.client_id, participants?.pro_id].filter(Boolean)) {
+        try {
+          const message = "Une conversation a été modérée par l'équipe Blyss suite à un signalement.";
+          const [notifRows] = await db.query(
+            `INSERT INTO notifications (user_id, type, title, message, data)
+             VALUES (?, 'thread_moderated', 'Conversation modérée', ?, ?)
+             RETURNING id, created_at`,
+            [participantId, message, JSON.stringify({ thread_id: threadId })]
+          );
+          const notif = (notifRows as any[])[0];
+          if (notif) {
+            await sendNotificationToUser(participantId, {
+              id: notif.id,
+              type: "thread_moderated",
+              title: "Conversation modérée",
+              message,
+              data: { thread_id: threadId },
+              created_at: notif.created_at,
+            });
+          }
+        } catch {
+          // non-fatal — la modération elle-même a déjà réussi
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* PATCH /messages/threads/:id/restore — annule une modération. */
+router.patch(
+  "/messages/threads/:id/restore",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const db = getDb();
+      const threadId = parseParamToInt(req.params.id);
+      await db.query(`UPDATE messages SET deleted_at = NULL WHERE thread_id = ? AND deleted_at IS NOT NULL`, [threadId]);
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* PATCH /messages/threads/:id/ignore — classe le signalement sans rien modérer. */
+router.patch(
+  "/messages/threads/:id/ignore",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const db = getDb();
+      const threadId = parseParamToInt(req.params.id);
+      await db.query(`DELETE FROM message_flags WHERE thread_id = ?`, [threadId]);
       res.json({ success: true });
     } catch (error) {
       next(error);

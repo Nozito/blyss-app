@@ -5,8 +5,8 @@ import { sendExpoPushToUsers } from "./push";
 
 export const connectedClients = new Map<number, WebSocket>();
 
-// booking_confirmed, message_received, and late_alert are intentionally
-// absent — no backend code path ever emits those types (and their
+// booking_confirmed and late_alert are intentionally absent — no backend
+// code path ever emits those types (and their
 // corresponding preference toggles were removed from the UI). Every type
 // that IS actually sent must have an entry here, or it silently falls
 // through to the default column below — that's how no_show and
@@ -22,6 +22,8 @@ const CLIENT_NOTIFICATION_MAPPING: { [key: string]: string } = {
   promotional: "offers",
   email_summary: "email_summary",
   info: "offers",
+  new_message: "messages",
+  thread_moderated: "changes",
 };
 
 const PRO_NOTIFICATION_MAPPING: { [key: string]: string } = {
@@ -38,6 +40,8 @@ const PRO_NOTIFICATION_MAPPING: { [key: string]: string } = {
   info: "activity_summary",
   review_deleted: "activity_summary",
   review_restored: "activity_summary",
+  new_message: "client_message",
+  thread_moderated: "activity_summary",
 };
 
 export async function checkNotificationPreference(
