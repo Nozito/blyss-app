@@ -447,6 +447,13 @@ const PRO_SUBSCRIPTION_WHITELIST = [
   "/subscription/checkout",
   "/subscription/sync",
   "/onboarding",
+  // Réglage de compte basique, pas une fonctionnalité premium (contrairement
+  // à la galerie, gated par requirePlan) — n'a aucune raison d'être bloqué
+  // par un abonnement inactif. Sans cette entrée, une pro dont pro_status
+  // (colonne DB, mise à jour par le webhook RevenueCat) n'est pas encore
+  // synchronisé avec son activePlan (état côté client) se voit refuser
+  // GET/PATCH alors que l'app l'a déjà laissée entrer sur cet écran.
+  "/settings/cancellation-policy",
 ];
 
 // Une seule requête DB pour vérifier role + is_admin + pro_status
