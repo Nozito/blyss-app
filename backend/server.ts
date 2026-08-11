@@ -1053,7 +1053,7 @@ app.get(
           geo_precision, address_line, postal_code, latitude, longitude,
           public_latitude, public_longitude, service_radius_km, service_area_label
         FROM users
-        WHERE id = ? AND role = 'pro' AND pro_status = 'active'`,
+        WHERE id = ? AND role = 'pro' AND pro_status = 'active' AND profile_visibility = 'public'`,
         [proId]
       );
 
@@ -2827,6 +2827,7 @@ app.put(
         postal_code,
         service_radius_km,
         service_area_label,
+        profile_visibility,
       } = req.body;
 
       const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [
@@ -2919,6 +2920,35 @@ app.put(
         user.role === "pro"
           ? service_area_label !== undefined ? service_area_label : user.service_area_label ?? null
           : null;
+      const updatedProfileVisibility =
+        user.role === "pro"
+          ? profile_visibility !== undefined
+            ? profile_visibility
+            : ((user as any).profile_visibility ?? "public")
+          : (user as any).profile_visibility ?? "public";
+
+      // A pro can't go public with a profile that would leave a client stuck —
+      // no name/city to show, or nothing bookable at all. Checked server-side
+      // (not just in the mobile UI) so this can't be bypassed by calling the
+      // API directly.
+      if (user.role === "pro" && updatedProfileVisibility === "public") {
+        const missing: string[] = [];
+        if (!updatedActivityName?.trim()) missing.push("le nom de ton activité");
+        if (!updatedCity?.trim()) missing.push("ta ville");
+        const [prestationRows] = await db.query(
+          "SELECT COUNT(*) AS count FROM prestations WHERE pro_id = ? AND active = TRUE",
+          [req.user!.id]
+        );
+        const activePrestations = Number((prestationRows as any[])[0]?.count ?? 0);
+        if (activePrestations === 0) missing.push("au moins une prestation active");
+
+        if (missing.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: `Ton profil doit être complété avant d'être visible : ${missing.join(", ")}.`,
+          });
+        }
+      }
 
       if (
         user.role === "pro" &&
@@ -2966,7 +2996,7 @@ app.put(
       await db.execute(
         `UPDATE users
          SET first_name = ?, last_name = ?, activity_name = ?, city = ?, instagram_account = ?, bio = ?, acceptance_conditions = ?::jsonb, password_hash = ?, latitude = ?, longitude = ?,
-             geo_precision = ?, address_line = ?, postal_code = ?, public_latitude = ?, public_longitude = ?, service_radius_km = ?, service_area_label = ?
+             geo_precision = ?, address_line = ?, postal_code = ?, public_latitude = ?, public_longitude = ?, service_radius_km = ?, service_area_label = ?, profile_visibility = ?
          WHERE id = ?`,
         [
           updatedFirstName,
@@ -2986,6 +3016,7 @@ app.put(
           publicLng,
           updatedServiceRadiusKm,
           updatedServiceAreaLabel,
+          updatedProfileVisibility,
           req.user!.id,
         ]
       );
@@ -3074,7 +3105,7 @@ app.get(
       const hasGeo = !isNaN(userLat) && !isNaN(userLng);
       const maxKm = parseFloat(req.query.radius as string) || 50;
 
-      const whereParts: string[] = ["u.role = 'pro'", "u.pro_status = 'active'", "u.is_active = TRUE"];
+      const whereParts: string[] = ["u.role = 'pro'", "u.pro_status = 'active'", "u.is_active = TRUE", "u.profile_visibility = 'public'"];
       const whereParams: any[] = [];
 
       if (search) {
@@ -4957,7 +4988,7 @@ app.get(
 
       connection = await db.getConnection();
 
-      let whereClause = "WHERE u.role = 'pro' AND u.pro_status = 'active'";
+      let whereClause = "WHERE u.role = 'pro' AND u.pro_status = 'active' AND u.profile_visibility = 'public'";
       const params: any[] = [];
 
       if (search) {
@@ -5058,7 +5089,7 @@ app.get(
           'Prothésiste ongulaire' as specialty
         FROM users u
         LEFT JOIN reviews r ON r.pro_id = u.id AND r.deleted_at IS NULL
-        WHERE u.id = ? AND u.role = 'pro' AND u.pro_status = 'active'
+        WHERE u.id = ? AND u.role = 'pro' AND u.pro_status = 'active' AND u.profile_visibility = 'public'
         GROUP BY u.id
         `,
         [specialistId]
@@ -5905,7 +5936,7 @@ app.get("/api/favorites", authenticateToken, async (req: Request, res: Response)
        FROM favorites f
        JOIN users u ON u.id = f.pro_id
        LEFT JOIN reviews r ON r.pro_id = f.pro_id AND r.deleted_at IS NULL
-       WHERE f.client_id = ? AND u.pro_status = 'active'
+       WHERE f.client_id = ? AND u.pro_status = 'active' AND u.profile_visibility = 'public'
        GROUP BY f.id, f.pro_id, f.created_at, u.first_name, u.last_name,
                 u.activity_name, u.city, u.profile_photo, u.banner_photo,
                 u.bio, u.instagram_account
