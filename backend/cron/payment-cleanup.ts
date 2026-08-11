@@ -27,12 +27,20 @@ const INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 async function cancelUnpaidReservations(): Promise<number> {
   const db = getDb();
 
-  // Fetch all reservations that are confirmed but unpaid for too long
+  // Fetch all reservations that are confirmed but unpaid for too long.
+  // paid_online = FALSE excludes pay-on-site bookings: those also start
+  // out with payment_status='unpaid' (nothing is charged at booking time,
+  // the pro only marks them paid_on_site the day of service) — without
+  // this filter, every pay-on-site reservation was silently auto-cancelled
+  // 30 minutes after being made, which is not the intent of this cron
+  // (it exists to catch abandoned online-checkout attempts, not on-site
+  // bookings that were never supposed to be paid up front).
   const [rows] = await db.query(
     `SELECT id, slot_id
      FROM reservations
      WHERE payment_status = 'unpaid'
        AND status = 'confirmed'
+       AND paid_online = TRUE
        AND created_at < NOW() - MAKE_INTERVAL(mins => $1)`,
     [UNPAID_TIMEOUT_MINUTES]
   );
