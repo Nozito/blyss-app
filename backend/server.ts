@@ -2927,7 +2927,9 @@ app.put(
       const updatedServiceRadiusKm =
         user.role === "pro"
           ? service_radius_km !== undefined ? service_radius_km : user.service_radius_km ?? 5
-          : null;
+          // NOT NULL DEFAULT 5.0 column — clients never had this field, but the
+          // column still rejects null, which crashed every client profile save.
+          : user.service_radius_km ?? 5;
       const updatedServiceAreaLabel =
         user.role === "pro"
           ? service_area_label !== undefined ? service_area_label : user.service_area_label ?? null
