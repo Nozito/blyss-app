@@ -25,7 +25,7 @@
 import { sendPushToUser, sendExpoPushToUsers } from "./push";
 import { getDb } from "./db";
 import { log } from "./logger";
-import { sendLiveActivityStart, sendLiveActivityUpdate, sendLiveActivityEnd } from "./apns";
+import { sendLiveActivityStart, sendLiveActivityUpdate, sendLiveActivityEnd, isApnsConfigured } from "./apns";
 import { applyLiveActivityPrivacy } from "./liveActivityPrivacy";
 
 /**
@@ -525,14 +525,24 @@ export async function runReminderCycle(): Promise<void> {
 }
 
 /**
- * Starts the reminder cron (every 15 minutes).
- * No-op if VAPID keys are not configured.
+ * Starts the reminder cron (every 15 minutes). Drives two independent
+ * channels — web-push reminders (VAPID) and Live Activity start/update/end
+ * (APNs) — so it only skips entirely if *neither* is configured; each
+ * channel's own send functions already no-op safely when their specific
+ * keys are missing (see sendPushToUser / isApnsConfigured guards). A single
+ * VAPID-only gate here previously killed the Live Activity "end" safety net
+ * — the cron's only defense against a ghost activity when the app never
+ * reopens — for any deployment that only configured APNs.
  */
 export function startReminderCron(): void {
-  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
-    console.info("[reminders] VAPID keys not configured — push reminders disabled");
+  const hasVapid = Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+  const hasApns = isApnsConfigured();
+  if (!hasVapid && !hasApns) {
+    console.info("[reminders] neither VAPID nor APNs configured — reminder cron disabled");
     return;
   }
+  if (!hasVapid) console.info("[reminders] VAPID keys not configured — web-push reminders disabled, Live Activity cron still runs");
+  if (!hasApns) console.info("[reminders] APNs not configured — Live Activity start/update/end disabled, web-push reminders still run");
 
   const INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 

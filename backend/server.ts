@@ -1772,13 +1772,27 @@ app.post(
         }
       }
 
-      await db.query(
-        `INSERT INTO live_activity_tokens (user_id, kind, activity_id, reservation_id, push_token, updated_at)
-         VALUES (?, ?, ?, ?, ?, NOW())
-         ON CONFLICT (user_id, kind, activity_id)
-         DO UPDATE SET push_token = EXCLUDED.push_token, reservation_id = EXCLUDED.reservation_id, updated_at = NOW()`,
-        [userId, kind, activityId ?? null, reservationId ?? null, token]
-      );
+      if (kind === "start") {
+        // activity_id is always NULL for this kind (device-level token, not
+        // tied to one activity) — NULL never satisfies the general (user_id,
+        // kind, activity_id) UNIQUE, so this upserts against the dedicated
+        // partial index instead (live_activity_tokens_start_unique).
+        await db.query(
+          `INSERT INTO live_activity_tokens (user_id, kind, activity_id, reservation_id, push_token, updated_at)
+           VALUES (?, 'start', NULL, ?, ?, NOW())
+           ON CONFLICT (user_id) WHERE kind = 'start'
+           DO UPDATE SET push_token = EXCLUDED.push_token, reservation_id = EXCLUDED.reservation_id, updated_at = NOW()`,
+          [userId, reservationId ?? null, token]
+        );
+      } else {
+        await db.query(
+          `INSERT INTO live_activity_tokens (user_id, kind, activity_id, reservation_id, push_token, updated_at)
+           VALUES (?, 'update', ?, ?, ?, NOW())
+           ON CONFLICT (user_id, kind, activity_id)
+           DO UPDATE SET push_token = EXCLUDED.push_token, reservation_id = EXCLUDED.reservation_id, updated_at = NOW()`,
+          [userId, activityId, reservationId ?? null, token]
+        );
+      }
 
       res.json({ success: true });
     } catch (err) {
@@ -1833,11 +1847,19 @@ async function pushLiveActivityMutation(reservationId: number, kind: "update" | 
     if (!token) return;
 
     if (kind === "end") {
-      await sendLiveActivityEnd(token);
-      await db.query(
-        "DELETE FROM live_activity_tokens WHERE reservation_id = ? AND kind = 'update'",
-        [reservationId]
-      );
+      const result = await sendLiveActivityEnd(token);
+      // Only drop the token once we know it can't be used again — either the
+      // push landed, or APNs told us the token itself is dead. On a transient
+      // failure (network blip, APNs momentarily down) the row must survive:
+      // deleting it unconditionally here would strand the activity with no
+      // way to end it later, since endExpiredLiveActivities() (the cron
+      // safety net) can only act on tokens that still exist.
+      if (result.ok || result.tokenInvalid) {
+        await db.query(
+          "DELETE FROM live_activity_tokens WHERE reservation_id = ? AND kind = 'update'",
+          [reservationId]
+        );
+      }
       return;
     }
 
