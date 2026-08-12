@@ -236,6 +236,7 @@ router.get("/threads/:id", authMiddleware, async (req: AuthenticatedRequest, res
         otherPhoto: isClient ? thread.pro_photo : thread.client_photo,
         lastReservationId: thread.last_reservation_id,
         reservationStatus: thread.reservation_status,
+        isLocked: thread.is_locked,
         messages,
       },
     });
@@ -268,10 +269,16 @@ router.post(
       }
 
       const db = getDb();
-      const [threadRows] = await db.query("SELECT client_id, pro_id FROM message_threads WHERE id = ?", [threadId]);
+      const [threadRows] = await db.query("SELECT client_id, pro_id, is_locked FROM message_threads WHERE id = ?", [threadId]);
       const thread = (threadRows as any[])[0];
       if (!thread || (thread.client_id !== userId && thread.pro_id !== userId)) {
         return res.status(404).json({ success: false, message: "Conversation introuvable" });
+      }
+      if (thread.is_locked) {
+        return res.status(403).json({
+          success: false,
+          message: "Cette conversation est en cours d'examen par l'équipe Blyss suite à un signalement, l'envoi de messages est suspendu.",
+        });
       }
       const isClient = thread.client_id === userId;
       const recipientId = isClient ? thread.pro_id : thread.client_id;
@@ -338,15 +345,34 @@ router.post(
   }
 );
 
+// Motifs fermés — un texte libre seul rend trop facile un signalement
+// "creux" pour faire pression sur l'autre partie ; voir artefact produit
+// "Écrire à sa pro".
+const REPORT_REASON_CODES = new Set([
+  "injures_menaces",
+  "arnaque_paiement",
+  "contournement_plateforme",
+  "contenu_inapproprie",
+  "autre",
+]);
+
 // ── POST /threads/:id/report — signale le fil (modération admin) ──────────
+// Verrouille le fil pour les deux participants (voir POST /:id/messages) et
+// refuse un second signalement tant que le premier n'est pas traité — un
+// signalement déjà "reviewed" peut en revanche être réouvert (nouvel incident).
 router.post("/threads/:id/report", authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.id;
     const threadId = parseParamToInt(req.params.id);
-    let { reason } = req.body as { reason?: string };
+    const { reasonCode } = req.body as { reasonCode?: string };
+    let reason: string | null = (req.body as { reason?: string }).reason ?? null;
+
+    if (!reasonCode || !REPORT_REASON_CODES.has(reasonCode)) {
+      return res.status(400).json({ success: false, message: "Merci de préciser le motif du signalement." });
+    }
     if (reason != null) {
       if (typeof reason !== "string") return res.status(400).json({ success: false, message: "reason invalide" });
-      reason = reason.slice(0, 500);
+      reason = reason.trim().slice(0, 500) || null;
     }
 
     const db = getDb();
@@ -355,13 +381,34 @@ router.post("/threads/:id/report", authMiddleware, async (req: AuthenticatedRequ
     if (!thread || (thread.client_id !== userId && thread.pro_id !== userId)) {
       return res.status(404).json({ success: false, message: "Conversation introuvable" });
     }
+    const reportedUserId = thread.client_id === userId ? thread.pro_id : thread.client_id;
+
+    const [existingRows] = await db.query(
+      "SELECT status FROM message_flags WHERE thread_id = ? AND flagged_by = ?",
+      [threadId, userId]
+    );
+    const existingFlag = (existingRows as any[])[0];
+    if (existingFlag && existingFlag.status === "pending") {
+      return res.status(409).json({
+        success: false,
+        message: "Vous avez déjà signalé cette conversation, elle est en cours d'examen par l'équipe Blyss.",
+      });
+    }
 
     await db.query(
-      `INSERT INTO message_flags (thread_id, flagged_by, reason)
-       VALUES (?, ?, ?)
-       ON CONFLICT (thread_id, flagged_by) DO UPDATE SET reason = EXCLUDED.reason`,
-      [threadId, userId, reason ?? null]
+      `INSERT INTO message_flags (thread_id, flagged_by, reported_user_id, reason_code, reason, status)
+       VALUES (?, ?, ?, ?, ?, 'pending')
+       ON CONFLICT (thread_id, flagged_by) DO UPDATE SET
+         reported_user_id = EXCLUDED.reported_user_id,
+         reason_code = EXCLUDED.reason_code,
+         reason = EXCLUDED.reason,
+         status = 'pending',
+         handled_at = NULL,
+         handled_by = NULL,
+         created_at = NOW()`,
+      [threadId, userId, reportedUserId, reasonCode, reason ?? null]
     );
+    await db.query("UPDATE message_threads SET is_locked = TRUE WHERE id = ?", [threadId]);
 
     res.json({ success: true, message: "Merci, un membre de l'équipe Blyss va examiner cette conversation." });
   } catch (error) {

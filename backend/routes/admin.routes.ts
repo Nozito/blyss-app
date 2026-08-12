@@ -27,6 +27,10 @@ import { runReminderCycle } from "../lib/reminders";
 
 const router = express.Router();
 
+// Nombre de conversations distinctes signalées (en tant que partie visée)
+// au-delà duquel un compte est marqué "en vigilance" dans l'admin.
+const REPORT_VIGILANCE_THRESHOLD = 3;
+
 /**
  * Cancels any currently-active subscription for the user and inserts a new
  * admin_grant one (payment_id='admin_grant'), tracked by
@@ -184,16 +188,29 @@ router.get(
 
       const [users] = await db.query(`
         SELECT
-          id, first_name, last_name, email, phone_number, birth_date, role,
-          is_admin, is_active, created_at, activity_name, city,
-          instagram_account, profile_photo, banner_photo, pro_status, bio
-        FROM users
+          u.id, u.first_name, u.last_name, u.email, u.phone_number, u.birth_date, u.role,
+          u.is_admin, u.is_active, u.created_at, u.activity_name, u.city,
+          u.instagram_account, u.profile_photo, u.banner_photo, u.pro_status, u.bio,
+          COALESCE(rf.reported_count, 0) AS reported_count
+        FROM users u
+        LEFT JOIN (
+          SELECT reported_user_id, COUNT(DISTINCT thread_id) AS reported_count
+          FROM message_flags
+          WHERE reported_user_id IS NOT NULL
+          GROUP BY reported_user_id
+        ) rf ON rf.reported_user_id = u.id
         ${where}
-        ORDER BY created_at DESC
+        ORDER BY u.created_at DESC
         LIMIT ? OFFSET ?
       `, [...params, limit, offset]);
 
-      res.json({ success: true, data: users, meta: { page, limit, total } });
+      const usersWithVigilance = (users as any[]).map((u) => ({
+        ...u,
+        reported_count: Number(u.reported_count),
+        is_vigilant: Number(u.reported_count) >= REPORT_VIGILANCE_THRESHOLD,
+      }));
+
+      res.json({ success: true, data: usersWithVigilance, meta: { page, limit, total } });
     } catch (error) {
       next(error);
     }
@@ -238,12 +255,40 @@ router.get(
         ORDER BY created_at DESC LIMIT 10
       `, [userId]);
 
+      // Historique complet des signalements — dans les deux sens, traités ou
+      // non — pour permettre une décision de bannissement en un coup d'œil.
+      const [reportsAgainst] = await db.query(`
+        SELECT f.id, f.thread_id, f.reason_code, f.reason, f.status, f.created_at, f.handled_at,
+               COALESCE(ru.first_name || ' ' || ru.last_name, 'Compte supprimé') AS flagged_by_name
+        FROM message_flags f
+        LEFT JOIN users ru ON ru.id = f.flagged_by
+        WHERE f.reported_user_id = ?
+        ORDER BY f.created_at DESC
+      `, [userId]);
+
+      const [reportsMade] = await db.query(`
+        SELECT f.id, f.thread_id, f.reason_code, f.reason, f.status, f.created_at, f.handled_at,
+               COALESCE(ru.first_name || ' ' || ru.last_name, 'Compte supprimé') AS reported_user_name
+        FROM message_flags f
+        LEFT JOIN users ru ON ru.id = f.reported_user_id
+        WHERE f.flagged_by = ?
+        ORDER BY f.created_at DESC
+      `, [userId]);
+
+      const reportedCount = (reportsAgainst as any[]).length;
+
       res.json({
         success: true,
         data: {
           ...user,
           stats: (bookingStats as any[])[0] ?? {},
           subscription_history: subRows as any[],
+          reports: {
+            against: reportsAgainst as any[],
+            made: reportsMade as any[],
+            reported_count: reportedCount,
+            is_vigilant: reportedCount >= REPORT_VIGILANCE_THRESHOLD,
+          },
         },
       });
     } catch (error) {
@@ -1576,10 +1621,14 @@ router.get(
         ? "EXISTS (SELECT 1 FROM messages m WHERE m.thread_id = t.id AND m.deleted_at IS NOT NULL)"
         : "TRUE";
 
+      // flagged=true ne montre que les signalements en attente — un fil dont
+      // le seul signalement a déjà été traité (ignore/delete) sort de la file.
+      const flagJoinCondition = flaggedOnly ? "f.thread_id = t.id AND f.status = 'pending'" : "f.thread_id = t.id";
+
       const [totalRows] = await db.query(
         `SELECT COUNT(DISTINCT t.id) AS total
          FROM message_threads t
-         ${flaggedOnly ? "JOIN" : "LEFT JOIN"} message_flags f ON f.thread_id = t.id
+         ${flaggedOnly ? "JOIN" : "LEFT JOIN"} message_flags f ON ${flagJoinCondition}
          WHERE ${deletedCondition}`,
         []
       );
@@ -1587,15 +1636,17 @@ router.get(
 
       const [rows] = await db.query(
         `SELECT
-           t.id, t.last_message_preview, t.last_message_at, t.created_at,
+           t.id, t.last_message_preview, t.last_message_at, t.created_at, t.is_locked,
            COALESCE(cu.first_name || ' ' || cu.last_name, 'Compte supprimé') AS client_name,
            COALESCE(NULLIF(TRIM(pu.activity_name), ''), pu.first_name || ' ' || pu.last_name, 'Compte supprimé') AS pro_name,
-           COUNT(f.id) AS flags_count,
+           COUNT(f.id) FILTER (WHERE f.status = 'pending') AS flags_count,
+           COUNT(f.id) AS flags_total,
+           MAX(f.reason_code) AS last_reason_code,
            MAX(f.reason) AS last_reason
          FROM message_threads t
          LEFT JOIN users cu ON cu.id = t.client_id
          LEFT JOIN users pu ON pu.id = t.pro_id
-         ${flaggedOnly ? "JOIN" : "LEFT JOIN"} message_flags f ON f.thread_id = t.id
+         ${flaggedOnly ? "JOIN" : "LEFT JOIN"} message_flags f ON ${flagJoinCondition}
          WHERE ${deletedCondition}
          GROUP BY t.id, cu.first_name, cu.last_name, pu.activity_name, pu.first_name, pu.last_name
          ORDER BY MAX(f.created_at) DESC NULLS LAST, t.last_message_at DESC NULLS LAST
@@ -1606,7 +1657,7 @@ router.get(
       res.json({
         success: true,
         total,
-        data: (rows as any[]).map((r) => ({ ...r, flags_count: Number(r.flags_count) })),
+        data: (rows as any[]).map((r) => ({ ...r, flags_count: Number(r.flags_count), flags_total: Number(r.flags_total) })),
       });
     } catch (error) {
       next(error);
@@ -1633,8 +1684,12 @@ router.get(
       );
 
       const [flags] = await db.query(
-        `SELECT f.id, f.reason, f.created_at, COALESCE(u.first_name || ' ' || u.last_name, 'Compte supprimé') AS flagged_by_name
-         FROM message_flags f LEFT JOIN users u ON u.id = f.flagged_by
+        `SELECT f.id, f.reason_code, f.reason, f.status, f.created_at, f.handled_at,
+           COALESCE(u.first_name || ' ' || u.last_name, 'Compte supprimé') AS flagged_by_name,
+           COALESCE(ru.first_name || ' ' || ru.last_name, 'Compte supprimé') AS reported_user_name
+         FROM message_flags f
+         LEFT JOIN users u ON u.id = f.flagged_by
+         LEFT JOIN users ru ON ru.id = f.reported_user_id
          WHERE f.thread_id = ? ORDER BY f.created_at DESC`,
         [threadId]
       );
@@ -1654,6 +1709,7 @@ router.delete(
     try {
       const db = getDb();
       const threadId = parseParamToInt(req.params.id);
+      const adminId = req.user!.id;
 
       const [threadRows] = await db.query(
         `UPDATE messages SET deleted_at = NOW() WHERE thread_id = ? AND deleted_at IS NULL
@@ -1662,6 +1718,15 @@ router.delete(
         [threadId, threadId, threadId]
       );
       const participants = (threadRows as any[])[0];
+
+      // Le contenu est effacé : le fil reste verrouillé (pas de retour à la
+      // conversation), mais les signalements passent en "traité" pour sortir
+      // de la file tout en gardant l'historique (voir GET /users/:id/reports).
+      await db.query(
+        `UPDATE message_flags SET status = 'reviewed', handled_at = NOW(), handled_by = ?
+         WHERE thread_id = ? AND status = 'pending'`,
+        [adminId, threadId]
+      );
 
       for (const participantId of [participants?.client_id, participants?.pro_id].filter(Boolean)) {
         try {
@@ -1702,7 +1767,14 @@ router.patch(
     try {
       const db = getDb();
       const threadId = parseParamToInt(req.params.id);
+      const adminId = req.user!.id;
       await db.query(`UPDATE messages SET deleted_at = NULL WHERE thread_id = ? AND deleted_at IS NOT NULL`, [threadId]);
+      await db.query(
+        `UPDATE message_flags SET status = 'reviewed', handled_at = NOW(), handled_by = ?
+         WHERE thread_id = ? AND status = 'pending'`,
+        [adminId, threadId]
+      );
+      await db.query(`UPDATE message_threads SET is_locked = FALSE WHERE id = ?`, [threadId]);
       res.json({ success: true });
     } catch (error) {
       next(error);
@@ -1710,14 +1782,22 @@ router.patch(
   }
 );
 
-/* PATCH /messages/threads/:id/ignore — classe le signalement sans rien modérer. */
+/* PATCH /messages/threads/:id/ignore — classe le signalement sans rien modérer.
+ * Les lignes sont conservées (status='reviewed') pour l'historique côté
+ * fiche utilisateur, contrairement au comportement précédent (DELETE). */
 router.patch(
   "/messages/threads/:id/ignore",
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const db = getDb();
       const threadId = parseParamToInt(req.params.id);
-      await db.query(`DELETE FROM message_flags WHERE thread_id = ?`, [threadId]);
+      const adminId = req.user!.id;
+      await db.query(
+        `UPDATE message_flags SET status = 'reviewed', handled_at = NOW(), handled_by = ?
+         WHERE thread_id = ? AND status = 'pending'`,
+        [adminId, threadId]
+      );
+      await db.query(`UPDATE message_threads SET is_locked = FALSE WHERE id = ?`, [threadId]);
       res.json({ success: true });
     } catch (error) {
       next(error);
