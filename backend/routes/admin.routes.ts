@@ -1632,6 +1632,44 @@ router.patch(
  * cliente ou une pro l'a signalé via POST /api/messages/threads/:id/report.
  * Pas de scan proactif des conversations. */
 
+/**
+ * Prévient les deux participants d'un fil qu'une décision de modération a
+ * été prise — même message pour les deux, jamais l'issue exacte du
+ * signalement (fondé/infondé/abusif) : ça resterait une note interne, pas
+ * un motif à contester. Best-effort : un échec de notification n'annule
+ * jamais la décision de modération elle-même.
+ */
+async function notifyThreadParticipants(
+  db: ReturnType<typeof getDb>,
+  threadId: number,
+  participantIds: (number | null | undefined)[],
+  { type, title, message }: { type: string; title: string; message: string }
+): Promise<void> {
+  for (const participantId of participantIds.filter((id): id is number => !!id)) {
+    try {
+      const [notifRows] = await db.query(
+        `INSERT INTO notifications (user_id, type, title, message, data)
+         VALUES (?, ?, ?, ?, ?)
+         RETURNING id, created_at`,
+        [participantId, type, title, message, JSON.stringify({ thread_id: threadId })]
+      );
+      const notif = (notifRows as any[])[0];
+      if (notif) {
+        await sendNotificationToUser(participantId, {
+          id: notif.id,
+          type,
+          title,
+          message,
+          data: { thread_id: threadId },
+          created_at: notif.created_at,
+        });
+      }
+    } catch {
+      // non-fatal — la décision de modération a déjà réussi
+    }
+  }
+}
+
 /* GET /messages/threads?flagged=true — file de modération.
  * GET /messages/threads?deleted=true — fils déjà modérés (contenu effacé), pour restauration. */
 router.get(
@@ -1758,30 +1796,11 @@ router.delete(
         [resolvedNote, adminId, threadId]
       );
 
-      for (const participantId of [participants?.client_id, participants?.pro_id].filter(Boolean)) {
-        try {
-          const message = "Une conversation a été modérée par l'équipe Blyss suite à un signalement.";
-          const [notifRows] = await db.query(
-            `INSERT INTO notifications (user_id, type, title, message, data)
-             VALUES (?, 'thread_moderated', 'Conversation modérée', ?, ?)
-             RETURNING id, created_at`,
-            [participantId, message, JSON.stringify({ thread_id: threadId })]
-          );
-          const notif = (notifRows as any[])[0];
-          if (notif) {
-            await sendNotificationToUser(participantId, {
-              id: notif.id,
-              type: "thread_moderated",
-              title: "Conversation modérée",
-              message,
-              data: { thread_id: threadId },
-              created_at: notif.created_at,
-            });
-          }
-        } catch {
-          // non-fatal — la modération elle-même a déjà réussi
-        }
-      }
+      await notifyThreadParticipants(db, threadId, [participants?.client_id, participants?.pro_id], {
+        type: "thread_moderated",
+        title: "Conversation modérée",
+        message: "Une conversation a été modérée par l'équipe Blyss suite à un signalement.",
+      });
 
       res.json({ success: true });
     } catch (error) {
@@ -1792,7 +1811,9 @@ router.delete(
 
 /* PATCH /messages/threads/:id/restore — annule une modération : la personne
  * visée n'y était pour rien, le signalement est requalifié en "dismissed"
- * (exonéré) et sort donc du compteur de vigilance. */
+ * (exonéré) et sort donc du compteur de vigilance. Les deux participants
+ * sont prévenus — sans quoi ils retrouveraient une conversation débloquée
+ * sans explication (voir /ignore pour le même souci côté "jamais modérée"). */
 router.patch(
   "/messages/threads/:id/restore",
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -1809,6 +1830,15 @@ router.patch(
         [resolvedNote, adminId, threadId]
       );
       await db.query(`UPDATE message_threads SET is_locked = FALSE WHERE id = ?`, [threadId]);
+
+      const [threadRows] = await db.query("SELECT client_id, pro_id FROM message_threads WHERE id = ?", [threadId]);
+      const participants = (threadRows as any[])[0];
+      await notifyThreadParticipants(db, threadId, [participants?.client_id, participants?.pro_id], {
+        type: "thread_restored",
+        title: "Conversation restaurée",
+        message: "L'équipe Blyss a réexaminé cette conversation et restauré son contenu, vous pouvez à nouveau échanger normalement.",
+      });
+
       res.json({ success: true });
     } catch (error) {
       next(error);
@@ -1825,7 +1855,13 @@ router.patch(
  *    GET /users/:id/reports côté admin)
  * note : commentaire interne de l'admin, jamais montré à l'utilisateur.
  * Les lignes restent en base (status='reviewed') pour l'historique,
- * contrairement à l'ancien comportement (DELETE). */
+ * contrairement à l'ancien comportement (DELETE).
+ *
+ * Les deux participants sont prévenus avec le même message générique quelle
+ * que soit l'issue — sans ça le fil se débloque en silence et les deux
+ * parties restent sans explication sur ce qui vient de se passer. On ne
+ * révèle jamais si l'issue est 'dismissed' ou 'abusive' : ça resterait une
+ * appréciation interne, pas un verdict à contester côté reporter. */
 router.patch(
   "/messages/threads/:id/ignore",
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -1843,6 +1879,15 @@ router.patch(
         [resolvedOutcome, resolvedNote, adminId, threadId]
       );
       await db.query(`UPDATE message_threads SET is_locked = FALSE WHERE id = ?`, [threadId]);
+
+      const [threadRows] = await db.query("SELECT client_id, pro_id FROM message_threads WHERE id = ?", [threadId]);
+      const participants = (threadRows as any[])[0];
+      await notifyThreadParticipants(db, threadId, [participants?.client_id, participants?.pro_id], {
+        type: "thread_reviewed",
+        title: "Conversation examinée",
+        message: "L'équipe Blyss a terminé l'examen de cette conversation, vous pouvez à nouveau échanger normalement.",
+      });
+
       res.json({ success: true });
     } catch (error) {
       next(error);
