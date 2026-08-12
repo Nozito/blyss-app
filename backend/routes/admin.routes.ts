@@ -30,6 +30,10 @@ const router = express.Router();
 // Nombre de conversations distinctes signalées (en tant que partie visée)
 // au-delà duquel un compte est marqué "en vigilance" dans l'admin.
 const REPORT_VIGILANCE_THRESHOLD = 3;
+// Nombre de signalements jugés "abusifs" (en tant que reporter, mauvaise foi
+// confirmée par un admin) au-delà duquel un compte est marqué comme reporter
+// à risque.
+const ABUSIVE_REPORTER_THRESHOLD = 3;
 
 /**
  * Cancels any currently-active subscription for the user and inserts a new
@@ -191,14 +195,21 @@ router.get(
           u.id, u.first_name, u.last_name, u.email, u.phone_number, u.birth_date, u.role,
           u.is_admin, u.is_active, u.created_at, u.activity_name, u.city,
           u.instagram_account, u.profile_photo, u.banner_photo, u.pro_status, u.bio,
-          COALESCE(rf.reported_count, 0) AS reported_count
+          COALESCE(rf.reported_count, 0) AS reported_count,
+          COALESCE(mf.abusive_count, 0) AS abusive_reports_count
         FROM users u
         LEFT JOIN (
           SELECT reported_user_id, COUNT(DISTINCT thread_id) AS reported_count
           FROM message_flags
-          WHERE reported_user_id IS NOT NULL AND outcome IS DISTINCT FROM 'dismissed'
+          WHERE reported_user_id IS NOT NULL AND outcome IS DISTINCT FROM 'dismissed' AND outcome IS DISTINCT FROM 'abusive'
           GROUP BY reported_user_id
         ) rf ON rf.reported_user_id = u.id
+        LEFT JOIN (
+          SELECT flagged_by, COUNT(DISTINCT thread_id) AS abusive_count
+          FROM message_flags
+          WHERE outcome = 'abusive'
+          GROUP BY flagged_by
+        ) mf ON mf.flagged_by = u.id
         ${where}
         ORDER BY u.created_at DESC
         LIMIT ? OFFSET ?
@@ -208,6 +219,8 @@ router.get(
         ...u,
         reported_count: Number(u.reported_count),
         is_vigilant: Number(u.reported_count) >= REPORT_VIGILANCE_THRESHOLD,
+        abusive_reports_count: Number(u.abusive_reports_count),
+        is_abusive_reporter: Number(u.abusive_reports_count) >= ABUSIVE_REPORTER_THRESHOLD,
       }));
 
       res.json({ success: true, data: usersWithVigilance, meta: { page, limit, total } });
@@ -258,7 +271,7 @@ router.get(
       // Historique complet des signalements — dans les deux sens, traités ou
       // non — pour permettre une décision de bannissement en un coup d'œil.
       const [reportsAgainst] = await db.query(`
-        SELECT f.id, f.thread_id, f.reason_code, f.reason, f.status, f.outcome, f.created_at, f.handled_at,
+        SELECT f.id, f.thread_id, f.reason_code, f.reason, f.status, f.outcome, f.admin_note, f.created_at, f.handled_at,
                COALESCE(ru.first_name || ' ' || ru.last_name, 'Compte supprimé') AS flagged_by_name
         FROM message_flags f
         LEFT JOIN users ru ON ru.id = f.flagged_by
@@ -267,7 +280,7 @@ router.get(
       `, [userId]);
 
       const [reportsMade] = await db.query(`
-        SELECT f.id, f.thread_id, f.reason_code, f.reason, f.status, f.outcome, f.created_at, f.handled_at,
+        SELECT f.id, f.thread_id, f.reason_code, f.reason, f.status, f.outcome, f.admin_note, f.created_at, f.handled_at,
                COALESCE(ru.first_name || ' ' || ru.last_name, 'Compte supprimé') AS reported_user_name
         FROM message_flags f
         LEFT JOIN users ru ON ru.id = f.reported_user_id
@@ -275,10 +288,16 @@ router.get(
         ORDER BY f.created_at DESC
       `, [userId]);
 
-      // Un signalement classé "pas de faute" (outcome='dismissed') n'engage
-      // pas la personne visée — seuls les signalements en attente ou
-      // confirmés (upheld) comptent pour la vigilance.
-      const reportedCount = (reportsAgainst as any[]).filter((r) => r.outcome !== "dismissed").length;
+      // Un signalement classé "pas de faute" (dismissed) ou "abusif contre
+      // elle" (abusive) n'engage pas la personne visée — seuls les
+      // signalements en attente ou confirmés (upheld) comptent pour sa
+      // vigilance. Côté reports_made, c'est l'inverse : 'abusive' engage le
+      // reporter (mensonge/mauvaise foi), 'dismissed' ne l'engage pas
+      // (signalement de bonne foi mais infondé).
+      const against = reportsAgainst as any[];
+      const made = reportsMade as any[];
+      const reportedCount = against.filter((r) => r.outcome !== "dismissed" && r.outcome !== "abusive").length;
+      const abusiveMadeCount = made.filter((r) => r.outcome === "abusive").length;
 
       res.json({
         success: true,
@@ -287,10 +306,15 @@ router.get(
           stats: (bookingStats as any[])[0] ?? {},
           subscription_history: subRows as any[],
           reports: {
-            against: reportsAgainst as any[],
-            made: reportsMade as any[],
+            against,
+            made,
             reported_count: reportedCount,
             is_vigilant: reportedCount >= REPORT_VIGILANCE_THRESHOLD,
+            made_total: made.length,
+            made_justified_count: made.filter((r) => r.outcome === "upheld").length,
+            made_dismissed_count: made.filter((r) => r.outcome === "dismissed").length,
+            made_abusive_count: abusiveMadeCount,
+            is_abusive_reporter: abusiveMadeCount >= ABUSIVE_REPORTER_THRESHOLD,
           },
         },
       });
@@ -1687,7 +1711,7 @@ router.get(
       );
 
       const [flags] = await db.query(
-        `SELECT f.id, f.reason_code, f.reason, f.status, f.outcome, f.created_at, f.handled_at,
+        `SELECT f.id, f.reason_code, f.reason, f.status, f.outcome, f.admin_note, f.created_at, f.handled_at,
            COALESCE(u.first_name || ' ' || u.last_name, 'Compte supprimé') AS flagged_by_name,
            COALESCE(ru.first_name || ' ' || ru.last_name, 'Compte supprimé') AS reported_user_name
          FROM message_flags f
@@ -1713,6 +1737,8 @@ router.delete(
       const db = getDb();
       const threadId = parseParamToInt(req.params.id);
       const adminId = req.user!.id;
+      const { note } = req.body as { note?: string };
+      const resolvedNote = typeof note === "string" ? note.trim().slice(0, 1000) || null : null;
 
       const [threadRows] = await db.query(
         `UPDATE messages SET deleted_at = NOW() WHERE thread_id = ? AND deleted_at IS NULL
@@ -1727,9 +1753,9 @@ router.delete(
       // comptent pour la vigilance de la personne visée. Voir /ignore pour le
       // cas inverse (pas de faute) et GET /users/:id/reports pour l'historique.
       await db.query(
-        `UPDATE message_flags SET status = 'reviewed', outcome = 'upheld', handled_at = NOW(), handled_by = ?
+        `UPDATE message_flags SET status = 'reviewed', outcome = 'upheld', admin_note = ?, handled_at = NOW(), handled_by = ?
          WHERE thread_id = ? AND status = 'pending'`,
-        [adminId, threadId]
+        [resolvedNote, adminId, threadId]
       );
 
       for (const participantId of [participants?.client_id, participants?.pro_id].filter(Boolean)) {
@@ -1774,11 +1800,13 @@ router.patch(
       const db = getDb();
       const threadId = parseParamToInt(req.params.id);
       const adminId = req.user!.id;
+      const { note } = req.body as { note?: string };
+      const resolvedNote = typeof note === "string" ? note.trim().slice(0, 1000) || null : null;
       await db.query(`UPDATE messages SET deleted_at = NULL WHERE thread_id = ? AND deleted_at IS NOT NULL`, [threadId]);
       await db.query(
-        `UPDATE message_flags SET status = 'reviewed', outcome = 'dismissed', handled_at = NOW(), handled_by = ?
+        `UPDATE message_flags SET status = 'reviewed', outcome = 'dismissed', admin_note = COALESCE(?, admin_note), handled_at = NOW(), handled_by = ?
          WHERE thread_id = ? AND outcome = 'upheld'`,
-        [adminId, threadId]
+        [resolvedNote, adminId, threadId]
       );
       await db.query(`UPDATE message_threads SET is_locked = FALSE WHERE id = ?`, [threadId]);
       res.json({ success: true });
@@ -1788,10 +1816,16 @@ router.patch(
   }
 );
 
-/* PATCH /messages/threads/:id/ignore — classe le signalement sans rien modérer :
- * la personne visée n'est pas fautive, donc outcome='dismissed' — exclu du
- * compteur de vigilance (voir GET /users/:id/reports). Les lignes restent en
- * base (status='reviewed') pour l'historique, contrairement à l'ancien DELETE. */
+/* PATCH /messages/threads/:id/ignore — classe le signalement sans rien modérer.
+ * outcome distingue qui est fautif :
+ *  - 'dismissed' (défaut) : infondé mais de bonne foi, exclu de la vigilance
+ *    de la personne visée
+ *  - 'abusive' : le signalement lui-même était mensonger/de mauvaise foi —
+ *    engage le REPORTER, compte dans ses "signalements abusifs" (voir
+ *    GET /users/:id/reports côté admin)
+ * note : commentaire interne de l'admin, jamais montré à l'utilisateur.
+ * Les lignes restent en base (status='reviewed') pour l'historique,
+ * contrairement à l'ancien comportement (DELETE). */
 router.patch(
   "/messages/threads/:id/ignore",
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -1799,10 +1833,14 @@ router.patch(
       const db = getDb();
       const threadId = parseParamToInt(req.params.id);
       const adminId = req.user!.id;
+      const { outcome, note } = req.body as { outcome?: string; note?: string };
+      const resolvedOutcome = outcome === "abusive" ? "abusive" : "dismissed";
+      const resolvedNote = typeof note === "string" ? note.trim().slice(0, 1000) || null : null;
+
       await db.query(
-        `UPDATE message_flags SET status = 'reviewed', outcome = 'dismissed', handled_at = NOW(), handled_by = ?
+        `UPDATE message_flags SET status = 'reviewed', outcome = ?, admin_note = ?, handled_at = NOW(), handled_by = ?
          WHERE thread_id = ? AND status = 'pending'`,
-        [adminId, threadId]
+        [resolvedOutcome, resolvedNote, adminId, threadId]
       );
       await db.query(`UPDATE message_threads SET is_locked = FALSE WHERE id = ?`, [threadId]);
       res.json({ success: true });
