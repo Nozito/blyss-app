@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, MapPin, Star, Clock, Heart, Loader2, Instagram, Sparkles, ChevronRight, ShieldCheck, Check, X } from "lucide-react";
+import { ChevronLeft, MapPin, Star, Clock, Heart, Loader2, Instagram, Sparkles, ChevronRight, ShieldCheck, Check, X, MessageCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { favoritesApi, instagramApi, InstagramPhoto, API_URL } from "@/services/api";
 import { ConditionItem } from "./ProPublicProfile";
@@ -33,6 +33,20 @@ const formatReviewDate = (dateString: string): string => {
   if (diffDays < 30) return `Il y a ${Math.floor(diffDays / 7)} semaine(s)`;
   if (diffDays < 365) return `Il y a ${Math.floor(diffDays / 30)} mois`;
   return `Il y a ${Math.floor(diffDays / 365)} an(s)`;
+};
+
+// TODO(store-launch): remplacer par l'URL App Store réelle une fois l'app publiée.
+const APP_STORE_URL = "https://apps.apple.com/app/blyss";
+const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=blyss.app";
+
+// La messagerie n'existe que dans l'app mobile — sur web, ce bouton renvoie
+// vers le store correspondant. Masqué sur desktop : rediriger un visiteur
+// desktop vers un store mobile n'a aucun sens.
+const getStoreUrl = (): string | null => {
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/i.test(ua)) return APP_STORE_URL;
+  if (/Android/i.test(ua)) return PLAY_STORE_URL;
+  return null;
 };
 
 interface Pro {
@@ -85,6 +99,7 @@ const SpecialistProfile = () => {
   const [showAllReviews, setShowAllReviews] = useState(false);
   const [igPhotos, setIgPhotos] = useState<InstagramPhoto[]>([]);
   const [igUsername, setIgUsername] = useState<string | null>(null);
+  const storeUrl = useMemo(() => getStoreUrl(), []);
 
   const avgRating = useMemo(() =>
     reviews.length > 0
@@ -223,13 +238,8 @@ const SpecialistProfile = () => {
     if (!id) return;
 
     if (!isAuthenticated) {
-      const returnUrl = `/client/specialist/${id}`;
-      navigate('/login', {
-        state: {
-          message: 'Connectez-vous pour ajouter aux favoris',
-          returnUrl
-        }
-      });
+      localStorage.setItem('returnUrl', `/client/specialist/${id}`);
+      navigate('/login');
       return;
     }
 
@@ -259,12 +269,8 @@ const SpecialistProfile = () => {
 
   const handleReservationClick = useCallback(() => {
     if (!isAuthenticated) {
-      navigate('/login', {
-        state: {
-          message: 'Connectez-vous pour réserver',
-          returnUrl: `/client/booking/${id}`
-        }
-      });
+      localStorage.setItem('returnUrl', `/client/booking/${id}`);
+      navigate('/login');
       return;
     }
 
@@ -275,9 +281,7 @@ const SpecialistProfile = () => {
     if (!isAuthenticated) {
       localStorage.setItem('pendingAction', 'review');
       localStorage.setItem('returnUrl', `/client/specialist/${id}`);
-      navigate('/login', {
-        state: { message: 'Connectez-vous pour laisser un avis' }
-      });
+      navigate('/login');
       return;
     }
 
@@ -290,13 +294,7 @@ const SpecialistProfile = () => {
     if (!isAuthenticated) {
       localStorage.setItem('returnUrl', `/client/specialist/${id}`);
       localStorage.setItem('pendingAction', 'review');
-
-      navigate('/login', {
-        state: {
-          message: 'Connectez-vous pour laisser un avis',
-          returnUrl: `/client/specialist/${id}`
-        }
-      });
+      navigate('/login');
       return;
     }
 
@@ -316,13 +314,7 @@ const SpecialistProfile = () => {
       if (response.status === 401) {
         localStorage.setItem('returnUrl', `/client/specialist/${id}`);
         localStorage.setItem('pendingAction', 'review');
-
-        navigate('/login', {
-          state: {
-            message: 'Session expirée. Reconnectez-vous.',
-            returnUrl: `/client/specialist/${id}`
-          }
-        });
+        navigate('/login');
         return;
       }
 
@@ -624,13 +616,26 @@ const SpecialistProfile = () => {
           )}
 
           {/* CTA principal */}
-          <section>
+          <section className="space-y-2.5">
             <button
               onClick={handleReservationClick}
               className="w-full py-4 rounded-2xl bg-primary text-white font-semibold shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 active:scale-[0.98] transition-all"
             >
               Réserver avec {pro.first_name}
             </button>
+
+            {/* La messagerie est réservée à l'app mobile — pas de chat sur le web */}
+            {storeUrl && (
+              <a
+                href={storeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3.5 rounded-2xl border-2 border-border text-foreground font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
+              >
+                <MessageCircle size={17} />
+                Envoyer un message dans l'app
+              </a>
+            )}
           </section>
 
           {/* Avis - Toujours afficher cette section */}

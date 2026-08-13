@@ -130,6 +130,9 @@ const AppInner = () => {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
 
+          {/* Fiche pro publique — lien partagé depuis l'app (blyssapp.fr/s/:id), consultable sans compte */}
+          <Route path="/s/:id" element={<SpecialistProfile />} />
+
           {/* PRO — flow d'abonnement (pas de RequireSubscription ici) */}
           <Route path="/pro/subscription" element={<RequireAuth role="pro"><ProSubscription /></RequireAuth>} />
           <Route path="/pro/subscription-settings" element={<RequireAuth role="pro"><ProSubscriptionSettings /></RequireAuth>} />

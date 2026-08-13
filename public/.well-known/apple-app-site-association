@@ -1,0 +1,13 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["B92ST2GG54.blyss.app"],
+        "components": [
+          { "/": "/s/*" },
+          { "/": "/booking/*" }
+        ]
+      }
+    ]
+  }
+}
