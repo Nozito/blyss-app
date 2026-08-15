@@ -6677,7 +6677,12 @@ app.post("/api/payments/create-intent", authenticateToken, paymentIntentLimiter,
       );
     }
 
-    // Create PaymentIntent with direct charge on connected account
+    // Destination charge, billed on_behalf_of the connected account — the
+    // client always pays exactly the displayed price (no surcharge added
+    // here), but Stripe's own processing fees are deducted from the pro's
+    // payout rather than Blyss's platform balance. Without on_behalf_of,
+    // Stripe defaults to charging those fees to the platform account, which
+    // is the opposite of what we bill the pro for.
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: "eur",
@@ -6689,6 +6694,7 @@ app.post("/api/payments/create-intent", authenticateToken, paymentIntentLimiter,
         type,
       },
       automatic_payment_methods: { enabled: true },
+      on_behalf_of: reservation.stripe_account_id,
       transfer_data: {
         destination: reservation.stripe_account_id,
       },
