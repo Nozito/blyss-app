@@ -1049,7 +1049,7 @@ app.get(
         `SELECT
           id, first_name, last_name, activity_name, city,
           instagram_account, profile_photo, banner_photo, bio, acceptance_conditions, pro_status,
-          accept_online_payment, stripe_onboarding_complete,
+          accept_online_payment, stripe_onboarding_complete, deposit_percentage,
           geo_precision, address_line, postal_code, latitude, longitude,
           public_latitude, public_longitude, service_radius_km, service_area_label
         FROM users
@@ -6438,60 +6438,64 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
     }
 
     // ── Notify pro of new booking with full details (best-effort) ─────────────
-    try {
-      // Fetch client name
-      const [clientRows] = await db.query(
-        `SELECT first_name, last_name FROM users WHERE id = ?`,
-        [clientId]
-      );
-      const client = (clientRows as any[])[0];
-      const clientName = client ? `${client.first_name} ${client.last_name}` : "Un client";
+    // Paiement en ligne : pas de notif ici — la réservation n'est que
+    // "unpaid" à ce stade (le client n'a pas encore vu la feuille de
+    // paiement Stripe). La notif arrive via le webhook payment_intent.succeeded
+    // (voir "Acompte encaissé"/"Paiement encaissé" plus haut), une fois
+    // l'argent réellement encaissé. Sur place : rien à attendre, on notifie
+    // tout de suite.
+    if (!paidOnline) {
+      try {
+        // Fetch client name
+        const [clientRows] = await db.query(
+          `SELECT first_name, last_name FROM users WHERE id = ?`,
+          [clientId]
+        );
+        const client = (clientRows as any[])[0];
+        const clientName = client ? `${client.first_name} ${client.last_name}` : "Un client";
 
-      const startAt = new Date(start_datetime);
-      // Kept separately (not just parsed back out of notifMessage) because
-      // the `data` payload below is structured data for the client, not
-      // display text.
-      const dateStr = formatRdvDate(startAt);
-      const timeStr = formatRdvTime(startAt);
-      const paymentLabel = paidOnline
-        ? depositAmount
-          ? `acompte de ${formatEuros(depositAmount)}€ réglé en ligne (total ${formatEuros(price)}€)`
-          : `${formatEuros(price)}€ réglés en ligne`
-        : `${formatEuros(price)}€ à encaisser sur place`;
+        const startAt = new Date(start_datetime);
+        // Kept separately (not just parsed back out of notifMessage) because
+        // the `data` payload below is structured data for the client, not
+        // display text.
+        const dateStr = formatRdvDate(startAt);
+        const timeStr = formatRdvTime(startAt);
+        const paymentLabel = `${formatEuros(price)}€ à encaisser sur place`;
 
-      const notifMessage = `${clientName} a réservé « ${prestationName} » le ${formatRdvWhen(startAt)} — ${paymentLabel}.`;
+        const notifMessage = `${clientName} a réservé « ${prestationName} » le ${formatRdvWhen(startAt)} — ${paymentLabel}.`;
 
-      const [notifRows] = await db.query(
-        `INSERT INTO notifications (user_id, type, title, message, data)
-         VALUES (?, 'new_booking', 'Nouveau rendez-vous', ?, ?)
-         RETURNING id, created_at`,
-        [
-          pro_id,
-          notifMessage,
-          JSON.stringify({
-            reservation_id: insertId,
-            prestation: prestationName,
-            date: dateStr,
-            time: timeStr,
-            price: price,
-            deposit_amount: depositAmount,
-            payment_method: payment_method ?? "on_site",
-          }),
-        ]
-      );
-      const notif = (notifRows as any[])[0];
-      if (notif) {
-        await sendNotificationToUser(pro_id, {
-          id: notif.id,
-          type: "new_booking",
-          title: "Nouveau rendez-vous",
-          message: notifMessage,
-          data: { reservation_id: insertId },
-          created_at: notif.created_at,
-        });
+        const [notifRows] = await db.query(
+          `INSERT INTO notifications (user_id, type, title, message, data)
+           VALUES (?, 'new_booking', 'Nouveau rendez-vous', ?, ?)
+           RETURNING id, created_at`,
+          [
+            pro_id,
+            notifMessage,
+            JSON.stringify({
+              reservation_id: insertId,
+              prestation: prestationName,
+              date: dateStr,
+              time: timeStr,
+              price: price,
+              deposit_amount: depositAmount,
+              payment_method: payment_method ?? "on_site",
+            }),
+          ]
+        );
+        const notif = (notifRows as any[])[0];
+        if (notif) {
+          await sendNotificationToUser(pro_id, {
+            id: notif.id,
+            type: "new_booking",
+            title: "Nouveau rendez-vous",
+            message: notifMessage,
+            data: { reservation_id: insertId },
+            created_at: notif.created_at,
+          });
+        }
+      } catch (notifErr) {
+        log.warn("[RESERVATION_CREATE]", "Pro notification failed (non-fatal)", { reservationId: insertId });
       }
-    } catch (notifErr) {
-      log.warn("[RESERVATION_CREATE]", "Pro notification failed (non-fatal)", { reservationId: insertId });
     }
 
     return res.json({
