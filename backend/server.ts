@@ -1049,7 +1049,7 @@ app.get(
         `SELECT
           id, first_name, last_name, activity_name, city,
           instagram_account, profile_photo, banner_photo, bio, acceptance_conditions, pro_status,
-          accept_online_payment, stripe_onboarding_complete, deposit_percentage,
+          accept_online_payment, stripe_onboarding_complete, deposit_percentage, cancellation_notice_hours,
           geo_precision, address_line, postal_code, latitude, longitude,
           public_latitude, public_longitude, service_radius_km, service_area_label
         FROM users
