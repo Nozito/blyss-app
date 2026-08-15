@@ -279,6 +279,10 @@ describe("PUT /api/users/update — validation Zod", () => {
       service_radius_km: 5, service_area_label: null,
       latitude: 47.2181, longitude: -1.5528,
     }]]);
+    // profile_visibility absent du mock ci-dessus → défaut "public", donc la
+    // route déclenche le check anti-publication-incomplète et fait une requête
+    // COUNT(*) supplémentaire sur les prestations actives (server.ts ~L2974).
+    mockQuery.mockResolvedValueOnce([[{ count: 0 }]]);
 
     const res = await request(app)
       .put("/api/users/update")
