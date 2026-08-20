@@ -85,3 +85,59 @@ describe("runDataRetentionCycle — deleteInactiveAccounts", () => {
     expect(anonymize2).toBeDefined();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("runDataRetentionCycle — messages, avis, audit_log", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    mockQuery.mockImplementation((sql: unknown) => {
+      if (typeof sql === "string" && sql.includes("SELECT id, email, first_name FROM users")) {
+        return Promise.resolve([[], []]);
+      }
+      if (typeof sql === "string" && sql.includes("SELECT id FROM users")) {
+        return Promise.resolve([[], []]); // pas de comptes inactifs dans ce test
+      }
+      if (typeof sql === "string" && sql.includes("FROM messages")) {
+        return Promise.resolve([
+          [
+            { id: 1, attachment_url: "/uploads/chat/old.jpg", attachment_thumbnail: "/uploads/chat/old_thumb.jpg" },
+            { id: 2, attachment_url: null, attachment_thumbnail: null },
+          ],
+          [],
+        ]);
+      }
+      return Promise.resolve([[], []]);
+    });
+
+    mockExecute.mockImplementation((sql: unknown) => {
+      if (typeof sql === "string" && sql.includes("DELETE FROM messages WHERE id = ANY(?)")) {
+        return Promise.resolve([{ rowCount: 2 }]);
+      }
+      if (typeof sql === "string" && sql.includes("UPDATE reviews SET comment = NULL")) {
+        return Promise.resolve([{ rowCount: 3 }]);
+      }
+      if (typeof sql === "string" && sql.includes("DELETE FROM audit_log WHERE executed_at")) {
+        return Promise.resolve([{ rowCount: 5 }]);
+      }
+      return Promise.resolve([{ rowCount: 0 }]);
+    });
+  });
+
+  it("purge les messages > 3 ans (avec leurs pièces jointes), anonymise les avis > 5 ans et purge audit_log > 12 mois", async () => {
+    await runDataRetentionCycle();
+
+    const executeCalls = mockExecute.mock.calls as unknown[][];
+
+    const deleteMessages = executeCalls.find((a) => sqlIncludes(a, "DELETE FROM messages WHERE id = ANY(?)"));
+    expect(deleteMessages).toBeDefined();
+    expect(deleteMessages?.[1]).toEqual([[1, 2]]);
+
+    const anonymizeReviews = executeCalls.find((a) => sqlIncludes(a, "UPDATE reviews SET comment = NULL"));
+    expect(anonymizeReviews).toBeDefined();
+
+    const purgeAuditLog = executeCalls.find((a) => sqlIncludes(a, "DELETE FROM audit_log WHERE executed_at"));
+    expect(purgeAuditLog).toBeDefined();
+  });
+});

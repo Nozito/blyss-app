@@ -6323,8 +6323,12 @@ app.put("/api/pro/stripe/deposit", authenticateToken, validate(depositSchema), a
 app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reservationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user?.id;
-    const { pro_id, prestation_id, start_datetime, end_datetime, slot_id, payment_method } = req.body;
+    const { pro_id, prestation_id, start_datetime, end_datetime, slot_id, payment_method, early_execution_requested } = req.body;
     const paidOnline = payment_method === "online";
+    // Preuve horodatée du consentement exprès à l'exécution anticipée (art.
+    // L221-18 s. Code de la consommation) — validate() a déjà rejeté la
+    // requête si ce consentement manquait pour un RDV à moins de 14 jours.
+    const earlyExecutionRequestedAt = early_execution_requested ? new Date() : null;
 
     // Verify prestation belongs to the given pro + get its name, price and buffer
     // for the deposit calculation, notification and overlap check. The price is
@@ -6409,9 +6413,9 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
       depositAmount = depositPct > 0 ? Math.round(price * depositPct) / 100 : null;
 
       const [resaRows] = await connection.execute(
-        `INSERT INTO reservations (client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, payment_status, deposit_amount, paid_online, slot_id, created_at)
-         VALUES (?, ?, ?, ?, ?, 'confirmed', ?, 'unpaid', ?, ?, ?, NOW()) RETURNING id`,
-        [clientId, pro_id, prestation_id, start_datetime, end_datetime, price, depositAmount, paidOnline, slot_id || null]
+        `INSERT INTO reservations (client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, payment_status, deposit_amount, paid_online, slot_id, early_execution_requested_at, created_at)
+         VALUES (?, ?, ?, ?, ?, 'confirmed', ?, 'unpaid', ?, ?, ?, ?, NOW()) RETURNING id`,
+        [clientId, pro_id, prestation_id, start_datetime, end_datetime, price, depositAmount, paidOnline, slot_id || null, earlyExecutionRequestedAt]
       );
 
       insertId = (resaRows as any[])[0]?.id;

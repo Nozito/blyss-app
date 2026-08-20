@@ -6,18 +6,50 @@
  * 1. Anonymiser les réservations > 5 ans (obligation légale comptable)
  * 2. Envoyer email de préavis 30j avant suppression comptes inactifs > 2 ans 11 mois
  * 3. Supprimer comptes inactifs > 3 ans après préavis
- * 4. Logger chaque opération dans audit_log
+ * 4. Purger les messages (+ pièces jointes) > 3 ans
+ * 5. Anonymiser le commentaire des avis > 5 ans (la note est conservée pour
+ *    les statistiques du pro)
+ * 6. Purger le journal d'audit RGPD lui-même > 12 mois
+ * 7. Logger chaque opération dans audit_log
  */
 
+import path from "path";
+import fs from "fs";
 import { getDb } from "../lib/db";
 import { log } from "../lib/logger";
 
 const ROUTE = "/cron/data-retention";
 
+// Même résolution que UPLOADS_DIR dans server.ts, adaptée à la profondeur de
+// ce fichier (backend/cron/ au lieu de backend/) : en dev __dirname pointe
+// vers backend/cron, en prod vers backend/dist/cron — un niveau de plus
+// qu'au niveau racine dans les deux cas.
+const UPLOADS_DIR = path.resolve(
+  __dirname,
+  process.env.NODE_ENV === "production" ? "../../uploads" : "../uploads"
+);
+
+function unlinkUploadBestEffort(relUrl: string | null): void {
+  if (!relUrl) return;
+  const filePath = path.join(UPLOADS_DIR, relUrl.replace(/^\/uploads\//, ""));
+  fs.unlink(filePath, () => {}); // best-effort — la ligne DB prime, un fichier orphelin n'est pas bloquant
+}
+
 // ── Seuils RGPD ─────────────────────────────────────────────────────────────
 const BOOKING_ANONYMIZE_YEARS   = 5;
 const ACCOUNT_INACTIVE_MONTHS   = 36; // 3 ans
 const ACCOUNT_NOTICE_MONTHS     = 35; // 2 ans 11 mois → email préavis
+// Messages : durée alignée sur celle déjà annoncée aux pros pour leurs
+// données de compte ("conservées pendant la durée de l'abonnement et 3 ans
+// après sa résiliation" — CGV) — cohérence entre les deux politiques.
+const MESSAGE_RETENTION_YEARS         = 3;
+// Avis : le commentaire libre (texte) est purgé après 5 ans, comme les
+// réservations auxquelles il se rapporte ; la note chiffrée reste (nécessaire
+// au calcul de la moyenne affichée sur le profil du pro).
+const REVIEW_COMMENT_ANONYMIZE_YEARS  = 5;
+// Journal d'audit RGPD lui-même : recommandation CNIL pour les logs
+// techniques/opérationnels (hors obligation légale spécifique) — 12 mois.
+const AUDIT_LOG_RETENTION_MONTHS      = 12;
 
 // ── Envoi email préavis via Resend ───────────────────────────────────────────
 async function sendRetentionNotice(email: string, firstName: string): Promise<void> {
@@ -93,7 +125,45 @@ async function sendNoticesForSoonExpiredAccounts(): Promise<number> {
  * accounting/legal retention). is_active=FALSE is the same gate already used
  * by the admin ban action, so the account becomes unusable the same way.
  */
+/**
+ * Efface les fichiers photo (profil, bannière, portfolio) d'un utilisateur
+ * sur le disque. Ne touche jamais les lignes DB : appelée avant un DELETE
+ * (dont le CASCADE sur gallery_images videra les lignes) ou avant un
+ * UPDATE d'anonymisation (dont le DELETE explicite des lignes suit juste
+ * après) — dans les deux cas, sans cet appel les fichiers restent orphelins
+ * sur disque et accessibles par URL directe indéfiniment.
+ */
+async function unlinkUserPhotoFiles(userId: number): Promise<void> {
+  const [photoRows] = await getDb().query(
+    `SELECT profile_photo, banner_photo FROM users WHERE id = ?`,
+    [userId]
+  );
+  const photos = (photoRows as Array<{ profile_photo: string | null; banner_photo: string | null }>)[0];
+  if (photos) {
+    unlinkUploadBestEffort(photos.profile_photo);
+    unlinkUploadBestEffort(photos.banner_photo);
+  }
+
+  const [galleryRows] = await getDb().query(
+    `SELECT url, thumbnail FROM gallery_images WHERE pro_id = ?`,
+    [userId]
+  );
+  for (const g of galleryRows as Array<{ url: string; thumbnail: string }>) {
+    unlinkUploadBestEffort(g.url);
+    unlinkUploadBestEffort(g.thumbnail);
+  }
+}
+
 async function anonymizeUser(userId: number): Promise<void> {
+  // profile_photo/banner_photo/gallery_images ne sont référencées que par
+  // cette ligne — les blanchir en DB sans effacer le fichier physique
+  // laisse le portrait/portfolio de la personne accessible indéfiniment
+  // par URL directe. On les efface avant l'UPDATE ci-dessous.
+  await unlinkUserPhotoFiles(userId);
+  // Le compte survit (anonymisation, pas suppression) : contrairement au
+  // DELETE FROM users, il n'y a pas de CASCADE pour vider gallery_images.
+  await getDb().execute(`DELETE FROM gallery_images WHERE pro_id = ?`, [userId]);
+
   // The row survives (FK-blocked DELETE fallback), so every PII column that
   // exists on `users` must be blanked here — not just the ones the delete-
   // account flow happens to touch first. Past audit found this list missing
@@ -151,6 +221,10 @@ async function deleteInactiveAccounts(): Promise<{ deleted: number; anonymized: 
 
   for (const { id } of candidates) {
     try {
+      // Effacée avant la tentative de DELETE : si elle réussit, le CASCADE
+      // videra gallery_images mais ne touchera jamais le disque — sans quoi
+      // les fichiers deviennent orphelins et restent servis indéfiniment.
+      await unlinkUserPhotoFiles(id);
       await getDb().execute(`DELETE FROM users WHERE id = ?`, [id]);
       deleted++;
     } catch {
@@ -170,6 +244,63 @@ async function deleteInactiveAccounts(): Promise<{ deleted: number; anonymized: 
   }
 
   return { deleted, anonymized, failed };
+}
+
+/**
+ * Purge définitive des messages (chat client↔pro) et de leurs pièces
+ * jointes au-delà de MESSAGE_RETENTION_YEARS. Suppression physique (pas de
+ * soft delete ici — celui-ci sert la modération, pas la rétention) : les
+ * fichiers sont effacés avant les lignes pour ne jamais laisser un fichier
+ * référencé par une ligne déjà supprimée.
+ */
+async function purgeOldMessages(): Promise<number> {
+  const [rows] = await getDb().query(
+    `SELECT id, attachment_url, attachment_thumbnail
+     FROM messages
+     WHERE created_at < NOW() - INTERVAL '${MESSAGE_RETENTION_YEARS} years'`,
+    []
+  );
+  const messages = rows as Array<{ id: number; attachment_url: string | null; attachment_thumbnail: string | null }>;
+  if (messages.length === 0) return 0;
+
+  for (const m of messages) {
+    unlinkUploadBestEffort(m.attachment_url);
+    unlinkUploadBestEffort(m.attachment_thumbnail);
+  }
+
+  const ids = messages.map((m) => m.id);
+  const [result] = await getDb().execute(
+    `DELETE FROM messages WHERE id = ANY(?)`,
+    [ids]
+  );
+  return (result as any).rowCount ?? messages.length;
+}
+
+/**
+ * Anonymise le commentaire libre des avis au-delà de
+ * REVIEW_COMMENT_ANONYMIZE_YEARS — la note (rating) reste, nécessaire au
+ * calcul de la moyenne affichée sur le profil du pro.
+ */
+async function anonymizeOldReviewComments(): Promise<number> {
+  const [result] = await getDb().execute(
+    `UPDATE reviews SET comment = NULL
+     WHERE comment IS NOT NULL
+       AND created_at < NOW() - INTERVAL '${REVIEW_COMMENT_ANONYMIZE_YEARS} years'`,
+    []
+  );
+  return (result as any).rowCount ?? 0;
+}
+
+/**
+ * Purge le journal d'audit RGPD lui-même au-delà de
+ * AUDIT_LOG_RETENTION_MONTHS — sans quoi cette table grandit indéfiniment.
+ */
+async function purgeOldAuditLogs(): Promise<number> {
+  const [result] = await getDb().execute(
+    `DELETE FROM audit_log WHERE executed_at < NOW() - INTERVAL '${AUDIT_LOG_RETENTION_MONTHS} months'`,
+    []
+  );
+  return (result as any).rowCount ?? 0;
 }
 
 async function logAudit(operation: string, rowsAffected: number): Promise<void> {
@@ -212,6 +343,30 @@ export async function runDataRetentionCycle(): Promise<void> {
     log.warn(ROUTE, `Deleted ${deleted}, anonymized ${anonymized}, failed ${failed} inactive account(s)`);
   } catch (err: unknown) {
     log.error(ROUTE, "delete_inactive_accounts failed", err instanceof Error ? err.stack : String(err));
+  }
+
+  try {
+    const purged = await purgeOldMessages();
+    await logAudit("purge_old_messages", purged);
+    log.warn(ROUTE, `Purged ${purged} message(s) older than ${MESSAGE_RETENTION_YEARS} years`);
+  } catch (err: unknown) {
+    log.error(ROUTE, "purge_old_messages failed", err instanceof Error ? err.stack : String(err));
+  }
+
+  try {
+    const anonymized = await anonymizeOldReviewComments();
+    await logAudit("anonymize_old_review_comments", anonymized);
+    log.warn(ROUTE, `Anonymized ${anonymized} review comment(s) older than ${REVIEW_COMMENT_ANONYMIZE_YEARS} years`);
+  } catch (err: unknown) {
+    log.error(ROUTE, "anonymize_old_review_comments failed", err instanceof Error ? err.stack : String(err));
+  }
+
+  try {
+    const purged = await purgeOldAuditLogs();
+    await logAudit("purge_old_audit_logs", purged);
+    log.warn(ROUTE, `Purged ${purged} audit_log entries older than ${AUDIT_LOG_RETENTION_MONTHS} months`);
+  } catch (err: unknown) {
+    log.error(ROUTE, "purge_old_audit_logs failed", err instanceof Error ? err.stack : String(err));
   }
 
   log.warn(ROUTE, "Data retention cycle complete");

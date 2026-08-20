@@ -118,6 +118,12 @@ export const reviewSchema = z.object({
   comment: z.string().max(1000, "Commentaire trop long (max 1000 caractères)").nullable().optional(),
 });
 
+// Un RDV pris à moins de 14 jours équivaut à une demande d'exécution avant
+// la fin du délai légal de rétractation (art. L221-18 s. Code de la
+// consommation) — la case ne peut donc pas rester optionnelle en dessous de
+// ce seuil, faute de quoi le remboursement/rétractation reste attaquable.
+const EARLY_EXECUTION_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
+
 export const reservationSchema = z
   .object({
     pro_id: z.number("pro_id doit être un nombre").int().positive(),
@@ -132,11 +138,25 @@ export const reservationSchema = z
     payment_method: z.enum(["online", "on_site"], {
       message: "payment_method doit être 'online' ou 'on_site'",
     }).default("on_site"),
+    // Demande expresse d'exécution anticipée + reconnaissance de la perte du
+    // droit de rétractation une fois la prestation pleinement exécutée —
+    // distincte de l'acceptation des conditions d'annulation du pro.
+    early_execution_requested: z.boolean().optional().default(false),
   })
   .refine((d) => new Date(d.start_datetime) < new Date(d.end_datetime), {
     message: "start_datetime doit être antérieur à end_datetime",
     path: ["start_datetime"],
-  });
+  })
+  .refine(
+    (d) =>
+      d.early_execution_requested ||
+      new Date(d.start_datetime).getTime() - Date.now() >= EARLY_EXECUTION_THRESHOLD_MS,
+    {
+      message:
+        "Ce rendez-vous a lieu dans moins de 14 jours : la demande expresse d'exécution anticipée est obligatoire (early_execution_requested).",
+      path: ["early_execution_requested"],
+    }
+  );
 
 export const depositSchema = z.object({
   deposit_percentage: z.union(

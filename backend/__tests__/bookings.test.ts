@@ -119,6 +119,24 @@ describe("POST /api/reservations — validation Zod", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("validation_error");
   });
+
+  it("400 si RDV à moins de 14 jours sans early_execution_requested (droit de rétractation)", async () => {
+    const soon = new Date(Date.now() + 48 * 3600 * 1000);
+    const res = await request(app)
+      .post("/api/reservations")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        ...validBody,
+        start_datetime: soon.toISOString(),
+        end_datetime: new Date(soon.getTime() + 3600 * 1000).toISOString(),
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("validation_error");
+    expect(
+      res.body.details.some((d: { field: string }) => d.field === "early_execution_requested")
+    ).toBe(true);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
