@@ -4,10 +4,11 @@ import path from "path";
 import { componentTagger } from "lovable-tagger";
 
 export default defineConfig(({ mode }) => ({
+  // Dev server uniquement — la prod sert désormais un vrai build statique
+  // (`vite build` -> dist/) via nginx, plus de serveur Vite exposé publiquement.
   server: {
     host: "::",
     port: 8080,
-    allowedHosts: ["app.blyssapp.fr"],
     fs: {
       deny: [".git"],
     },
