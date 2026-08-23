@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { fetchAllPages } from "@/utils/fetchAllPages";
 import { useSearchParams } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Plus,
   Search,
@@ -22,8 +23,26 @@ import {
   ChevronLeft,
   Ban,
   RotateCcw,
+  KeyRound,
+  Users as UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import AdminAccessDialog from "@/components/admin/AdminAccessDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { EmptyState } from "@/components/admin/EmptyState";
+import { ErrorState } from "@/components/admin/ErrorState";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
@@ -73,6 +92,11 @@ const AdminUsers = () => {
     is_verified: false,
   });
   const [submitting, setSubmitting] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<
+    { type: 'delete' | 'toggle'; user: User } | null
+  >(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [accessDialogOpen, setAccessDialogOpen] = useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -81,15 +105,14 @@ const AdminUsers = () => {
   const fetchUsers = async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
     try {
-      const response = await fetch(`${API_URL}/api/admin/users`, {
-        credentials: 'include',
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUsers(data.data || []);
-        if (showRefresh) toast.success('Liste actualisée');
-      }
+      // L'API pagine (défaut 50/page) — la recherche et les filtres ci-dessous
+      // sont faits côté client sur `users`, donc il faut TOUT charger, sinon
+      // un compte hors des N plus récents devient invisible (peu importe la
+      // recherche) sans jamais qu'aucune erreur ne le signale. Les pages sont
+      // chargées en parallèle (fetchAllPages), pas une par une en séquence.
+      const all = await fetchAllPages<User>(`${API_URL}/api/admin/users`);
+      setUsers(all);
+      if (showRefresh) toast.success('Liste actualisée');
     } catch (error) {
       toast.error('Erreur lors du chargement');
     } finally {
@@ -174,9 +197,7 @@ const AdminUsers = () => {
     }
   };
 
-  const handleDelete = async (userId: number, userName: string) => {
-    if (!confirm(`Supprimer ${userName} ?`)) return;
-
+  const handleDelete = async (userId: number) => {
     try {
       const response = await fetch(`${API_URL}/api/admin/users/${userId}`, {
         method: 'DELETE',
@@ -194,10 +215,8 @@ const AdminUsers = () => {
     }
   };
 
-  const handleToggleActive = async (userId: number, currentlyActive: boolean, userName: string) => {
+  const handleToggleActive = async (userId: number, currentlyActive: boolean) => {
     const action = currentlyActive ? 'désactiver' : 'réactiver';
-    if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} ${userName} ?`)) return;
-
     try {
       const endpoint = currentlyActive ? 'deactivate' : 'reactivate';
       const response = await fetch(`${API_URL}/api/admin/users/${userId}/${endpoint}`, {
@@ -216,22 +235,48 @@ const AdminUsers = () => {
     }
   };
 
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = `${user.first_name} ${user.last_name} ${user.email}`.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
-    return matchesSearch && matchesRole;
-  });
+  const handleConfirmAction = async () => {
+    if (!confirmAction) return;
+    setConfirmLoading(true);
+    try {
+      if (confirmAction.type === 'delete') {
+        await handleDelete(confirmAction.user.id);
+      } else {
+        await handleToggleActive(confirmAction.user.id, confirmAction.user.is_active !== false);
+      }
+    } finally {
+      setConfirmLoading(false);
+      setConfirmAction(null);
+    }
+  };
+
+  const filteredUsers = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return users.filter(user => {
+      const matchesSearch = `${user.first_name} ${user.last_name} ${user.email}`.toLowerCase().includes(q);
+      const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+      return matchesSearch && matchesRole;
+    });
+  }, [users, searchQuery, roleFilter]);
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-96 gap-4">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-        >
-          <Loader2 size={40} className="text-primary" />
-        </motion.div>
-        <p className="text-sm text-muted-foreground font-medium">Chargement des utilisateurs...</p>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-9 w-48 rounded-lg" />
+          <Skeleton className="h-10 w-40 rounded-xl" />
+        </div>
+        <Skeleton className="h-16 w-full rounded-2xl" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-2xl" />
+          ))}
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-56 rounded-2xl" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -239,63 +284,74 @@ const AdminUsers = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight">Utilisateurs</h1>
-          <p className="text-sm text-muted-foreground mt-1 font-medium">
-            {filteredUsers.length} utilisateur{filteredUsers.length > 1 ? 's' : ''}
-            {roleFilter !== 'all' && ` · ${roleFilter === 'pro' ? 'Professionnels' : 'Clients'}`}
-          </p>
-        </div>
+      <PageHeader
+        title="Utilisateurs"
+        description={`${filteredUsers.length} utilisateur${filteredUsers.length > 1 ? 's' : ''}${
+          roleFilter !== 'all' ? ` · ${roleFilter === 'pro' ? 'Professionnels' : 'Clients'}` : ''
+        }`}
+        actions={
+          <>
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={() => fetchUsers(true)}
+              disabled={refreshing}
+              aria-label="Actualiser la liste des utilisateurs"
+              className="px-4 py-2.5 rounded-xl bg-card border border-border hover:bg-accent font-semibold text-sm transition-colors flex items-center gap-2 disabled:opacity-50"
+            >
+              <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} aria-hidden="true" />
+              <span className="hidden sm:inline">Actualiser</span>
+            </motion.button>
 
-        <div className="flex items-center gap-2">
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => fetchUsers(true)}
-            disabled={refreshing}
-            className="px-4 py-2.5 rounded-xl bg-white border-2 border-gray-200 hover:border-primary/30 hover:bg-gray-50 font-bold text-sm transition-all flex items-center gap-2 disabled:opacity-50"
-          >
-            <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
-            <span className="hidden sm:inline">Actualiser</span>
-          </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={() => setAccessDialogOpen(true)}
+              aria-label="Gérer les accès admin"
+              className="px-4 py-2.5 rounded-xl bg-card border border-border hover:bg-accent font-semibold text-sm transition-colors flex items-center gap-2"
+            >
+              <KeyRound size={16} aria-hidden="true" />
+              <span className="hidden sm:inline">Accès admin</span>
+            </motion.button>
 
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={openCreateModal}
-            className="px-6 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-bold shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all flex items-center gap-2"
-          >
-            <Plus size={20} strokeWidth={2.5} />
-            <span className="hidden sm:inline">Nouvel utilisateur</span>
-            <span className="sm:hidden">Nouveau</span>
-          </motion.button>
-        </div>
-      </div>
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={openCreateModal}
+              aria-label="Créer un nouvel utilisateur"
+              className="px-6 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-semibold transition-colors flex items-center gap-2"
+            >
+              <Plus size={20} strokeWidth={2.5} aria-hidden="true" />
+              <span className="hidden sm:inline">Nouvel utilisateur</span>
+              <span className="sm:hidden">Nouveau</span>
+            </motion.button>
+          </>
+        }
+      />
 
       {/* Filters & Search */}
-      <div className="bg-white rounded-2xl border-2 border-gray-100 p-4">
+      <div className="bg-card rounded-2xl border border-border p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1 relative group">
-            <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-hover:text-gray-600 transition-colors" />
+            <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/60 group-hover:text-muted-foreground transition-colors" aria-hidden="true" />
+            <label htmlFor="users-search" className="sr-only">Rechercher un utilisateur par nom ou email</label>
             <input
+              id="users-search"
               type="text"
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); updateParams(e.target.value, roleFilter); }}
               placeholder="Rechercher par nom ou email..."
-              className="w-full pl-11 pr-4 py-3 rounded-xl border-2 border-gray-200 bg-gray-50 focus:border-primary focus:bg-white outline-none transition-all font-medium text-sm"
+              className="w-full pl-11 pr-4 py-3 rounded-xl border border-border bg-muted/40 focus:border-ring focus:ring-2 focus:ring-ring/30 focus:bg-card outline-none transition-all font-medium text-sm"
             />
           </div>
 
-          <div className="flex gap-2 bg-gray-100 p-1 rounded-xl">
+          <div className="flex gap-2 bg-muted p-1 rounded-xl" role="group" aria-label="Filtrer par rôle">
             {(['all', 'client', 'pro'] as const).map((role) => (
               <motion.button
                 key={role}
-                whileTap={{ scale: 0.95 }}
+                whileTap={{ scale: 0.97 }}
                 onClick={() => { setRoleFilter(role); updateParams(searchQuery, role); }}
-                className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${roleFilter === role
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                aria-pressed={roleFilter === role}
+                className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${roleFilter === role
+                  ? 'bg-card text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
                   }`}
               >
                 {role === 'all' ? 'Tous' : role === 'pro' ? 'Pros' : 'Clients'}
@@ -308,7 +364,7 @@ const AdminUsers = () => {
       {/* Stats rapides */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total', value: users.length, icon: User },
+          { label: 'Total', value: users.length, icon: UsersIcon },
           { label: 'Clients', value: users.filter(u => u.role === 'client').length, icon: User },
           { label: 'Pros', value: users.filter(u => u.role === 'pro').length, icon: Briefcase },
           { label: 'Nouveaux (30j)', value: users.filter(u => new Date(u.created_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).length, icon: Calendar },
@@ -320,159 +376,146 @@ const AdminUsers = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.05 }}
-              whileHover={{ y: -2 }}
-              className="bg-white rounded-2xl border-2 border-gray-100 p-4 hover:border-primary/20 hover:shadow-lg transition-all group cursor-pointer"
+              className="bg-card rounded-2xl border border-border p-4"
             >
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{stat.label}</p>
-                <Icon size={16} className="text-gray-400 group-hover:text-primary transition-colors" />
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{stat.label}</p>
+                <Icon size={16} className="text-muted-foreground/60" aria-hidden="true" />
               </div>
-              <p className="text-3xl font-black text-gray-900">{stat.value}</p>
+              <p className="text-3xl font-bold text-foreground">{stat.value}</p>
             </motion.div>
           );
         })}
       </div>
 
       {/* Users Grid */}
+      {filteredUsers.length === 0 ? (
+        <div className="bg-card rounded-2xl border border-border">
+          <EmptyState
+            icon={UsersIcon}
+            title={searchQuery || roleFilter !== 'all' ? "Aucun utilisateur ne correspond" : "Aucun utilisateur"}
+            description={
+              searchQuery || roleFilter !== 'all'
+                ? "Essaie d'élargir ta recherche ou de changer de filtre de rôle."
+                : "Les nouveaux comptes créés apparaîtront ici."
+            }
+          />
+        </div>
+      ) : (
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filteredUsers.map((user, index) => (
           <motion.div
             key={user.id}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.02 }}
-            whileHover={{ y: -6, scale: 1.02 }}
-            className="bg-white rounded-2xl border-2 border-gray-100 hover:border-primary/30 hover:shadow-2xl transition-all duration-300 group overflow-hidden cursor-pointer"
+            transition={{ delay: Math.min(index, 20) * 0.02 }}
+            className="bg-card rounded-2xl border border-border hover:border-foreground/20 transition-colors duration-200 group overflow-hidden"
           >
 
             {/* Header Compact */}
-            <div className="relative p-5 bg-gradient-to-br from-gray-50 via-transparent to-transparent">
+            <div className="relative p-5">
               {/* Badges top-right */}
               {!!(user.is_verified || user.is_admin || !user.is_active) && (
                 <div className="absolute top-3 right-3 flex gap-1.5">
                   {!user.is_active && (
-                    <motion.div
-                      initial={{ scale: 0, rotate: -180 }}
-                      animate={{ scale: 1, rotate: 0 }}
-                      transition={{ delay: index * 0.02 + 0.05 }}
-                      className="w-7 h-7 rounded-lg bg-orange-100 flex items-center justify-center group-hover:scale-110 transition-transform"
+                    <div
+                      className="w-7 h-7 rounded-lg bg-muted border border-border flex items-center justify-center"
                       title="Inactif"
+                      aria-label="Compte inactif"
                     >
-                      <Ban size={14} className="text-orange-600" strokeWidth={2.5} />
-                    </motion.div>
+                      <Ban size={14} className="text-foreground/70" strokeWidth={2.5} aria-hidden="true" />
+                    </div>
                   )}
                   {user.is_verified && (
-                    <motion.div
-                      initial={{ scale: 0, rotate: -180 }}
-                      animate={{ scale: 1, rotate: 0 }}
-                      transition={{ delay: index * 0.02 + 0.1 }}
-                      className="w-7 h-7 rounded-lg bg-green-100 flex items-center justify-center group-hover:scale-110 transition-transform"
+                    <div
+                      className="w-7 h-7 rounded-lg bg-muted border border-border flex items-center justify-center"
                       title="Vérifié"
+                      aria-label="Compte vérifié"
                     >
-                      <CheckCircle size={14} className="text-green-600" strokeWidth={2.5} />
-                    </motion.div>
+                      <CheckCircle size={14} className="text-foreground/70" strokeWidth={2.5} aria-hidden="true" />
+                    </div>
                   )}
                   {user.is_admin && (
-                    <motion.div
-                      initial={{ scale: 0, rotate: -180 }}
-                      animate={{ scale: 1, rotate: 0 }}
-                      transition={{ delay: index * 0.02 + 0.15 }}
-                      className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center group-hover:scale-110 transition-transform"
+                    <div
+                      className="w-7 h-7 rounded-lg bg-foreground/10 border border-foreground/20 flex items-center justify-center"
                       title="Administrateur"
+                      aria-label="Compte administrateur"
                     >
-                      <Shield size={14} className="text-purple-600" strokeWidth={2.5} />
-                    </motion.div>
+                      <Shield size={14} className="text-foreground" strokeWidth={2.5} aria-hidden="true" />
+                    </div>
                   )}
                 </div>
               )}
 
-
               {/* Avatar + Nom */}
               <div className="flex items-center gap-3 mb-4">
-                <motion.div
-                  whileHover={{ scale: 1.1, rotate: 5 }}
-                  className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white font-black text-lg shadow-lg flex-shrink-0 ${user.role === 'pro'
-                    ? 'bg-gradient-to-br from-primary via-purple-500 to-pink-500'
-                    : 'bg-gradient-to-br from-gray-600 via-gray-700 to-gray-900'
+                <div
+                  className={`w-14 h-14 rounded-2xl flex items-center justify-center font-bold text-lg flex-shrink-0 ${user.role === 'pro'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-foreground border border-border'
                     }`}
                 >
                   {user.first_name[0]}{user.last_name[0]}
-                </motion.div>
+                </div>
 
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-black text-gray-900 truncate text-base leading-tight">
+                  <h3 className="font-bold text-foreground truncate text-base leading-tight">
                     {user.first_name} {user.last_name}
                   </h3>
                   <div className="flex items-center gap-1.5 mt-1">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${user.role === 'pro'
-                      ? 'bg-gradient-to-r from-primary/10 to-pink-500/10 text-primary'
-                      : 'bg-gray-100 text-gray-700'
-                      }`}>
-                      {user.role === 'pro' ? '💼 Pro' : '👤 Client'}
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-muted text-foreground/80">
+                      {user.role === 'pro' ? <Briefcase size={10} aria-hidden="true" /> : <User size={10} aria-hidden="true" />}
+                      {user.role === 'pro' ? 'Pro' : 'Client'}
                     </span>
                   </div>
                 </div>
               </div>
 
-
               {/* Infos essentielles */}
               <div className="space-y-2">
                 {/* Email */}
-                <motion.div
-                  whileHover={{ x: 3 }}
-                  className="flex items-center gap-2 text-sm text-gray-700 group/item"
-                >
-                  <div className="w-6 h-6 rounded-lg bg-gray-100 group-hover/item:bg-primary/10 flex items-center justify-center flex-shrink-0 transition-colors">
-                    <Mail size={12} className="text-gray-500 group-hover/item:text-primary transition-colors" />
+                <div className="flex items-center gap-2 text-sm text-foreground/80">
+                  <div className="w-6 h-6 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                    <Mail size={12} className="text-muted-foreground" aria-hidden="true" />
                   </div>
                   <span className="truncate font-medium text-xs">{user.email}</span>
-                </motion.div>
+                </div>
 
                 {/* Téléphone */}
                 {user.phone_number && (
-                  <motion.div
-                    whileHover={{ x: 3 }}
-                    className="flex items-center gap-2 text-sm text-gray-700 group/item"
-                  >
-                    <div className="w-6 h-6 rounded-lg bg-gray-100 group-hover/item:bg-primary/10 flex items-center justify-center flex-shrink-0 transition-colors">
-                      <Phone size={12} className="text-gray-500 group-hover/item:text-primary transition-colors" />
+                  <div className="flex items-center gap-2 text-sm text-foreground/80">
+                    <div className="w-6 h-6 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                      <Phone size={12} className="text-muted-foreground" aria-hidden="true" />
                     </div>
                     <span className="font-medium text-xs">{user.phone_number}</span>
-                  </motion.div>
+                  </div>
                 )}
 
                 {/* Infos PRO */}
                 {user.role === 'pro' && (user.activity_name || user.city) && (
-                  <div className="pt-2 border-t border-gray-100 mt-2 space-y-1.5">
+                  <div className="pt-2 border-t border-border mt-2 space-y-1.5">
                     {user.activity_name && (
-                      <motion.div
-                        whileHover={{ x: 3 }}
-                        className="flex items-center gap-2 text-sm text-gray-600 group/item"
-                      >
-                        <Briefcase size={12} className="text-gray-400 group-hover/item:text-primary transition-colors flex-shrink-0" />
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Briefcase size={12} className="text-muted-foreground/60 flex-shrink-0" aria-hidden="true" />
                         <span className="truncate text-xs font-medium">{user.activity_name}</span>
-                      </motion.div>
+                      </div>
                     )}
                     {user.city && (
-                      <motion.div
-                        whileHover={{ x: 3 }}
-                        className="flex items-center gap-2 text-sm text-gray-600 group/item"
-                      >
-                        <MapPin size={12} className="text-gray-400 group-hover/item:text-primary transition-colors flex-shrink-0" />
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <MapPin size={12} className="text-muted-foreground/60 flex-shrink-0" aria-hidden="true" />
                         <span className="truncate text-xs font-medium">{user.city}</span>
-                      </motion.div>
+                      </div>
                     )}
                   </div>
                 )}
               </div>
             </div>
 
-
             {/* Footer avec actions */}
-            <div className="px-5 py-3 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between">
+            <div className="px-5 py-3 bg-muted/30 border-t border-border flex items-center justify-between">
               {/* Date création compacte */}
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Calendar size={11} className="flex-shrink-0" />
+                <Calendar size={11} className="flex-shrink-0" aria-hidden="true" />
                 <span className="font-medium">
                   {new Date(user.created_at).toLocaleDateString('fr-FR', {
                     day: 'numeric',
@@ -483,95 +526,74 @@ const AdminUsers = () => {
 
               {/* Actions buttons */}
               <div className="flex gap-1.5">
-                <motion.button
-                  whileHover={{ scale: 1.1, rotate: 5 }}
-                  whileTap={{ scale: 0.95 }}
+                <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     openEditModal(user);
                   }}
-                  className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-100 hover:border-blue-200 flex items-center justify-center transition-all group/btn"
+                  className="w-8 h-8 rounded-lg bg-muted hover:bg-accent border border-border flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   title="Modifier"
+                  aria-label={`Modifier ${user.first_name} ${user.last_name}`}
                 >
-                  <Edit size={13} className="text-blue-600 group-hover/btn:scale-110 transition-transform" strokeWidth={2.5} />
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.1, rotate: 5 }}
-                  whileTap={{ scale: 0.95 }}
+                  <Edit size={13} className="text-foreground/70" strokeWidth={2.5} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleToggleActive(user.id, user.is_active !== false, `${user.first_name} ${user.last_name}`);
+                    setConfirmAction({ type: 'toggle', user });
                   }}
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all group/btn border ${user.is_active !== false
-                    ? 'bg-orange-50 hover:bg-orange-100 border-orange-100 hover:border-orange-200'
-                    : 'bg-green-50 hover:bg-green-100 border-green-100 hover:border-green-200'
-                  }`}
+                  className="w-8 h-8 rounded-lg bg-muted hover:bg-accent border border-border flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   title={user.is_active !== false ? 'Désactiver' : 'Réactiver'}
+                  aria-label={`${user.is_active !== false ? 'Désactiver' : 'Réactiver'} ${user.first_name} ${user.last_name}`}
                 >
                   {user.is_active !== false
-                    ? <Ban size={13} className="text-orange-600 group-hover/btn:scale-110 transition-transform" strokeWidth={2.5} />
-                    : <RotateCcw size={13} className="text-green-600 group-hover/btn:scale-110 transition-transform" strokeWidth={2.5} />
+                    ? <Ban size={13} className="text-foreground/70" strokeWidth={2.5} aria-hidden="true" />
+                    : <RotateCcw size={13} className="text-foreground/70" strokeWidth={2.5} aria-hidden="true" />
                   }
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.1, rotate: 5 }}
-                  whileTap={{ scale: 0.95 }}
+                </button>
+                <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDelete(user.id, `${user.first_name} ${user.last_name}`);
+                    setConfirmAction({ type: 'delete', user });
                   }}
-                  className="w-8 h-8 rounded-lg bg-red-50 hover:bg-red-100 border border-red-100 hover:border-red-200 flex items-center justify-center transition-all group/btn"
+                  className="w-8 h-8 rounded-lg bg-background hover:bg-muted border border-foreground/25 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   title="Supprimer"
+                  aria-label={`Supprimer ${user.first_name} ${user.last_name}`}
                 >
-                  <Trash2 size={13} className="text-red-600 group-hover/btn:scale-110 transition-transform" strokeWidth={2.5} />
-                </motion.button>
+                  <Trash2 size={13} className="text-foreground" strokeWidth={2.5} aria-hidden="true" />
+                </button>
               </div>
             </div>
           </motion.div>
         ))}
       </div>
+      )}
 
       {/* Modal Ultra Premium */}
-      <AnimatePresence>
-        {isModalOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-            onClick={() => setIsModalOpen(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0, y: 30 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 30 }}
-              transition={{ type: "spring", damping: 25, stiffness: 300 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-hidden shadow-2xl"
-            >
-              {/* Header */}
-              <div className="relative border-b border-gray-100 px-8 py-6">
-                <div className="absolute top-0 left-0 w-full h-1" />
-
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="max-w-2xl w-full max-h-[90vh] overflow-hidden p-0 rounded-3xl gap-0">
+          {/* Header */}
+          <div className="relative border-b border-border px-8 py-6">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-4">
                     {/* Avatar preview */}
                     {(formData.first_name || formData.last_name) && (
-                      <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white font-black text-xl shadow-lg ${formData.role === 'pro'
-                          ? 'bg-gradient-to-br from-primary to-pink-500'
-                          : 'bg-gradient-to-br from-gray-700 to-gray-900'
+                      <div
+                        className={`w-16 h-16 rounded-2xl flex items-center justify-center font-bold text-xl flex-shrink-0 ${formData.role === 'pro'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted text-foreground border border-border'
                           }`}
                       >
                         {formData.first_name[0]?.toUpperCase() || '?'}
                         {formData.last_name[0]?.toUpperCase() || '?'}
-                      </motion.div>
+                      </div>
                     )}
 
                     <div>
-                      <h2 className="text-2xl font-black text-gray-900">
+                      <h2 className="text-2xl font-bold text-foreground">
                         {modalMode === 'create' ? 'Nouvel utilisateur' : 'Modifier l\'utilisateur'}
                       </h2>
                       <p className="text-sm text-muted-foreground mt-0.5 font-medium">
@@ -581,15 +603,6 @@ const AdminUsers = () => {
                       </p>
                     </div>
                   </div>
-
-                  <motion.button
-                    whileHover={{ scale: 1.1, rotate: 90 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => setIsModalOpen(false)}
-                    className="w-10 h-10 rounded-xl bg-white hover:bg-gray-100 flex items-center justify-center transition-colors shadow-sm border border-gray-200"
-                  >
-                    <X size={20} className="text-gray-600" />
-                  </motion.button>
                 </div>
               </div>
 
@@ -598,34 +611,34 @@ const AdminUsers = () => {
                 <form onSubmit={handleSubmit} className="space-y-6">
                   {/* Section Identité */}
                   <div>
-                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <h3 className="text-sm font-black text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
                       <User size={16} className="text-primary" />
                       Identité
                     </h3>
                     <div className="grid sm:grid-cols-2 gap-4">
                       <motion.div whileFocus={{ scale: 1.01 }}>
-                        <label className="block text-sm font-bold text-gray-900 mb-2">
-                          Prénom <span className="text-red-500">*</span>
+                        <label className="block text-sm font-bold text-foreground mb-2">
+                          Prénom <span className="text-muted-foreground" aria-hidden="true">*</span>
                         </label>
                         <input
                           type="text"
                           required
                           value={formData.first_name}
                           onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                          className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-primary focus:ring-4 focus:ring-primary/10 bg-white outline-none transition-all font-medium placeholder:text-gray-400"
+                          className="w-full px-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
                           placeholder="Jean"
                         />
                       </motion.div>
                       <motion.div whileFocus={{ scale: 1.01 }}>
-                        <label className="block text-sm font-bold text-gray-900 mb-2">
-                          Nom <span className="text-red-500">*</span>
+                        <label className="block text-sm font-bold text-foreground mb-2">
+                          Nom <span className="text-muted-foreground" aria-hidden="true">*</span>
                         </label>
                         <input
                           type="text"
                           required
                           value={formData.last_name}
                           onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                          className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-primary focus:ring-4 focus:ring-primary/10 bg-white outline-none transition-all font-medium placeholder:text-gray-400"
+                          className="w-full px-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
                           placeholder="Dupont"
                         />
                       </motion.div>
@@ -634,57 +647,57 @@ const AdminUsers = () => {
 
                   {/* Section Contact */}
                   <div>
-                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <h3 className="text-sm font-black text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
                       <Mail size={16} className="text-primary" />
                       Contact
                     </h3>
                     <div className="space-y-4">
                       <motion.div whileFocus={{ scale: 1.01 }}>
-                        <label className="block text-sm font-bold text-gray-900 mb-2">
-                          Email <span className="text-red-500">*</span>
+                        <label className="block text-sm font-bold text-foreground mb-2">
+                          Email <span className="text-muted-foreground" aria-hidden="true">*</span>
                         </label>
                         <div className="relative">
-                          <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
                           <input
                             type="email"
                             required
                             value={formData.email}
                             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-gray-200 focus:border-primary focus:ring-4 focus:ring-primary/10 bg-white outline-none transition-all font-medium placeholder:text-gray-400"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
                             placeholder="jean.dupont@example.com"
                           />
                         </div>
                       </motion.div>
 
                       <motion.div whileFocus={{ scale: 1.01 }}>
-                        <label className="block text-sm font-bold text-gray-900 mb-2">
-                          Téléphone <span className="text-red-500">*</span>
+                        <label className="block text-sm font-bold text-foreground mb-2">
+                          Téléphone <span className="text-muted-foreground" aria-hidden="true">*</span>
                         </label>
                         <div className="relative">
-                          <Phone size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <Phone size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
                           <input
                             type="tel"
                             required
                             value={formData.phone_number}
                             onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
-                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-gray-200 focus:border-primary focus:ring-4 focus:ring-primary/10 bg-white outline-none transition-all font-medium placeholder:text-gray-400"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
                             placeholder="+33 6 12 34 56 78"
                           />
                         </div>
                       </motion.div>
 
                       <motion.div whileFocus={{ scale: 1.01 }}>
-                        <label className="block text-sm font-bold text-gray-900 mb-2 flex items-center gap-2">
-                          <Cake size={14} className="text-gray-600" />
+                        <label className="block text-sm font-bold text-foreground mb-2 flex items-center gap-2">
+                          <Cake size={14} className="text-muted-foreground" />
                           Date de naissance
                         </label>
                         <div className="relative">
-                          <Calendar size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <Calendar size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
                           <input
                             type="date"
                             value={formData.birth_date ? new Date(formData.birth_date).toISOString().split('T')[0] : ''}
                             onChange={(e) => setFormData({ ...formData, birth_date: e.target.value })}
-                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-gray-200 focus:border-primary focus:ring-4 focus:ring-primary/10 bg-white outline-none transition-all font-medium"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium"
                           />
                         </div>
                       </motion.div>
@@ -693,77 +706,73 @@ const AdminUsers = () => {
 
                   {/* Section Rôle & Permissions */}
                   <div>
-                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <h3 className="text-sm font-black text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
                       <Shield size={16} className="text-primary" />
                       Rôle & Permissions
                     </h3>
                     <div className="space-y-4">
                       <motion.div whileFocus={{ scale: 1.01 }}>
-                        <label className="block text-sm font-bold text-gray-900 mb-2">
-                          Rôle <span className="text-red-500">*</span>
+                        <label className="block text-sm font-bold text-foreground mb-2">
+                          Rôle <span className="text-muted-foreground" aria-hidden="true">*</span>
                         </label>
                         <div className="relative">
-                          <Briefcase size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <Briefcase size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
                           <select
                             required
                             value={formData.role}
                             onChange={(e) => setFormData({ ...formData, role: e.target.value as 'client' | 'pro' })}
-                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-gray-200 focus:border-primary focus:ring-4 focus:ring-primary/10 bg-white outline-none transition-all font-medium appearance-none cursor-pointer"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium appearance-none cursor-pointer"
                           >
                             <option value="client">👤 Client</option>
                             <option value="pro">💼 Professionnel</option>
                           </select>
-                          <ChevronLeft size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-[-90deg] pointer-events-none" />
+                          <ChevronLeft size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground/60 rotate-[-90deg] pointer-events-none" />
                         </div>
                       </motion.div>
 
                       {/* Checkboxes avec design premium */}
                       <div className="grid sm:grid-cols-2 gap-4">
-                        <motion.label
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${formData.is_admin
-                            ? 'bg-purple-50 border-purple-200'
-                            : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                        <label
+                          className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-colors ${formData.is_admin
+                            ? 'bg-accent border-foreground/20'
+                            : 'bg-muted/40 border-border hover:border-foreground/15'
                             }`}
                         >
                           <input
                             type="checkbox"
                             checked={formData.is_admin}
                             onChange={(e) => setFormData({ ...formData, is_admin: e.target.checked })}
-                            className="w-5 h-5 rounded-lg border-2 border-gray-300 text-purple-600 focus:ring-2 focus:ring-purple-500/20"
+                            className="w-5 h-5 rounded-lg border-2 border-border text-foreground focus:ring-2 focus:ring-ring/40"
                           />
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <Shield size={16} className={formData.is_admin ? 'text-purple-600' : 'text-gray-600'} />
-                              <span className="text-sm font-bold text-gray-900">Administrateur</span>
+                              <Shield size={16} className={formData.is_admin ? 'text-foreground' : 'text-muted-foreground'} aria-hidden="true" />
+                              <span className="text-sm font-bold text-foreground">Administrateur</span>
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5">Accès total au panel admin</p>
                           </div>
-                        </motion.label>
+                        </label>
 
-                        <motion.label
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${formData.is_verified
-                            ? 'bg-green-50 border-green-200'
-                            : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                        <label
+                          className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-colors ${formData.is_verified
+                            ? 'bg-accent border-foreground/20'
+                            : 'bg-muted/40 border-border hover:border-foreground/15'
                             }`}
                         >
                           <input
                             type="checkbox"
                             checked={formData.is_verified}
                             onChange={(e) => setFormData({ ...formData, is_verified: e.target.checked })}
-                            className="w-5 h-5 rounded-lg border-2 border-gray-300 text-green-600 focus:ring-2 focus:ring-green-500/20"
+                            className="w-5 h-5 rounded-lg border-2 border-border text-foreground focus:ring-2 focus:ring-ring/40"
                           />
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <CheckCircle size={16} className={formData.is_verified ? 'text-green-600' : 'text-gray-600'} />
-                              <span className="text-sm font-bold text-gray-900">Vérifié</span>
+                              <CheckCircle size={16} className={formData.is_verified ? 'text-foreground' : 'text-muted-foreground'} aria-hidden="true" />
+                              <span className="text-sm font-bold text-foreground">Vérifié</span>
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5">Compte validé par l'équipe</p>
                           </div>
-                        </motion.label>
+                        </label>
                       </div>
                     </div>
                   </div>
@@ -771,44 +780,72 @@ const AdminUsers = () => {
               </div>
 
               {/* Footer avec actions */}
-              <div className="border-t border-gray-100 bg-gray-50/50 px-8 py-5">
+              <div className="border-t border-border bg-muted/30 px-8 py-5">
                 <div className="flex flex-col-reverse sm:flex-row gap-3">
-                  <motion.button
+                  <button
                     type="button"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
                     onClick={() => setIsModalOpen(false)}
-                    className="flex-1 px-6 py-3.5 rounded-xl border-2 border-gray-200 bg-white hover:bg-gray-50 font-bold transition-all flex items-center justify-center gap-2 group"
+                    className="flex-1 px-6 py-3.5 rounded-xl border-2 border-border bg-card hover:bg-muted/40 font-bold transition-colors flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <X size={18} className="group-hover:rotate-90 transition-transform" />
+                    <X size={18} aria-hidden="true" />
                     Annuler
-                  </motion.button>
-                  <motion.button
+                  </button>
+                  <button
                     type="submit"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
                     onClick={handleSubmit}
                     disabled={submitting}
-                    className="flex-1 px-6 py-3.5 rounded-xl bg-gradient-to-r from-primary to-pink-500 hover:from-primary/90 hover:to-pink-500/90 text-white font-bold shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="flex-1 px-6 py-3.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {submitting ? (
                       <>
-                        <Loader2 size={20} className="animate-spin" />
+                        <Loader2 size={20} className="animate-spin" aria-hidden="true" />
                         <span>En cours...</span>
                       </>
                     ) : (
                       <>
-                        <Check size={20} strokeWidth={2.5} />
+                        <Check size={20} strokeWidth={2.5} aria-hidden="true" />
                         <span>{modalMode === 'create' ? 'Créer l\'utilisateur' : 'Enregistrer les modifications'}</span>
                       </>
                     )}
-                  </motion.button>
+                  </button>
                 </div>
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation destructrice (suppression / activation) */}
+      <AlertDialog open={!!confirmAction} onOpenChange={(open) => !open && setConfirmAction(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmAction?.type === 'delete'
+                ? `Supprimer ${confirmAction.user.first_name} ${confirmAction.user.last_name} ?`
+                : `${confirmAction?.user.is_active !== false ? 'Désactiver' : 'Réactiver'} ${confirmAction?.user.first_name} ${confirmAction?.user.last_name} ?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction?.type === 'delete'
+                ? "Cette action est irréversible et supprimera définitivement ce compte."
+                : "Cette action peut être annulée à tout moment depuis la fiche utilisateur."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={confirmLoading}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmAction}
+              disabled={confirmLoading}
+              className={confirmAction?.type === 'delete' ? "bg-destructive hover:bg-destructive/90 text-destructive-foreground" : ""}
+            >
+              {confirmLoading
+                ? "En cours..."
+                : confirmAction?.type === 'delete'
+                  ? "Supprimer"
+                  : confirmAction?.user.is_active !== false ? "Désactiver" : "Réactiver"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AdminAccessDialog open={accessDialogOpen} onOpenChange={setAccessDialogOpen} />
     </div>
   );
 };

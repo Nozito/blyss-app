@@ -158,6 +158,44 @@ export const reservationSchema = z
     }
   );
 
+// RDV créé manuellement par la pro pour l'une de ses clientes (walk-in,
+// téléphone) — mêmes contraintes légales que reservationSchema (art.
+// L221-18), mais pas de payment_method/slot_id : ces RDV sont toujours
+// "sur place" et jamais rattachés à un créneau.
+export const proAppointmentSchema = z
+  .object({
+    client_id: z.number("client_id doit être un nombre").int().positive(),
+    prestation_id: z.number("prestation_id doit être un nombre").int().positive(),
+    start_datetime: z.string().datetime("start_datetime doit être une date ISO valide"),
+    end_datetime: z.string().datetime("end_datetime doit être une date ISO valide"),
+    early_execution_requested: z.boolean().optional().default(false),
+  })
+  .refine((d) => new Date(d.start_datetime) < new Date(d.end_datetime), {
+    message: "start_datetime doit être antérieur à end_datetime",
+    path: ["start_datetime"],
+  })
+  .refine(
+    (d) =>
+      d.early_execution_requested ||
+      new Date(d.start_datetime).getTime() - Date.now() >= EARLY_EXECUTION_THRESHOLD_MS,
+    {
+      message:
+        "Ce rendez-vous a lieu dans moins de 14 jours : la demande expresse d'exécution anticipée est obligatoire (early_execution_requested).",
+      path: ["early_execution_requested"],
+    }
+  );
+
+export const proAppointmentUpdateSchema = z
+  .object({
+    start_datetime: z.string().datetime("start_datetime doit être une date ISO valide"),
+    end_datetime: z.string().datetime("end_datetime doit être une date ISO valide"),
+    prestation_id: z.number("prestation_id doit être un nombre").int().positive().optional(),
+  })
+  .refine((d) => new Date(d.start_datetime) < new Date(d.end_datetime), {
+    message: "start_datetime doit être antérieur à end_datetime",
+    path: ["start_datetime"],
+  });
+
 export const depositSchema = z.object({
   deposit_percentage: z.union(
     [z.literal(0), z.literal(30), z.literal(50), z.literal(100)],
@@ -375,4 +413,36 @@ export const liveActivityTokenSchema = z.object({
 export const liveActivitySettingsSchema = z.object({
   enabled: z.boolean().optional(),
   privacy: z.enum(["full", "time_only", "countdown_only"]).optional(),
+});
+
+export const adminTaskSchema = z
+  .object({
+    title: z.string().min(1, "Le titre est requis").max(200, "Titre trop long"),
+    description: z.string().max(2000, "Description trop longue").optional(),
+    start_time: z.string().datetime("start_time doit être une date ISO valide"),
+    end_time: z.string().datetime("end_time doit être une date ISO valide"),
+    color: z.enum(["blue", "green", "purple", "orange", "pink", "red"]).default("blue"),
+  })
+  .refine((d) => new Date(d.start_time) < new Date(d.end_time), {
+    message: "start_time doit être antérieur à end_time",
+    path: ["start_time"],
+  });
+
+export const adminTaskStatusSchema = z.object({
+  status: z.enum(["pending", "in_progress", "done"], {
+    message: "status invalide (pending|in_progress|done)",
+  }),
+});
+
+export const totpConfirmSchema = z.object({
+  token: z.string().regex(/^\d{6}$/, "Code TOTP invalide (6 chiffres attendus)"),
+});
+
+export const totpDisableSchema = z.object({
+  token: z.string().regex(/^\d{6}$/, "Code TOTP invalide (6 chiffres attendus)"),
+});
+
+export const twoFaLoginVerifySchema = z.object({
+  challenge_token: z.string().min(1, "challenge_token requis"),
+  code: z.string().min(6, "Code invalide").max(20, "Code invalide"),
 });

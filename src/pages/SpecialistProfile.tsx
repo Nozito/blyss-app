@@ -3,10 +3,14 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ChevronLeft, MapPin, Star, Clock, Heart, Loader2, Instagram, Sparkles, ChevronRight, ShieldCheck, Check, X, MessageCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { favoritesApi, instagramApi, InstagramPhoto, API_URL } from "@/services/api";
-import { ConditionItem } from "./ProPublicProfile";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { getImageUrl } from "@/utils/imageUrl";
+
+interface ConditionItem {
+  text: string;
+  accepted: boolean;
+}
 
 const getInstagramUrl = (username: string): string => {
   const cleanUsername = username.replace('@', '').trim();

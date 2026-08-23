@@ -6,13 +6,17 @@ import { authLoginLimiter, authLoginAccountLimiter, authSignupLimiter, authRefre
 import { validate } from "../middleware/validate";
 import { forgotPasswordSchema, resetPasswordSchema } from "../middleware/validate";
 import { getDb } from "../lib/db";
+import { bcryptSemaphore } from "../lib/concurrency";
 import { sendPasswordResetEmail } from "../lib/email";
+import jwt from "jsonwebtoken";
 import {
   generateAccessToken,
   generateAndStoreRefreshToken,
   revokeRefreshToken,
   findRefreshToken,
 } from "../lib/tokens";
+import { decryptTotpSecret, verifyTotpToken, matchBackupCode } from "../lib/totp";
+import { twoFaLoginVerifySchema } from "../middleware/validate";
 import {
   SignupRequestBody,
   LoginRequestBody,
@@ -155,6 +159,20 @@ router.post(
         }
       }
 
+      // Hashé AVANT d'acquérir la connexion DB, et borné par bcryptSemaphore
+      // — bcrypt.hash(cost=12) est CPU-bound et peut mettre plusieurs
+      // centaines de ms en file sous forte charge concurrente ; le faire
+      // après getConnection() garderait une connexion du pool (déjà
+      // partagé avec la prod via le Session Pooler en dev) inactive tout ce
+      // temps, aggravant la pression sur un pool volontairement restreint.
+      const releaseHash = await bcryptSemaphore.acquire();
+      let passwordHash: string;
+      try {
+        passwordHash = await bcrypt.hash(password, 12);
+      } finally {
+        releaseHash();
+      }
+
       const db = getDb();
       connection = await db.getConnection();
       await connection.beginTransaction();
@@ -173,8 +191,6 @@ router.post(
             error: "email_exists",
           });
         }
-
-        const passwordHash = await bcrypt.hash(password, 12);
 
         const [userRows] = (await connection.execute(
           `INSERT INTO users
@@ -259,7 +275,7 @@ router.get(
           id, first_name, last_name, email, phone_number, birth_date, role,
           is_admin, activity_name, city, instagram_account, profile_photo, banner_photo,
           bio, profile_visibility, pro_status,
-          accept_online_payment, created_at,
+          accept_online_payment, created_at, last_login_at, totp_enabled,
           geo_precision, address_line, postal_code, service_radius_km, service_area_label,
           acceptance_conditions
         FROM users WHERE id = ?`,
@@ -358,13 +374,50 @@ router.post(
 
       const db = getDb();
       const [rows] = await db.execute("SELECT * FROM users WHERE email = ?", [email]);
-      const user = (rows as User[])[0];
+      const user = (rows as (User & {
+        is_admin?: boolean;
+        failed_admin_attempts?: number;
+        admin_locked_until?: string | null;
+        totp_enabled?: boolean;
+        totp_secret_encrypted?: string | null;
+        totp_secret_iv?: string | null;
+      })[])[0];
+
+      // Verrouillage anti-bruteforce — comptes admin uniquement. Vérifié
+      // avant même la comparaison du mot de passe pour ne pas la gaspiller
+      // sur un compte déjà verrouillé.
+      if (user?.is_admin && user.admin_locked_until && new Date(user.admin_locked_until) > new Date()) {
+        return res.status(423).json({ success: false, error: "admin_locked" });
+      }
 
       // Réponse identique si user inexistant ou mot de passe incorrect
-      // (évite l'énumération d'emails)
-      const isValid = user ? await bcrypt.compare(password, user.password_hash) : false;
+      // (évite l'énumération d'emails). bcryptSemaphore borne la
+      // concurrence CPU-bound (cf. lib/concurrency.ts) — pas de connexion
+      // DB tenue pendant l'attente ici, db.execute() ci-dessus l'a déjà
+      // relâchée.
+      let isValid = false;
+      if (user) {
+        const release = await bcryptSemaphore.acquire();
+        try {
+          isValid = await bcrypt.compare(password, user.password_hash);
+        } finally {
+          release();
+        }
+      }
 
       if (!user || !isValid) {
+        // Compte admin : compte les échecs, verrouille 15 min après 5 échecs.
+        if (user?.is_admin) {
+          const attempts = (user.failed_admin_attempts ?? 0) + 1;
+          if (attempts >= 5) {
+            await db.execute(
+              "UPDATE users SET failed_admin_attempts = 0, admin_locked_until = NOW() + INTERVAL '15 minutes' WHERE id = ?",
+              [user.id]
+            );
+          } else {
+            await db.execute("UPDATE users SET failed_admin_attempts = ? WHERE id = ?", [attempts, user.id]);
+          }
+        }
         return res
           .status(401)
           .json({ success: false, error: "invalid_credentials" });
@@ -374,10 +427,26 @@ router.post(
         return res.status(403).json({ success: false, error: "account_disabled" });
       }
 
+      // Mot de passe correct — réinitialise le compteur d'échecs admin
+      if (user.is_admin && (user.failed_admin_attempts ?? 0) > 0) {
+        await db.execute("UPDATE users SET failed_admin_attempts = 0 WHERE id = ?", [user.id]);
+      }
+
+      // Compte admin avec 2FA activée : ne pose pas les cookies tout de
+      // suite, renvoie un challenge court à vérifier via /2fa/verify.
+      if (user.is_admin && user.totp_enabled) {
+        const challengeToken = jwt.sign(
+          { id: user.id, purpose: "2fa_challenge" },
+          process.env.JWT_SECRET!,
+          { expiresIn: "5m" }
+        );
+        return res.json({ success: true, data: { requires_2fa: true, challenge_token: challengeToken } });
+      }
+
       // Update last_login_at for RGPD data retention cron
       await db.execute("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
 
-      const { password_hash, ...userWithoutPassword } = user;
+      const { password_hash, totp_secret_encrypted, totp_secret_iv, totp_backup_codes, ...userWithoutPassword } = user as any;
       const accessToken = generateAccessToken(user.id);
       const refreshToken = await generateAndStoreRefreshToken(user.id);
 
@@ -391,6 +460,73 @@ router.post(
       const [msg, stack] = errInfo(err);
       log.error("/api/auth/login", msg, stack);
       res.status(500).json({ success: false, error: "login_failed" });
+    }
+  }
+);
+
+/* POST /2fa/verify — second facteur pour les comptes admin avec TOTP activée */
+router.post(
+  "/2fa/verify",
+  authLoginLimiter,
+  validate(twoFaLoginVerifySchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { challenge_token, code } = req.body;
+
+      let payload: { id: number; purpose: string };
+      try {
+        payload = jwt.verify(challenge_token, process.env.JWT_SECRET!) as any;
+      } catch {
+        return res.status(401).json({ success: false, error: "invalid_challenge" });
+      }
+      if (payload.purpose !== "2fa_challenge") {
+        return res.status(401).json({ success: false, error: "invalid_challenge" });
+      }
+
+      const db = getDb();
+      const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [payload.id]);
+      const user = (rows as any[])[0];
+      if (!user || !user.is_admin || !user.totp_enabled) {
+        return res.status(401).json({ success: false, error: "invalid_challenge" });
+      }
+
+      const cleanCode = code.trim().toUpperCase();
+      let valid = false;
+
+      // Code TOTP à 6 chiffres, ou code de secours au format XXXXXX-XXXXXX
+      if (/^\d{6}$/.test(cleanCode)) {
+        const secret = decryptTotpSecret(user.totp_secret_encrypted, user.totp_secret_iv);
+        valid = await verifyTotpToken(secret, cleanCode);
+      } else {
+        const backupCodes: string[] = user.totp_backup_codes || [];
+        const matchIndex = await matchBackupCode(cleanCode, backupCodes);
+        if (matchIndex >= 0) {
+          valid = true;
+          const remaining = backupCodes.filter((_, i) => i !== matchIndex);
+          await db.execute("UPDATE users SET totp_backup_codes = ? WHERE id = ?", [remaining, user.id]);
+        }
+      }
+
+      if (!valid) {
+        return res.status(401).json({ success: false, error: "invalid_code" });
+      }
+
+      await db.execute("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
+
+      const { password_hash, totp_secret_encrypted, totp_secret_iv, totp_backup_codes, ...userWithoutPassword } = user;
+      const accessToken = generateAccessToken(user.id);
+      const refreshToken = await generateAndStoreRefreshToken(user.id);
+
+      setAuthCookies(res, accessToken, refreshToken);
+
+      res.json({
+        success: true,
+        data: { accessToken, refreshToken, user: userWithoutPassword },
+      });
+    } catch (err) {
+      const [msg, stack] = errInfo(err);
+      log.error("/api/auth/2fa/verify", msg, stack);
+      res.status(500).json({ success: false, error: "verify_failed" });
     }
   }
 );
@@ -473,6 +609,21 @@ router.delete(
     const db = getDb();
     let connection;
     try {
+      // Un admin ne peut pas se supprimer lui-même via ce endpoint générique
+      // RGPD s'il est le dernier admin — même garde-fou que DELETE
+      // /api/admin/users/:id, pour ne pas verrouiller tout le backoffice.
+      const [selfRows] = await db.query("SELECT is_admin FROM users WHERE id = ?", [userId]);
+      const self = (selfRows as any[])[0];
+      if (self?.is_admin) {
+        const [adminsRows] = await db.query("SELECT COUNT(*) as count FROM users WHERE is_admin = TRUE");
+        if ((adminsRows as any[])[0].count <= 1) {
+          return res.status(400).json({
+            success: false,
+            message: "Impossible de supprimer le dernier compte administrateur",
+          });
+        }
+      }
+
       connection = await db.getConnection();
       await connection.beginTransaction();
 
@@ -718,7 +869,13 @@ router.post(
         return res.status(400).json({ success: false, error: "token_expired" });
       }
 
-      const passwordHash = await bcrypt.hash(password, 12);
+      const releaseHash = await bcryptSemaphore.acquire();
+      let passwordHash: string;
+      try {
+        passwordHash = await bcrypt.hash(password, 12);
+      } finally {
+        releaseHash();
+      }
 
       // Update password + mark token used in a single transaction
       await db.execute(

@@ -82,6 +82,30 @@ function getPool(): Pool {
     ssl: { rejectUnauthorized: false },
       connectionTimeoutMillis: 10000,
       idleTimeoutMillis: 30000,
+      // Sans ceci, node-postgres retombe sur son défaut (10) — largement
+      // insuffisant dès qu'une poignée de requêtes concurrentes arrive en
+      // même temps (constaté en stress test : 50 VUs concurrents → 68%
+      // d'échecs "timeout exceeded when trying to connect" alors que le CPU
+      // du process restait quasi idle, signature classique d'un pool saturé
+      // plutôt que d'un serveur à court de calcul).
+      //
+      // Configurable (DB_POOL_MAX) plutôt que codé en dur : dev/local passe
+      // par le Session Pooler Supabase (IPv6 direct indisponible sur la
+      // plupart des réseaux), qui a son propre plafond dur — mesuré en
+      // stress test à 50 requêtes concurrentes : au-delà de 20 connexions
+      // simultanées, le pooler rejette avec "(EMAXCONNSESSION) max clients
+      // reached in session mode — max clients are limited to pool_size: 20"
+      // (rejet direct, pas une file d'attente comme un pool applicatif
+      // saturé). 15 laisse une marge sous ce plafond pour d'autres scripts
+      // (seed/cleanup) tournant en parallèle.
+      //
+      // La prod utilise la connexion DIRECTE (.env.prod → db.<ref>.supabase.co,
+      // pas le pooler), donc ce plafond de 20 ne s'applique pas à elle — mais
+      // la vraie limite prod (max_connections Postgres du plan Supabase,
+      // divisé par le nombre d'instances déployées) n'a pas été vérifiée et
+      // ne doit pas être devinée : fixer DB_POOL_MAX explicitement en prod
+      // après avoir consulté ce chiffre dans le dashboard Supabase.
+      max: Number(process.env.DB_POOL_MAX) || 15,
     });
     _pool.on("error", (err) => {
       console.error("[DB POOL] Unexpected error:", err.message);
@@ -99,11 +123,12 @@ async function detectMode(): Promise<DbMode> {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL manquante");
 
-  // En production, on utilise toujours pg directement (pas de probe ni fallback).
-  // La Management API est un fallback dev uniquement (machines sans IPv6).
-  if (process.env.NODE_ENV === "production") {
+  // En production (et staging, environnement représentatif de la prod), on
+  // utilise toujours pg directement (pas de probe ni fallback). La
+  // Management API est un fallback dev local uniquement (machines sans IPv6).
+  if (["production", "staging"].includes(process.env.NODE_ENV ?? "")) {
     _mode = "pg";
-    console.info("[DB] pg direct connection (production)");
+    console.info(`[DB] pg direct connection (${process.env.NODE_ENV})`);
     return _mode;
   }
 

@@ -10,24 +10,8 @@ import {
   authApi,
   User,
   LoginCredentials,
-  SignupData,
   ApiResponse,
 } from "@/services/api";
-
-// ✅ Interface pour la réponse de signup simplifiée
-interface SignupResponse {
-  success: boolean;
-  message?: string;
-  error?:
-    | "email_exists"
-    | "weak_password"
-    | "age_restriction"
-    | "invalid_phone"
-    | "invalid_email"
-    | "missing_fields"
-    | "data_too_long"
-    | "server_error";
-}
 
 interface AuthContextType {
   user: User | null;
@@ -44,7 +28,6 @@ interface AuthContextType {
       user: User;
     }>
   >;
-  signup: (data: SignupData) => Promise<SignupResponse>;
   logout: () => Promise<void>;
   updateUser: (data: Partial<User>) => Promise<ApiResponse<User>>;
   refreshProfile: () => Promise<void>;
@@ -133,30 +116,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const signup = async (data: SignupData): Promise<SignupResponse> => {
-    setIsLoading(true);
-    try {
-      const response = await authApi.signup(data);
-
-      if (response.success) {
-        // Le backend pose les cookies d'auth — on fetch le profil pour populer le state
-        const profile = await authApi.getProfile();
-        if (profile.success && profile.data) {
-          _loginSucceeded.current = true;
-          setUser(profile.data);
-          localStorage.setItem(USER_CACHE_KEY, JSON.stringify(toSafeCache(profile.data)));
-        }
-        return { success: true, message: response.message || "Account created successfully" };
-      } else {
-        return { success: false, message: response.message, error: response.error as any };
-      }
-    } catch {
-      return { success: false, message: "Network error", error: "server_error" };
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const logout = async (): Promise<void> => {
     try {
       await authApi.logout(); // Server clears HttpOnly cookies
@@ -203,7 +162,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     isAuthenticated: Boolean(user),
     token: null, // Tokens are HttpOnly cookies — not accessible from JS
     login,
-    signup,
     logout,
     updateUser,
     refreshProfile,

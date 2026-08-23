@@ -1,19 +1,20 @@
 /**
  * SplashScreen — Blyss (Apple-level)
- * Ultra minimal, fluide, premium.
+ * Ultra minimal, fluide, premium. Pas de logo : juste un fond dégradé "dust"
+ * et un mot qui tourne toutes les 10s ("cooking", "whisking", ...).
  */
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import logo from "@/assets/logo.png";
+import { LoadingBreadcrumb } from "@/components/ui/animated-loading-svg-text-shimmer";
 
 // ═══════════════════════════════════════════════════════════════
 // CONFIG
 // ═══════════════════════════════════════════════════════════════
 
 const C = {
-  bg: "#fff1f5",
-  rgb: "219, 39, 119",
+  bg: "#0a0a0b",
+  rgb: "255, 107, 156", // rose Dusk (#ff6b9c)
 };
 
 const T = {
@@ -21,9 +22,18 @@ const T = {
   exit: 350,
 
   logo: 0.6,
-  textDelay: 0.4,
   loaderDelay: 0.6,
+  wordInterval: 10000,
 };
+
+const LOADING_WORDS = [
+  "cooking",
+  "whisking",
+  "plating",
+  "simmering",
+  "polishing",
+  "brewing",
+];
 
 // ═══════════════════════════════════════════════════════════════
 // COMPONENT
@@ -37,6 +47,7 @@ interface SplashScreenProps {
 const SplashScreen = ({ onComplete, isAuthReady }: SplashScreenProps) => {
   const [progress, setProgress] = useState(0);
   const [visible, setVisible] = useState(true);
+  const [wordIndex, setWordIndex] = useState(0);
 
   const timerDone = useRef(false);
   const authReady = useRef(isAuthReady);
@@ -79,6 +90,13 @@ const SplashScreen = ({ onComplete, isAuthReady }: SplashScreenProps) => {
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setWordIndex((i) => (i + 1) % LOADING_WORDS.length);
+    }, T.wordInterval);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <AnimatePresence onExitComplete={onComplete}>
       {visible && (
@@ -86,8 +104,8 @@ const SplashScreen = ({ onComplete, isAuthReady }: SplashScreenProps) => {
           className="fixed inset-0 z-[100] flex items-center justify-center"
           style={{
             background: `
-              radial-gradient(circle at 30% 20%, rgba(${C.rgb},0.06), transparent 40%),
-              ${C.bg}
+              radial-gradient(circle at 30% 20%, rgba(${C.rgb},0.10), transparent 45%),
+              linear-gradient(160deg, #0a0a0b 0%, #141416 55%, #1c1c1e 100%)
             `,
           }}
           initial={{ opacity: 1 }}
@@ -102,91 +120,36 @@ const SplashScreen = ({ onComplete, isAuthReady }: SplashScreenProps) => {
           {/* CONTENT */}
           <div className="flex flex-col items-center">
 
-            {/* LOGO */}
+            {/* ROTATING WORD */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.92 }}
-              animate={{
-                opacity: 1,
-                scale: progress === 100 ? 1.06 : 1,
-              }}
-              transition={{
-                duration: T.logo,
-                ease: [0.22, 1, 0.36, 1],
-              }}
-              className="relative"
+              className="min-w-[10rem] text-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: T.logo }}
             >
-              {/* soft glow */}
-              <motion.div
-                className="absolute inset-[-30px] rounded-full"
-                style={{
-                  background: `radial-gradient(circle, rgba(${C.rgb},0.12), transparent 70%)`,
-                }}
-                animate={{ scale: [1, 1.2, 1], opacity: [0.4, 0.7, 0.4] }}
-                transition={{ duration: 3, repeat: Infinity }}
-              />
-
-              <img
-                src={logo}
-                alt="Blyss"
-                className="w-24 h-24 object-contain"
-                style={{
-                  filter: `drop-shadow(0 10px 30px rgba(${C.rgb},0.25))`,
-                }}
-              />
-            </motion.div>
-
-            {/* TEXT */}
-            <motion.div
-              className="mt-8 text-center"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{
-                delay: T.textDelay,
-                duration: 0.5,
-                ease: [0.22, 1, 0.36, 1],
-              }}
-            >
-              <h1 className="text-4xl font-bold tracking-tight text-pink-600">
-                Blyss
-              </h1>
-
-              <p
-                className="mt-2 text-xs tracking-[0.25em]"
-                style={{ color: `rgba(${C.rgb},0.45)` }}
-              >
-                BEAUTÉ · BUSINESS · SÉRÉNITÉ
-              </p>
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={LOADING_WORDS[wordIndex]}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+                  className="block text-lg font-medium tracking-wide text-white/70"
+                >
+                  {LOADING_WORDS[wordIndex]}
+                </motion.span>
+              </AnimatePresence>
             </motion.div>
 
             {/* LOADER */}
             <motion.div
-              className="mt-8 w-24 h-[2px] rounded-full overflow-hidden"
-              style={{ background: `rgba(${C.rgb},0.15)` }}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: T.loaderDelay }}
-            >
-              <motion.div
-                className="h-full"
-                style={{
-                  background: `rgba(${C.rgb},0.7)`,
-                }}
-                animate={{
-                  width: `${progress}%`,
-                }}
-                transition={{ ease: "easeOut", duration: 0.2 }}
-              />
-            </motion.div>
-
-            {/* MICRO TEXT */}
-            <motion.p
-              className="mt-3 text-[11px]"
-              style={{ color: `rgba(${C.rgb},0.4)` }}
+              className="mt-6"
               initial={{ opacity: 0 }}
               animate={{ opacity: progress > 20 ? 1 : 0 }}
+              transition={{ delay: T.loaderDelay }}
             >
-              Chargement...
-            </motion.p>
+              <LoadingBreadcrumb text="" showChevron={false} className="text-[#ff6b9c]" />
+            </motion.div>
 
           </div>
         </motion.div>

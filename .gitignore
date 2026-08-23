@@ -30,10 +30,12 @@ dist-ssr
 .env.development
 .env.production
 .env.prod
+.env.staging
 .env.test
 backend/.env
 backend/.env.dev
 backend/.env.prod
+backend/.env.staging
 backend/.env.local
 
 # .env.example is intentionally tracked (template, no real secrets)
@@ -63,3 +65,6 @@ eslint-security.json
 npm-audit.json
 trivy-results.sarif
 codeql-results.sarif
+
+# Load-test raw output dumps — large generated artifacts, not source
+loadtest/results/

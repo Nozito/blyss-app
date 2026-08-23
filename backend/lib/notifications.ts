@@ -15,6 +15,8 @@ export const connectedClients = new Map<number, WebSocket>();
 const CLIENT_NOTIFICATION_MAPPING: { [key: string]: string } = {
   booking_reminder: "reminders",
   booking_cancelled: "changes",
+  booking_rescheduled: "changes",
+  appointment_created_by_pro: "changes",
   no_show: "changes",
   slot_available: "reminders",
   post_appointment: "offers",

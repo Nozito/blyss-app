@@ -50,7 +50,72 @@
     --shadow-card: 0 2px 12px -2px hsl(0 0% 0% / 0.08);
     --shadow-elevated: 0 8px 30px -4px hsl(0 0% 0% / 0.12);
 
+    /* Statuts sémantiques — toasts et alertes */
+    --success: 152 69% 45%;
+    --success-foreground: 152 69% 25%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 32 95% 30%;
+    --info: 217 91% 60%;
+    --info-foreground: 217 60% 30%;
+
+    /* Backoffice Admin — sidebar shadcn (fond neutre, accents Blyss) */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 240 10% 3.9%;
+    --sidebar-accent: 336 100% 95%;
+    --sidebar-accent-foreground: 336 99% 68%;
+    --sidebar-border: 30 20% 90%;
+    --sidebar-ring: 336 99% 68%;
+
     background-color: #ffeaf1;
+  }
+
+  /* ────────────────────────────────────────────────────────────────
+     Backoffice Admin — DA "Dusk", distincte de l'app consommateur.
+     Palette issue de Blyss_Website (--blyss-dusk / --blyss-dusk-gradient),
+     convertie en HSL. Scopée : ne touche à aucun token consommateur.
+     ──────────────────────────────────────────────────────────────── */
+  .admin-theme {
+    /* Noir / blanc / gris uniquement — aucune teinte. Les états fonctionnels
+       (succès, alerte, info, destructif) se distinguent par la luminosité,
+       les icônes et la typographie, jamais par la couleur. */
+    --background: 0 0% 4%;          /* #0a0a0a */
+    --foreground: 0 0% 98%;         /* #fafafa */
+    --card: 0 0% 10%;               /* #1a1a1a */
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 95%;            /* CTA = blanc cassé sur fond sombre */
+    --primary-foreground: 0 0% 8%;
+    --secondary: 0 0% 22%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 65%;
+    --accent: 0 0% 18%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 0% 22%;        /* même famille que secondary — le sens vient de l'icône + la confirmation, pas de la couleur */
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
+    --ring: 0 0% 75%;
+    --radius: 0.6rem;
+
+    --sidebar-background: 0 0% 10%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-accent: 0 0% 18%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 16%;
+    --sidebar-ring: 0 0% 75%;
+
+    /* Distingués uniquement par la luminosité (clair → foncé) */
+    --success: 0 0% 90%;
+    --success-foreground: 0 0% 8%;
+    --warning: 0 0% 55%;
+    --warning-foreground: 0 0% 8%;
+    --info: 0 0% 40%;
+    --info-foreground: 0 0% 98%;
+
+    color-scheme: dark;
+    background-color: hsl(0 0% 4%);
   }
 }
 

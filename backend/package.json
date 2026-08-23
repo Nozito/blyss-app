@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "cross-env NODE_ENV=development ts-node backend/server.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "start": "NODE_ENV=production node dist/server.js",
     "test": "vitest run --config backend/vitest.config.ts",
     "test:watch": "vitest --config backend/vitest.config.ts"
@@ -29,7 +29,10 @@
     "ibantools": "^4.5.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",
+    "otplib": "^13.5.0",
     "pg": "^8.19.0",
+    "qrcode": "^1.5.4",
+    "resend": "^6.9.3",
     "sharp": "^0.35.3",
     "stripe": "^20.3.1",
     "web-push": "^3.6.7",
@@ -46,6 +49,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.0.0",
     "@types/pg": "^8.16.0",
+    "@types/qrcode": "^1.5.6",
     "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.1",
     "cross-env": "^10.1.0",

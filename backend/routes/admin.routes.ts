@@ -2,7 +2,6 @@ import express, { Response, NextFunction } from "express";
 import bcrypt from "bcrypt";
 import { authenticateToken } from "../middleware/auth";
 import { requireAdminMiddleware } from "../middleware/requireAdmin";
-import { adminLimiter } from "../middleware/rate-limits";
 import { getDb } from "../lib/db";
 import { sendNotificationToUser } from "../lib/notifications";
 import { refundPaymentById } from "../lib/refunds";
@@ -19,7 +18,21 @@ import {
   adminCouponPatchSchema,
   adminCouponToggleSchema,
   adminNotificationSendSchema,
+  adminTaskSchema,
+  adminTaskStatusSchema,
+  totpConfirmSchema,
+  totpDisableSchema,
 } from "../middleware/validate";
+import QRCode from "qrcode";
+import {
+  generateTotpSecret,
+  encryptTotpSecret,
+  decryptTotpSecret,
+  totpKeyUri,
+  verifyTotpToken,
+  generateBackupCodes,
+} from "../lib/totp";
+import { logAdminAction } from "../lib/audit";
 
 import { AuthenticatedRequest } from "../lib/types";
 import { parseParamToInt } from "../lib/helpers";
@@ -158,7 +171,8 @@ router.post(
 /* GET /users */
 router.get(
   "/users",
-  adminLimiter,
+  // adminLimiter est déjà appliqué globalement sur tout /api/admin (server.ts)
+  // — le remettre ici comptait chaque appel deux fois contre le même quota.
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -494,6 +508,7 @@ router.get(
       const totalRevenue  = Number(r.total_revenue  ?? 0);
       const monthRevenue  = Number(r.month_revenue  ?? 0);
       const activeUsers   = Number(r.active_users   ?? 0);
+      const newUsersThisMonth = Number(r.users_this ?? 0);
 
       const changes = {
         clients:  calcChange(Number(r.clients_this ?? 0),          Number(r.clients_last       ?? 0)),
@@ -507,6 +522,18 @@ router.get(
       const [bookingStatusRows] = await db.query(
         "SELECT status, COUNT(*) as count FROM reservations GROUP BY status"
       );
+
+      // ── Query 2b: signaux nécessitant une action admin (données réelles,
+      // pas de placeholder) — signalements de messages non traités, paiements
+      // en échec sur 30 jours. ─────────────────────────────────────────────
+      const [alertRows] = await db.query(`
+        SELECT
+          (SELECT COUNT(*) FROM message_flags WHERE status = 'pending') AS pending_reports,
+          (SELECT COUNT(*) FROM payments WHERE status = 'failed' AND created_at >= NOW() - INTERVAL '30 days') AS failed_payments
+      `);
+      const alertsRow = (alertRows as any[])[0] ?? {};
+      const pendingReports = Number(alertsRow.pending_reports ?? 0);
+      const failedPayments = Number(alertsRow.failed_payments ?? 0);
 
       // ── Query 3: recent activity ──────────────────────────────────────────────
       const [recentActivity] = await db.query(`
@@ -543,7 +570,9 @@ router.get(
         stats: {
           totalUsers, totalPros, totalClients, totalBookings,
           todayBookings, totalRevenue, monthRevenue, activeUsers,
+          newUsersThisMonth,
           bookingsByStatus, changes,
+          alerts: { pendingReports, failedPayments },
         },
         recentActivity: (recentActivity as any[]).map((a: any) => ({
           type: a.type, title: a.title, description: a.description, time: a.time,
@@ -746,6 +775,7 @@ router.delete(
       await connection.execute("DELETE FROM users WHERE id = ?", [userId]);
       await connection.commit();
 
+      await logAdminAction(req, req.user!.id, "delete_user", "user", userId);
       res.json({ success: true, message: "Utilisateur supprimé avec succès" });
     } catch (error) {
       if (connection) await connection.rollback().catch(() => {});
@@ -769,6 +799,7 @@ router.patch(
       if ((result as any).rowCount === 0) {
         return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
       }
+      await logAdminAction(req, req.user!.id, "deactivate_user", "user", String(userId));
       res.json({ success: true, message: "Compte désactivé" });
     } catch (error) {
       next(error);
@@ -790,6 +821,291 @@ router.patch(
         return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
       }
       res.json({ success: true, message: "Compte réactivé" });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* PATCH /users/:id/grant-admin — donne l'accès au backoffice admin */
+router.patch(
+  "/users/:id/grant-admin",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.params.id;
+      const [result] = await getDb().query(
+        "UPDATE users SET is_admin = TRUE WHERE id = ?",
+        [userId]
+      );
+      if ((result as any).rowCount === 0) {
+        return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+      }
+      await logAdminAction(req, req.user!.id, "grant_admin", "user", String(userId));
+      res.json({ success: true, message: "Accès admin accordé" });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* PATCH /users/:id/revoke-admin — retire l'accès au backoffice admin */
+router.patch(
+  "/users/:id/revoke-admin",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.params.id;
+      if (String(req.user?.id) === String(userId)) {
+        return res.status(400).json({ success: false, message: "Impossible de retirer ton propre accès admin" });
+      }
+      const [result] = await getDb().query(
+        "UPDATE users SET is_admin = FALSE WHERE id = ?",
+        [userId]
+      );
+      if ((result as any).rowCount === 0) {
+        return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+      }
+      await logAdminAction(req, req.user!.id, "revoke_admin", "user", String(userId));
+      res.json({ success: true, message: "Accès admin retiré" });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* GET /admins — liste des comptes ayant l'accès backoffice */
+router.get(
+  "/admins",
+  async (_req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      // totp_enabled volontairement exclu — statut 2FA personnel, jamais
+      // exposé aux autres admins (voir /admin/profile).
+      const [rows] = await getDb().query(
+        `SELECT id, first_name, last_name, email, role, created_at
+         FROM users WHERE is_admin = TRUE ORDER BY created_at ASC`
+      );
+      res.json({ success: true, data: rows });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* GET /profile/activity — connexions du SEUL admin courant (14 derniers
+   jours), pour son propre écran de profil. Jamais comparé aux autres admins. */
+router.get(
+  "/profile/activity",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const adminId = req.user!.id;
+      const [rows] = await getDb().query(
+        `SELECT d::date AS day, COUNT(rt.id) AS logins
+         FROM generate_series(CURRENT_DATE - INTERVAL '13 days', CURRENT_DATE, INTERVAL '1 day') d
+         LEFT JOIN refresh_tokens rt
+           ON rt.user_id = ? AND rt.created_at::date = d::date
+         GROUP BY d
+         ORDER BY d ASC`,
+        [adminId]
+      );
+
+      const data = (rows as any[]).map((r) => ({
+        day: new Date(r.day).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
+        logins: Number(r.logins),
+      }));
+
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* GET /profile/sessions — nombre de sessions actives + derniers logins du
+   SEUL admin courant. Aucune donnée appareil/navigateur/localisation n'est
+   stockée (refresh_tokens ne contient ni user_agent ni IP) — on ne renvoie
+   que ce qui existe réellement : un compte et des horodatages. */
+router.get(
+  "/profile/sessions",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const adminId = req.user!.id;
+      const db = getDb();
+
+      const [activeRows] = await db.query(
+        `SELECT COUNT(*) AS count FROM refresh_tokens
+         WHERE user_id = ? AND revoked = FALSE AND expires_at > NOW()`,
+        [adminId]
+      );
+      const [loginRows] = await db.query(
+        `SELECT created_at FROM refresh_tokens
+         WHERE user_id = ?
+         ORDER BY created_at DESC
+         LIMIT 10`,
+        [adminId]
+      );
+
+      res.json({
+        success: true,
+        data: {
+          active_sessions: Number((activeRows as any[])[0]?.count ?? 0),
+          recent_logins: (loginRows as any[]).map((r) => r.created_at),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* POST /profile/sessions/revoke-all — déconnecte TOUS les appareils de
+   l'admin courant, y compris celui-ci (on ne sait pas quel refresh_token
+   correspond à la session en cours sans stockage dédié) — d'où le clear
+   des cookies dans la foulée pour ne pas laisser le front dans un état
+   incohérent. */
+router.post(
+  "/profile/sessions/revoke-all",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const adminId = req.user!.id;
+      await getDb().query("DELETE FROM refresh_tokens WHERE user_id = ?", [adminId]);
+      await logAdminAction(req, adminId, "revoke_all_sessions", "user", adminId);
+
+      const isProd = process.env.NODE_ENV === "production";
+      const cookieOpts = { httpOnly: true, secure: isProd, sameSite: "strict" as const };
+      res.clearCookie("access_token", cookieOpts);
+      res.clearCookie("refresh_token", cookieOpts);
+
+      res.json({ success: true, message: "Tous les appareils ont été déconnectés" });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ── 2FA TOTP (auto-enrôlement, un admin ne gère que la sienne) ─────────────
+
+/* POST /2fa/setup — génère un secret + QR code, PAS ENCORE activé */
+router.post(
+  "/2fa/setup",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const adminId = req.user!.id;
+      const [rows] = await getDb().query("SELECT email, totp_enabled FROM users WHERE id = ?", [adminId]);
+      const admin = (rows as any[])[0];
+      if (admin?.totp_enabled) {
+        return res.status(400).json({ success: false, message: "La 2FA est déjà activée" });
+      }
+
+      const secret = generateTotpSecret();
+      const { ciphertext, iv } = encryptTotpSecret(secret);
+      await getDb().query(
+        "UPDATE users SET totp_secret_encrypted = ?, totp_secret_iv = ? WHERE id = ?",
+        [ciphertext, iv, adminId]
+      );
+
+      const uri = totpKeyUri(secret, admin.email);
+      const qrDataUrl = await QRCode.toDataURL(uri);
+      res.json({ success: true, data: { qr_code: qrDataUrl, secret } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* POST /2fa/confirm — valide le premier code et active la 2FA (+ codes de secours) */
+router.post(
+  "/2fa/confirm",
+  validate(totpConfirmSchema),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const adminId = req.user!.id;
+      const { token } = req.body;
+
+      const [rows] = await getDb().query(
+        "SELECT totp_secret_encrypted, totp_secret_iv FROM users WHERE id = ?",
+        [adminId]
+      );
+      const admin = (rows as any[])[0];
+      if (!admin?.totp_secret_encrypted) {
+        return res.status(400).json({ success: false, message: "Lance d'abord /2fa/setup" });
+      }
+
+      const secret = decryptTotpSecret(admin.totp_secret_encrypted, admin.totp_secret_iv);
+      const valid = await verifyTotpToken(secret, token);
+      if (!valid) {
+        return res.status(400).json({ success: false, message: "Code invalide" });
+      }
+
+      const { plain, hashed } = await generateBackupCodes();
+      await getDb().query(
+        "UPDATE users SET totp_enabled = TRUE, totp_backup_codes = ? WHERE id = ?",
+        [hashed, adminId]
+      );
+      await logAdminAction(req, adminId, "enable_2fa", "user", adminId);
+
+      res.json({ success: true, data: { backup_codes: plain } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* POST /2fa/disable — nécessite un code TOTP valide */
+router.post(
+  "/2fa/disable",
+  validate(totpDisableSchema),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const adminId = req.user!.id;
+      const { token } = req.body;
+
+      const [rows] = await getDb().query(
+        "SELECT totp_secret_encrypted, totp_secret_iv, totp_enabled FROM users WHERE id = ?",
+        [adminId]
+      );
+      const admin = (rows as any[])[0];
+      if (!admin?.totp_enabled) {
+        return res.status(400).json({ success: false, message: "La 2FA n'est pas activée" });
+      }
+
+      const secret = decryptTotpSecret(admin.totp_secret_encrypted, admin.totp_secret_iv);
+      const valid = await verifyTotpToken(secret, token);
+      if (!valid) {
+        return res.status(400).json({ success: false, message: "Code invalide" });
+      }
+
+      await getDb().query(
+        `UPDATE users SET totp_enabled = FALSE, totp_secret_encrypted = NULL,
+                totp_secret_iv = NULL, totp_backup_codes = '{}' WHERE id = ?`,
+        [adminId]
+      );
+      await logAdminAction(req, adminId, "disable_2fa", "user", adminId);
+
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* GET /audit-log — dernières actions admin sensibles */
+router.get(
+  "/audit-log",
+  async (_req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      // enable_2fa/disable_2fa restent journalisés en base pour un audit de
+      // sécurité interne, mais jamais renvoyés ici : le statut 2FA d'un admin
+      // est un réglage personnel (voir /admin/profile), pas une donnée que
+      // les autres admins doivent pouvoir consulter.
+      const [rows] = await getDb().query(
+        `SELECT l.id, l.action, l.target_type, l.target_id, l.metadata, l.ip, l.created_at,
+                u.first_name AS actor_first_name, u.last_name AS actor_last_name
+         FROM admin_audit_log l
+         LEFT JOIN users u ON u.id = l.actor_id
+         WHERE l.action NOT IN ('enable_2fa', 'disable_2fa')
+         ORDER BY l.created_at DESC
+         LIMIT 100`
+      );
+      res.json({ success: true, data: rows });
     } catch (error) {
       next(error);
     }
@@ -1016,7 +1332,16 @@ router.get(
         LIMIT ? OFFSET ?
       `, [...params, limit, offset]);
 
-      res.json({ success: true, data: rows, meta: { page, limit, total } });
+      // NUMERIC columns come back as strings from pg — cast explicitly,
+      // the frontend calls .toFixed() on these.
+      const data = (rows as any[]).map((row) => ({
+        ...row,
+        amount: Number(row.amount),
+        fee: Number(row.fee),
+        net_amount: Number(row.net_amount),
+      }));
+
+      res.json({ success: true, data, meta: { page, limit, total } });
     } catch (error) {
       next(error);
     }
@@ -1050,7 +1375,16 @@ router.get(
         return res.status(404).json({ success: false, error: "Paiement introuvable" });
       }
 
-      res.json({ success: true, data: (rows as any[])[0] });
+      const payment = (rows as any[])[0];
+      res.json({
+        success: true,
+        data: {
+          ...payment,
+          amount: Number(payment.amount),
+          fee: Number(payment.fee),
+          net_amount: Number(payment.net_amount),
+        },
+      });
     } catch (error) {
       next(error);
     }
@@ -1888,6 +2222,121 @@ router.patch(
         message: "L'équipe Blyss a terminé l'examen de cette conversation, vous pouvez à nouveau échanger normalement.",
       });
 
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ── Tâches internes admin (calendrier backoffice) ───────────────────────────
+
+/* GET /tasks — toutes les tâches, visibles par toute l'équipe admin */
+router.get(
+  "/tasks",
+  async (_req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const [rows] = await getDb().query(
+        `SELECT t.id, t.admin_id, t.title, t.description, t.start_time, t.end_time,
+                t.status, t.color, t.created_at, t.updated_at,
+                u.first_name AS admin_first_name, u.last_name AS admin_last_name
+         FROM admin_tasks t
+         JOIN users u ON u.id = t.admin_id
+         ORDER BY t.start_time ASC`
+      );
+      res.json({ success: true, data: rows });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* POST /tasks/create */
+router.post(
+  "/tasks/create",
+  validate(adminTaskSchema),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const { title, description, start_time, end_time, color } = req.body;
+      const adminId = req.user!.id;
+
+      const [rows] = await getDb().query(
+        `INSERT INTO admin_tasks (admin_id, title, description, start_time, end_time, color)
+         VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+        [adminId, title, description || null, start_time, end_time, color]
+      );
+      res.status(201).json({ success: true, data: { id: (rows as any[])[0].id } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* PUT /tasks/:id — seule l'admin propriétaire peut modifier sa tâche */
+router.put(
+  "/tasks/:id",
+  validate(adminTaskSchema),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const taskId = parseParamToInt(req.params.id);
+      const adminId = req.user!.id;
+      const { title, description, start_time, end_time, color } = req.body;
+
+      const [result] = await getDb().query(
+        `UPDATE admin_tasks SET title = ?, description = ?, start_time = ?, end_time = ?,
+                color = ?, updated_at = NOW()
+         WHERE id = ? AND admin_id = ?`,
+        [title, description || null, start_time, end_time, color, taskId, adminId]
+      );
+      if ((result as any).rowCount === 0) {
+        return res.status(404).json({ success: false, message: "Tâche introuvable ou non modifiable" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* PATCH /tasks/:id/status */
+router.patch(
+  "/tasks/:id/status",
+  validate(adminTaskStatusSchema),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const taskId = parseParamToInt(req.params.id);
+      const adminId = req.user!.id;
+      const { status } = req.body;
+
+      const [result] = await getDb().query(
+        `UPDATE admin_tasks SET status = ?, updated_at = NOW() WHERE id = ? AND admin_id = ?`,
+        [status, taskId, adminId]
+      );
+      if ((result as any).rowCount === 0) {
+        return res.status(404).json({ success: false, message: "Tâche introuvable ou non modifiable" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* DELETE /tasks/:id */
+router.delete(
+  "/tasks/:id",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const taskId = parseParamToInt(req.params.id);
+      const adminId = req.user!.id;
+
+      const [result] = await getDb().query(
+        `DELETE FROM admin_tasks WHERE id = ? AND admin_id = ?`,
+        [taskId, adminId]
+      );
+      if ((result as any).rowCount === 0) {
+        return res.status(404).json({ success: false, message: "Tâche introuvable ou non supprimable" });
+      }
       res.json({ success: true });
     } catch (error) {
       next(error);

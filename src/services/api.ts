@@ -12,6 +12,7 @@ export const getApiEndpoint = (path: string): string => {
 
 export interface User {
   is_admin: boolean;
+  totp_enabled?: boolean;
   profile_visibility: string;
   id: number;
   first_name: string;
@@ -22,6 +23,7 @@ export interface User {
   is_verified: boolean;
   role: "client" | "pro";
   created_at: string;
+  last_login_at?: string | null;
   activity_name?: string | null;
   city?: string | null;
   instagram_account?: string | null;
@@ -41,33 +43,6 @@ export interface User {
 export interface LoginCredentials {
   email: string;
   password: string;
-}
-
-export interface SignupData {
-  first_name: string;
-  last_name: string;
-  email: string;
-  password: string;
-  phone_number: string;
-  birth_date: string;
-  role: "client" | "pro";
-  activity_name?: string | null;
-  city?: string | null;
-  instagram_account?: string | null;
-}
-
-export interface SignupResponse {
-  success: boolean;
-  message?: string;
-  error?: 
-    | "email_exists"
-    | "weak_password"
-    | "age_restriction"
-    | "invalid_phone"
-    | "invalid_email"
-    | "missing_fields"
-    | "data_too_long"
-    | "server_error";
 }
 
 export interface ApiResponse<T> {
@@ -284,36 +259,6 @@ export const authApi = {
       data: { user, accessToken, refreshToken },
       message: json.message,
     };
-  },
-
-  signup: async (data: SignupData): Promise<SignupResponse> => {
-    try {
-      const response = await fetch(`${API_URL}/api/auth/signup`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify(data),
-      });
-
-      const json = await response.json();
-
-      if (response.ok) {
-        return {
-          success: true,
-          message: json.message || "Account created successfully",
-        };
-      } else {
-        return {
-          success: false,
-          message: json.message || "Signup failed",
-          error: json.error,
-        };
-      }
-    } catch {
-      return { success: false, message: "Network error", error: "server_error" as const };
-    }
   },
 
   getProfile: async (): Promise<ApiResponse<User>> => {

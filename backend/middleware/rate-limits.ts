@@ -1,6 +1,17 @@
 import rateLimit from "express-rate-limit";
 import { Request } from "express";
 
+// Load-test bypass — opt-in, off by default, and double-gated so it can
+// never activate on a deployed prod process even if the env var leaked into
+// its environment: NODE_ENV must NOT be "production" AND the flag must be
+// set explicitly. Used only to run k6 against a local backend instance
+// (still hitting the real Supabase Cloud DB) without a single test-runner
+// IP tripping every per-IP limiter within the first few requests — never
+// set in .env.prod, never deployed.
+function loadtestBypass(): boolean {
+  return process.env.NODE_ENV !== "production" && process.env.LOADTEST_BYPASS_RATE_LIMIT === "true";
+}
+
 // Per-IP limiters alone don't stop a distributed attack (many source IPs)
 // aimed at one specific account. Keying by the submitted email/account
 // identifier closes that gap — the two limiter types are complementary,
@@ -16,6 +27,7 @@ function accountKey(req: Request): string {
 export const authLoginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
+  skip: loadtestBypass,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -32,6 +44,7 @@ export const authLoginAccountLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   keyGenerator: accountKey,
+  skip: loadtestBypass,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -44,6 +57,7 @@ export const authLoginAccountLimiter = rateLimit({
 export const authSignupLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
+  skip: loadtestBypass,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -56,6 +70,7 @@ export const authSignupLimiter = rateLimit({
 export const authRefreshLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
+  skip: loadtestBypass,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -69,6 +84,7 @@ export const authRefreshLimiter = rateLimit({
 export const bookingLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 20,
+  skip: loadtestBypass,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -82,6 +98,7 @@ export const bookingLimiter = rateLimit({
 export const paymentIntentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
+  skip: loadtestBypass,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -95,6 +112,7 @@ export const paymentIntentLimiter = rateLimit({
 export const publicListingLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
+  skip: loadtestBypass,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -104,10 +122,15 @@ export const publicListingLimiter = rateLimit({
   },
 });
 
-// 60 requêtes par 15 min pour les routes admin
+// 600 requêtes par 15 min pour les routes admin — le panel poll le compteur
+// du dashboard toutes les 30s (30 requêtes/15min rien qu'en restant sur une
+// page) et charge des jeux de données paginés en parallèle ; 60 était trop
+// bas et faisait échouer des sections entières (ex: Sessions du profil) dès
+// qu'un admin naviguait normalement pendant quelques minutes.
 export const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 60,
+  max: 600,
+  skip: loadtestBypass,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -121,6 +144,7 @@ export const adminLimiter = rateLimit({
 export const pushLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 15,
+  skip: loadtestBypass,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -134,7 +158,7 @@ export const pushLimiter = rateLimit({
 export const passwordResetLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 3,
-  skip: () => process.env.NODE_ENV === "test",
+  skip: () => process.env.NODE_ENV === "test" || loadtestBypass(),
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -151,7 +175,7 @@ export const passwordResetAccountLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 3,
   keyGenerator: accountKey,
-  skip: () => process.env.NODE_ENV === "test",
+  skip: () => process.env.NODE_ENV === "test" || loadtestBypass(),
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -169,7 +193,7 @@ export const passwordResetAccountLimiter = rateLimit({
 export const passwordResetConsumeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
-  skip: () => process.env.NODE_ENV === "test",
+  skip: () => process.env.NODE_ENV === "test" || loadtestBypass(),
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -183,6 +207,7 @@ export const passwordResetConsumeLimiter = rateLimit({
 export const cancellationLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 10,
+  skip: loadtestBypass,
   standardHeaders: true,
   legacyHeaders: false,
   message: {

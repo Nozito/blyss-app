@@ -229,7 +229,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         setActiveToasts((prev) => prev.filter((t) => t.id !== id));
     };
 
-    const AUTH_PATHS = new Set(["/", "/login", "/signup", "/forgot-password", "/reset-password", "/legal"]);
+    const AUTH_PATHS = new Set(["/", "/login", "/forgot-password", "/reset-password", "/legal"]); // "/" sert désormais aussi le login
     const location = useLocation();
     const showToasts = !!user && !AUTH_PATHS.has(location.pathname);
 

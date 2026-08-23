@@ -1,74 +1,68 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   Users,
   Calendar,
-  Bell,
   DollarSign,
-  BarChart3,
   FileText,
-  Menu,
-  X,
-  Search,
   LogOut,
-  Shield,
-  ChevronLeft,
-  Zap,
-  CheckCircle,
-  Repeat2,
+  ListChecks,
+  User,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
+import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import logo from "@/assets/logo.png";
-import RoleSelectionModal, { type AdminRole } from "@/components/RoleSelectionModal";
+import { Dock, DockIcon, DockItem, DockLabel } from "@/components/ui/dock";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+} from "@/components/ui/command";
+import { useIdleTimeout } from "@/hooks/useIdleTimeout";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
+const IDLE_TIMEOUT_MS = 20 * 60 * 1000; // 20 min
+const IDLE_WARN_BEFORE_MS = 60 * 1000; // avertit 1 min avant
 
 interface DashboardCounts {
   totalUsers: number;
   totalBookings: number;
-  unreadNotifications: number;
-}
-
-interface Notification {
-  id: number;
-  type: 'success' | 'error' | 'info';
-  message: string;
 }
 
 const AdminLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
-  const [hoveredItem, setHoveredItem] = useState<string | null>(null);
+  const { logout } = useAuth();
+  const [commandOpen, setCommandOpen] = useState(false);
   const [counts, setCounts] = useState<DashboardCounts>({
     totalUsers: 0,
     totalBookings: 0,
-    unreadNotifications: 0,
   });
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [nextNotifId, setNextNotifId] = useState(1);
-  const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
 
-  const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
-    const id = nextNotifId;
-    setNextNotifId(id + 1);
-    setNotifications(prev => [...prev, { id, type, message }]);
-    
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
-    }, 3000);
-  };
+  const handleLogout = useCallback(() => {
+    logout();
+    toast.success("Déconnexion réussie");
+    setTimeout(() => navigate("/"), 400);
+  }, [logout, navigate]);
+
+  // Sécurité — déconnexion automatique après 20 min d'inactivité sur le backoffice
+  useIdleTimeout({
+    timeoutMs: IDLE_TIMEOUT_MS,
+    warnBeforeMs: IDLE_WARN_BEFORE_MS,
+    enabled: true,
+    onIdle: handleLogout,
+  });
 
   useEffect(() => {
     const fetchCounts = async () => {
       try {
         const response = await fetch(`${API_URL}/api/admin/dashboard/counts`, {
-          credentials: 'include',
+          credentials: "include",
         });
 
         if (response.ok) {
@@ -87,489 +81,133 @@ const AdminLayout = () => {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setCommandOpen((open) => !open);
+      }
+    };
+    document.addEventListener("keydown", down);
+    return () => document.removeEventListener("keydown", down);
+  }, []);
+
+  const runCommand = (fn: () => void) => {
+    setCommandOpen(false);
+    fn();
+  };
+
   const menuItems = [
-    { 
-      icon: LayoutDashboard, 
-      label: "Dashboard", 
-      path: "/admin/dashboard", 
-      badge: null,
-      shortcut: "⌘D"
-    },
-    { 
-      icon: Users, 
-      label: "Utilisateurs", 
-      path: "/admin/users", 
-      badge: counts.totalUsers || null,
-      shortcut: "⌘U"
-    },
-    { 
-      icon: Calendar, 
-      label: "Réservations", 
-      path: "/admin/bookings", 
-      badge: counts.totalBookings || null,
-      shortcut: "⌘R"
-    },
-    { 
-      icon: Bell, 
-      label: "Notifications", 
-      path: "/admin/notifications", 
-      badge: counts.unreadNotifications || null,
-      pulse: counts.unreadNotifications > 0,
-      shortcut: "⌘N"
-    },
-    { 
-      icon: DollarSign, 
-      label: "Paiements", 
-      path: "/admin/payments", 
-      badge: null,
-      shortcut: "⌘P"
-    },
-    { 
-      icon: BarChart3, 
-      label: "Analytics", 
-      path: "/admin/analytics", 
-      badge: null,
-      shortcut: "⌘A"
-    },
-    { 
-      icon: FileText, 
-      label: "Logs", 
-      path: "/admin/logs", 
-      badge: null,
-      shortcut: "⌘L"
-    },
+    { icon: LayoutDashboard, label: "Dashboard", path: "/admin/dashboard", badge: null as number | null },
+    { icon: Users, label: "Utilisateurs", path: "/admin/users", badge: counts.totalUsers || null },
+    { icon: Calendar, label: "Réservations", path: "/admin/bookings", badge: counts.totalBookings || null },
+    { icon: DollarSign, label: "Finances", path: "/admin/analytics", badge: null },
+    { icon: FileText, label: "Logs", path: "/admin/logs", badge: null },
+    { icon: ListChecks, label: "Tâches", path: "/admin/tasks", badge: null },
+    { icon: User, label: "Profil", path: "/admin/profile", badge: null },
   ];
 
   const isActive = (path: string) => location.pathname === path;
 
-  useEffect(() => {
-    const handleResize = () => {
-      const mobile = window.innerWidth < 1024;
-      setIsMobile(mobile);
-      if (mobile) setSidebarOpen(false);
-      else setSidebarOpen(true);
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  const handleLogout = () => {
-    logout();
-    showNotification('success', 'Déconnexion réussie');
-    setTimeout(() => navigate("/"), 500);
-  };
-
-  const handleRoleSelect = (role: AdminRole) => {
-    setShowRoleSwitcher(false);
-    const routes: Record<AdminRole, string> = {
-      client: "/client",
-      pro: "/pro/dashboard",
-      admin: "/admin/dashboard",
-    };
-    navigate(routes[role]);
-  };
-
   return (
-    <div className="flex h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 overflow-hidden">
-      {/* Notifications flottantes */}
-      <div className="fixed top-24 right-6 z-[60] space-y-2 w-80 max-w-[calc(100vw-3rem)]">
-        <AnimatePresence>
-          {notifications.map((notif) => {
-            const icons = { 
-              success: CheckCircle, 
-              error: X, 
-              info: Bell 
-            };
-            const colors = {
-              success: 'bg-green-50 border-green-200 text-green-800',
-              error: 'bg-red-50 border-red-200 text-red-800',
-              info: 'bg-blue-50 border-blue-200 text-blue-800',
-            };
-            const iconColors = {
-              success: 'text-green-600',
-              error: 'text-red-600',
-              info: 'text-blue-600',
-            };
-            
-            const Icon = icons[notif.type];
-            
-            return (
-              <motion.div
-                key={notif.id}
-                initial={{ opacity: 0, y: -20, x: 100, scale: 0.9 }}
-                animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 100, scale: 0.8 }}
-                transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                className={`flex items-center gap-3 px-4 py-3 rounded-2xl border-2 shadow-lg backdrop-blur-sm ${colors[notif.type]}`}
-              >
-                <Icon size={20} className={iconColors[notif.type]} strokeWidth={2.5} />
-                <p className="flex-1 font-bold text-sm">{notif.message}</p>
-                <motion.button
-                  whileHover={{ scale: 1.1, rotate: 90 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => setNotifications(prev => prev.filter(n => n.id !== notif.id))}
-                  className="w-6 h-6 rounded-lg hover:bg-black/5 flex items-center justify-center transition-colors"
-                >
-                  <X size={14} />
-                </motion.button>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
-      </div>
-
-      {/* Overlay mobile */}
-      <AnimatePresence>
-        {isMobile && sidebarOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Sidebar Ultra Premium */}
-      <motion.aside
-        initial={false}
-        animate={{
-          width: sidebarOpen ? (isMobile ? "85%" : 280) : (isMobile ? 0 : 80),
-        }}
-        transition={{ type: "spring", damping: 30, stiffness: 300 }}
-        className={`bg-white/80 backdrop-blur-xl border-r border-gray-200/50 flex flex-col shadow-xl relative z-50 ${
-          isMobile ? "fixed left-0 top-0 bottom-0" : ""
-        }`}
-      >
-        {/* Gradient subtil */}
-        <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.01] to-transparent pointer-events-none" />
-
-        {/* Header épuré */}
-        <div className="h-20 flex items-center justify-between px-5 border-b border-gray-100/50 relative">
-          <AnimatePresence mode="wait">
-            {sidebarOpen ? (
-              <motion.div
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -10 }}
-                transition={{ duration: 0.15 }}
-                className="flex items-center gap-3"
-              >
-                <motion.div
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="relative"
-                >
-                  <img
-                    src={logo}
-                    alt="Blyss"
-                    className="w-10 h-10 rounded-xl object-cover"
-                  />
-                  <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-white" />
-                </motion.div>
-                <div>
-                  <h1 className="text-base font-black text-gray-900 tracking-tight">Blyss Admin</h1>
-                  <p className="text-[9px] text-gray-500 font-semibold uppercase tracking-widest">Control Center</p>
-                </div>
-              </motion.div>
-            ) : (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                transition={{ duration: 0.15 }}
-                className="mx-auto relative"
-              >
-                <img
-                  src={logo}
-                  alt="Blyss"
-                  className="w-10 h-10 rounded-xl object-cover"
-                />
-                <div className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-green-500 border-2 border-white" />
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {!isMobile && (
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center transition-colors group"
-            >
-              <motion.div 
-                animate={{ rotate: sidebarOpen ? 0 : 180 }}
-                transition={{ duration: 0.2 }}
-              >
-                <ChevronLeft size={16} className="text-gray-500 group-hover:text-gray-900 transition-colors" />
-              </motion.div>
-            </motion.button>
-          )}
-        </div>
-
-        {/* Navigation style Twitter/Linear */}
-        <nav className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
-          {menuItems.map((item, index) => {
-            const Icon = item.icon;
-            const active = isActive(item.path);
-            const isHovered = hoveredItem === item.path;
-
-            return (
-              <div key={item.path} className="relative">
-                <motion.button
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.02 }}
-                  onClick={() => {
-                    navigate(item.path);
-                    if (isMobile) setSidebarOpen(false);
-                  }}
-                  onHoverStart={() => setHoveredItem(item.path)}
-                  onHoverEnd={() => setHoveredItem(null)}
-                  whileTap={{ scale: 0.97 }}
-                  className={`w-full flex items-center ${sidebarOpen ? 'gap-4 px-4' : 'justify-center px-0'} py-3.5 rounded-xl transition-all duration-150 relative group ${
-                    active
-                      ? "bg-primary text-white shadow-lg shadow-primary/20"
-                      : "hover:bg-gray-100 text-gray-700"
-                  }`}
-                >
-                  {/* Indicateur actif minimaliste */}
-                  {active && (
-                    <motion.div
-                      layoutId="activeIndicator"
-                      className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-white rounded-r-full"
-                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                    />
-                  )}
-
-                  {/* Icône avec scale subtil */}
-                  <motion.div 
-                    animate={{ 
-                      scale: active ? 1.05 : 1,
-                      rotate: active && isHovered ? [0, -5, 5, 0] : 0
-                    }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    <Icon 
-                      size={21} 
-                      className={`${active ? "text-white" : "text-gray-600 group-hover:text-gray-900"} transition-colors`}
-                      strokeWidth={active ? 2.5 : 2}
-                    />
-                  </motion.div>
-
-                  {/* Label avec tooltip au hover */}
-                  {sidebarOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, x: -5 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ duration: 0.15 }}
-                      className="flex-1 flex items-center justify-between"
-                    >
-                      <span className={`text-sm font-bold tracking-tight ${active ? "text-white" : "text-gray-900"}`}>
-                        {item.label}
-                      </span>
-
-                      {/* Badge ou shortcut */}
-                      {item.badge ? (
-                        <motion.span
-                          initial={{ scale: 0 }}
-                          animate={{ scale: 1 }}
-                          whileHover={{ scale: 1.1 }}
-                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black ${
-                            active 
-                              ? "bg-white/20 text-white" 
-                              : "bg-gray-200 text-gray-700"
-                          }`}
-                        >
-                          {item.badge > 999 ? '999+' : item.badge}
-                        </motion.span>
-                      ) : (
-                        <span className={`text-[10px] font-medium ${
-                          active ? "text-white/60" : "text-gray-400"
-                        } ${isHovered ? 'opacity-100' : 'opacity-0'} transition-opacity`}>
-                          {item.shortcut}
-                        </span>
-                      )}
-                    </motion.div>
-                  )}
-
-                  {/* Badge pulse quand collapsed */}
-                  {!sidebarOpen && item.badge && (
-                    <div className="absolute top-2 right-2">
-                      <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        className={`w-2 h-2 rounded-full ${
-                          active ? "bg-white" : "bg-primary"
-                        } ${item.pulse ? 'animate-pulse' : ''}`}
-                      />
-                    </div>
-                  )}
-                </motion.button>
-
-                {/* Tooltip quand sidebar fermé */}
-                <AnimatePresence>
-                  {!sidebarOpen && isHovered && (
-                    <motion.div
-                      initial={{ opacity: 0, x: -10, scale: 0.95 }}
-                      animate={{ opacity: 1, x: 0, scale: 1 }}
-                      exit={{ opacity: 0, x: -10, scale: 0.95 }}
-                      transition={{ duration: 0.15 }}
-                      className="fixed left-20 px-3 py-1.5 bg-gray-900 text-white text-xs font-semibold rounded-lg shadow-xl pointer-events-none whitespace-nowrap z-[100]"
-                      style={{
-                        top: `calc(${80 + index * 60}px)`,
-                      }}
-                    >
-                      {item.label}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+    <div className="admin-theme min-h-screen flex flex-col bg-background text-foreground">
+      <main className="flex-1 overflow-y-auto pb-28">
+        <motion.div
+          key={location.pathname}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+          className="p-4 sm:p-6"
+        >
+          {/* Suspense propre au backoffice : sans lui, changer de page admin
+              (chaque page est lazy-loadée) remonte jusqu'au Suspense racine
+              de App.tsx, démonte AdminLayout et affiche son fallback clair
+              (rose) le temps du chargement — d'où le flash observé. */}
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center py-24">
+                <div className="h-6 w-6 rounded-full border-2 border-foreground/20 border-t-foreground animate-spin" aria-label="Chargement" />
               </div>
-            );
-          })}
-        </nav>
-
-        {/* User Profile minimaliste */}
-        <div className="p-4 border-t border-gray-100/50">
-          <motion.div
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className={`flex items-center ${sidebarOpen ? 'gap-3' : 'justify-center'} p-3 rounded-xl hover:bg-gray-50 transition-all cursor-pointer group`}
-          >
-            <div className="relative flex-shrink-0">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-pink-500 flex items-center justify-center text-white font-bold text-sm shadow-sm">
-                {user?.first_name?.[0]}
-                {user?.last_name?.[0]}
-              </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-green-500 border-2 border-white flex items-center justify-center">
-                <Zap size={7} className="text-white" fill="white" />
-              </div>
-            </div>
-
-            {sidebarOpen && (
-              <motion.div
-                initial={{ opacity: 0, x: -5 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="flex-1 min-w-0"
-              >
-                <p className="font-bold text-sm text-gray-900 truncate">
-                  {user?.first_name} {user?.last_name}
-                </p>
-                <div className="flex items-center gap-1">
-                  <Shield size={10} className="text-primary" />
-                  <p className="text-[10px] text-gray-500 font-semibold">Admin</p>
-                </div>
-              </motion.div>
-            )}
-          </motion.div>
-
-          {sidebarOpen && (
-            <motion.button
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={handleLogout}
-              className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 font-bold text-sm transition-all group"
-            >
-              <LogOut size={16} className="group-hover:-translate-x-0.5 transition-transform" />
-              Déconnexion
-            </motion.button>
-          )}
-        </div>
-      </motion.aside>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header épuré */}
-        <header className="h-16 bg-white/80 backdrop-blur-xl border-b border-gray-200/50 flex items-center justify-between px-6">
-          {isMobile && (
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setSidebarOpen(true)}
-              className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
-            >
-              <Menu size={18} className="text-gray-700" />
-            </motion.button>
-          )}
-
-          <div className="flex-1 max-w-xl mx-auto">
-            <div className="relative group">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-hover:text-gray-600 transition-colors" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Rechercher... (⌘K)"
-                className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-primary outline-none transition-all text-sm font-medium placeholder:text-gray-400"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 ml-4">
-            {/* Switch de vue */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setShowRoleSwitcher(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-500/90 hover:bg-orange-500 text-white text-xs font-bold transition-colors shadow-sm shadow-orange-500/20"
-              title="Changer d'espace"
-            >
-              <Repeat2 size={14} />
-              <span className="hidden sm:inline">Switcher</span>
-            </motion.button>
-
-            {/* Notifications button */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => navigate("/admin/notifications")}
-              className="relative w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors group"
-            >
-              <Bell size={17} className="text-gray-600 group-hover:text-gray-900 transition-colors" />
-              {counts.unreadNotifications > 0 && (
-                <motion.span
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center"
-                >
-                  {counts.unreadNotifications > 99 ? '99+' : counts.unreadNotifications}
-                </motion.span>
-              )}
-            </motion.button>
-
-            {/* Avatar */}
-            <motion.div
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-pink-500 flex items-center justify-center text-white font-bold text-xs cursor-pointer shadow-sm"
-            >
-              {user?.first_name?.[0]}{user?.last_name?.[0]}
-            </motion.div>
-          </div>
-        </header>
-
-        <main className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-            className="p-6"
+            }
           >
             <Outlet />
-          </motion.div>
-        </main>
+          </Suspense>
+        </motion.div>
+      </main>
+
+      {/* Dock — navigation principale, style macOS */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-1.5rem)]">
+        <Dock className="items-end pb-3">
+          {menuItems.map((item) => {
+            const Icon = item.icon;
+            const active = isActive(item.path);
+
+            return (
+              <DockItem
+                key={item.path}
+                onClick={() => navigate(item.path)}
+                aria-label={item.label}
+                aria-current={active ? "page" : undefined}
+                className={`aspect-square rounded-full transition-colors ${
+                  active ? "bg-primary/15 ring-2 ring-primary/40" : "bg-muted hover:bg-muted/80"
+                }`}
+              >
+                <DockLabel>{item.label}</DockLabel>
+                <DockIcon>
+                  <div className="relative w-full h-full">
+                    <Icon className={`h-full w-full ${active ? "text-primary" : "text-foreground/70"}`} strokeWidth={active ? 2.5 : 2} />
+                    {item.badge ? (
+                      <span
+                        className={`absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[9px] font-black flex items-center justify-center ${
+                          item.pulse ? "animate-pulse" : ""
+                        }`}
+                      >
+                        {item.badge > 99 ? "99+" : item.badge}
+                      </span>
+                    ) : null}
+                  </div>
+                </DockIcon>
+              </DockItem>
+            );
+          })}
+
+          <DockItem
+            onClick={handleLogout}
+            aria-label="Déconnexion"
+            className="aspect-square rounded-full bg-destructive/10 hover:bg-destructive/20 transition-colors"
+          >
+            <DockLabel>Déconnexion</DockLabel>
+            <DockIcon>
+              <LogOut className="h-full w-full text-destructive" />
+            </DockIcon>
+          </DockItem>
+        </Dock>
       </div>
 
-      <RoleSelectionModal
-        isOpen={showRoleSwitcher}
-        userName={user?.first_name ?? ""}
-        onSelectRole={handleRoleSelect}
-        onClose={() => setShowRoleSwitcher(false)}
-      />
+      <CommandDialog open={commandOpen} onOpenChange={setCommandOpen}>
+        <CommandInput placeholder="Rechercher une section ou une action..." />
+        <CommandList>
+          <CommandEmpty>Aucun résultat.</CommandEmpty>
+          <CommandGroup heading="Navigation">
+            {menuItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <CommandItem key={item.path} onSelect={() => runCommand(() => navigate(item.path))}>
+                  <Icon size={16} className="opacity-60" />
+                  <span>{item.label}</span>
+                  {item.badge ? <CommandShortcut>{item.badge}</CommandShortcut> : null}
+                </CommandItem>
+              );
+            })}
+          </CommandGroup>
+          <CommandGroup heading="Compte">
+            <CommandItem onSelect={() => runCommand(handleLogout)}>
+              <LogOut size={16} className="opacity-60" />
+              <span>Déconnexion</span>
+            </CommandItem>
+          </CommandGroup>
+        </CommandList>
+      </CommandDialog>
     </div>
   );
 };
