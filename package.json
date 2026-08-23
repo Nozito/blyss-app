@@ -89,7 +89,7 @@
     "react-hook-form": "^7.61.1",
     "react-leaflet": "^4.2.1",
     "react-resizable-panels": "^2.1.9",
-    "react-router-dom": "^6.30.1",
+    "react-router-dom": "^7.18.2",
     "recharts": "^2.15.4",
     "resend": "^6.9.3",
     "socket.io-client": "^4.8.3",
@@ -129,7 +129,7 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.38.0",
-    "vite": "^5.4.19",
+    "vite": "^8.2.2",
     "vitest": "^4.0.18"
   },
   "description": "**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID",
@@ -146,6 +146,7 @@
   },
   "homepage": "https://github.com/Nozito/blyss-app#readme",
   "overrides": {
-    "keyv": "4.5.4"
+    "keyv": "4.5.4",
+    "uuid": "^11.1.1"
   }
 }
