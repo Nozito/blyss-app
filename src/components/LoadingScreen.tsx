@@ -2,10 +2,18 @@ import { motion } from "framer-motion";
 import logo from "@/assets/logo.png";
 
 const LoadingScreen = () => {
+  // Le backoffice admin a son propre fond noir (.admin-theme, voir index.css) —
+  // sans cette détection, ce loader plein écran (affiché par RequireAuth pendant
+  // la vérification de session) flashait en rose sur toutes les routes /admin/*,
+  // y compris à chaque rechargement de page.
+  const isAdmin =
+    typeof window !== "undefined" &&
+    window.location.pathname.startsWith("/admin");
+
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center"
-      style={{ backgroundColor: "#ffeaf1" }}
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center ${isAdmin ? "admin-theme" : ""}`}
+      style={{ backgroundColor: isAdmin ? "hsl(0 0% 4%)" : "#ffeaf1" }}
     >
       <motion.div
         className="flex flex-col items-center gap-6"
