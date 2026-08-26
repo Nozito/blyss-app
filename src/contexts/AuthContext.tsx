@@ -98,7 +98,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const response = await authApi.login(credentials);
 
-      if (response.success && response.data) {
+      if (response.success && response.data && !response.data.requires_2fa) {
         // Tokens are set as HttpOnly cookies by the server
         const profile = await authApi.getProfile();
         if (profile.success && profile.data) {

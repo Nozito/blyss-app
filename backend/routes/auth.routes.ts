@@ -345,6 +345,7 @@ router.get(
           service_radius_km: user.service_radius_km,
           service_area_label: user.service_area_label,
           acceptance_conditions: user.acceptance_conditions,
+          totp_enabled: user.totp_enabled === true,
         },
       });
     } catch (error) {
