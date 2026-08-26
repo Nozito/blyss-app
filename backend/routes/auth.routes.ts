@@ -503,7 +503,7 @@ router.post(
         if (matchIndex >= 0) {
           valid = true;
           const remaining = backupCodes.filter((_, i) => i !== matchIndex);
-          await db.execute("UPDATE users SET totp_backup_codes = ? WHERE id = ?", [remaining, user.id]);
+          await db.execute("UPDATE users SET totp_backup_codes = ? WHERE id = ?", [JSON.stringify(remaining), user.id]);
         }
       }
 

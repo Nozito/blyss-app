@@ -1060,7 +1060,7 @@ router.post(
       const { plain, hashed } = await generateBackupCodes();
       await getDb().query(
         "UPDATE users SET totp_enabled = TRUE, totp_backup_codes = ? WHERE id = ?",
-        [hashed, adminId]
+        [JSON.stringify(hashed), adminId]
       );
       await logAdminAction(req, adminId, "enable_2fa", "user", adminId);
 
@@ -1097,7 +1097,7 @@ router.post(
 
       await getDb().query(
         `UPDATE users SET totp_enabled = FALSE, totp_secret_encrypted = NULL,
-                totp_secret_iv = NULL, totp_backup_codes = '{}' WHERE id = ?`,
+                totp_secret_iv = NULL, totp_backup_codes = '[]' WHERE id = ?`,
         [adminId]
       );
       await logAdminAction(req, adminId, "disable_2fa", "user", adminId);
