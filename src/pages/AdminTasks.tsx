@@ -27,7 +27,7 @@ import { ErrorState } from "@/components/admin/ErrorState";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { TaskFormDialog, type TaskFormValues, COLOR_DOT } from "@/components/admin/tasks/TaskFormDialog";
 import { TaskRow } from "@/components/admin/tasks/TaskRow";
-import type { AdminTask, TaskStatus } from "@/components/admin/tasks/types";
+import type { AdminAccount, AdminTask, TaskStatus } from "@/components/admin/tasks/types";
 import { useAuth } from "@/contexts/AuthContext";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
@@ -58,6 +58,7 @@ type Bucket = "overdue" | "today" | "week" | "later" | "done";
 const AdminTasks = () => {
   const { user } = useAuth();
   const [tasks, setTasks] = useState<AdminTask[]>([]);
+  const [admins, setAdmins] = useState<AdminAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -99,6 +100,10 @@ const AdminTasks = () => {
 
   useEffect(() => {
     fetchTasks();
+    fetch(`${API_URL}/api/admin/admins`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data?.data) setAdmins(data.data); })
+      .catch(() => {});
   }, []);
 
   const openCreate = (date?: Date) => {
@@ -122,6 +127,7 @@ const AdminTasks = () => {
         start_time: new Date(values.start_time).toISOString(),
         end_time: new Date(values.end_time).toISOString(),
         color: values.color,
+        assigned_to: values.assigned_to,
       };
       const url = selectedTask ? `${API_URL}/api/admin/tasks/${selectedTask.id}` : `${API_URL}/api/admin/tasks/create`;
       const response = await fetch(url, {
@@ -201,7 +207,7 @@ const AdminTasks = () => {
     return tasks.filter((t) => {
       const matchesSearch = !q || t.title.toLowerCase().includes(q) || (t.description ?? "").toLowerCase().includes(q);
       const matchesStatus = statusFilter === "all" || t.status === statusFilter;
-      const matchesMine = !mineOnly || t.admin_id === user?.id;
+      const matchesMine = !mineOnly || t.admin_id === user?.id || t.assigned_to === user?.id;
       return matchesSearch && matchesStatus && matchesMine;
     });
   }, [tasks, search, statusFilter, mineOnly, user?.id]);
@@ -271,7 +277,10 @@ const AdminTasks = () => {
     return d;
   });
 
+  // Éditer/supprimer : réservé à la créatrice. Faire avancer le statut :
+  // créatrice OU admin assignée (c'est elle qui exécute la tâche).
   const isOwner = (task: AdminTask) => task.admin_id === user?.id;
+  const canAdvance = (task: AdminTask) => task.admin_id === user?.id || task.assigned_to === user?.id;
 
   if (loading) {
     return (
@@ -504,6 +513,7 @@ const AdminTasks = () => {
                       key={t.id}
                       task={t}
                       isOwner={isOwner(t)}
+                      canAdvance={canAdvance(t)}
                       overdue
                       compact
                       onOpen={openEdit}
@@ -526,6 +536,7 @@ const AdminTasks = () => {
                       key={t.id}
                       task={t}
                       isOwner={isOwner(t)}
+                      canAdvance={canAdvance(t)}
                       compact
                       onOpen={openEdit}
                       onAdvanceStatus={handleAdvanceStatus}
@@ -574,6 +585,7 @@ const AdminTasks = () => {
                         key={t.id}
                         task={t}
                         isOwner={isOwner(t)}
+                        canAdvance={canAdvance(t)}
                         overdue={key === "overdue"}
                         onOpen={openEdit}
                         onAdvanceStatus={handleAdvanceStatus}
@@ -595,6 +607,8 @@ const AdminTasks = () => {
         defaultDate={createDate}
         submitting={submitting}
         onSubmit={handleSubmit}
+        admins={admins}
+        currentUserId={user?.id ?? 0}
       />
 
       <ConfirmDialog

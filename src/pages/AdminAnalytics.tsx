@@ -645,7 +645,52 @@ const AdminAnalytics = () => {
                 }
               />
             ) : (
-              <div className="overflow-x-auto">
+              <>
+                {/* Podules — mobile uniquement. Une table à 10 colonnes est illisible
+                    sous ~640px, même avec overflow-x-auto : on résume l'essentiel
+                    (client/pro/statut) en tête, le détail (montant/frais/net) en
+                    sous-ligne, l'action en icône. */}
+                <div className="sm:hidden divide-y divide-border">
+                  {filteredTransactions.map((transaction) => {
+                    const status = statusConfig[transaction.status];
+                    const StatusIcon = status.icon;
+
+                    return (
+                      <div key={transaction.id} className="p-4 flex flex-col gap-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-foreground truncate">{transaction.client_name}</p>
+                            <p className="text-sm text-muted-foreground truncate">{transaction.pro_name}</p>
+                          </div>
+                          <StatusBadge tone={status.tone} icon={StatusIcon} label={status.label} />
+                        </div>
+
+                        <div className="flex items-center justify-between rounded-xl bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                          <span>Montant <span className="font-bold text-foreground">{transaction.amount.toFixed(2)}€</span></span>
+                          <span>Frais <span className="text-foreground">-{transaction.fee.toFixed(2)}€</span></span>
+                          <span>Net <span className="font-bold text-foreground">{transaction.net_amount.toFixed(2)}€</span></span>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                            <CreditCard size={14} className="text-muted-foreground/60" />
+                            <span>{TYPE_LABELS[transaction.type] ?? transaction.type}</span>
+                            <span className="text-muted-foreground/40">·</span>
+                            <span>{new Date(transaction.created_at).toLocaleDateString("fr-FR")}</span>
+                          </div>
+                          <button
+                            aria-label={`Voir le détail du paiement #${transaction.id}`}
+                            className="w-9 h-9 -mr-1 rounded-lg bg-muted hover:bg-accent flex items-center justify-center transition-colors"
+                          >
+                            <Eye size={16} className="text-foreground" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="hidden sm:block overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/40 hover:bg-muted/40 border-b-2 border-border">
@@ -713,7 +758,8 @@ const AdminAnalytics = () => {
                     })}
                   </TableBody>
                 </Table>
-              </div>
+                </div>
+              </>
             )}
           </div>
         </>

@@ -441,9 +441,20 @@ router.get(
         // notifications table may not exist in all environments
       }
 
+      // Badge "Modération" du menu admin — messages en attente + avis dont le
+      // signalement n'a pas encore été traité (deleted_at IS NULL : une fois
+      // supprimé, le signalement est déjà actionné, ne compte plus).
+      const [pendingReportsRows] = await db.query(`
+        SELECT
+          (SELECT COUNT(*) FROM message_flags WHERE status = 'pending') +
+          (SELECT COUNT(DISTINCT rf.review_id) FROM review_flags rf
+             JOIN reviews r ON r.id = rf.review_id WHERE r.deleted_at IS NULL) AS count
+      `);
+      const pendingReports = Number((pendingReportsRows as any[])[0]?.count || 0);
+
       res.json({
         success: true,
-        counts: { totalUsers, totalBookings, unreadNotifications },
+        counts: { totalUsers, totalBookings, unreadNotifications, pendingReports },
       });
     } catch (error) {
       next(error);
@@ -730,7 +741,10 @@ router.delete(
       const db = getDb();
       const userId = parseParamToInt(req.params.id);
 
-      const [userRows] = await db.query("SELECT is_admin FROM users WHERE id = ?", [userId]);
+      const [userRows] = await db.query(
+        "SELECT is_admin, first_name, last_name, email, role FROM users WHERE id = ?",
+        [userId]
+      );
       const user = (userRows as any[])[0];
       if (!user) {
         return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
@@ -775,7 +789,14 @@ router.delete(
       await connection.execute("DELETE FROM users WHERE id = ?", [userId]);
       await connection.commit();
 
-      await logAdminAction(req, req.user!.id, "delete_user", "user", userId);
+      // La ligne users est déjà supprimée à ce stade — on capture son identité
+      // dans metadata avant coup, sinon le log serait juste "#42 supprimé".
+      await logAdminAction(req, req.user!.id, "delete_user", "user", userId, {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+        role: user.role,
+      });
       res.json({ success: true, message: "Utilisateur supprimé avec succès" });
     } catch (error) {
       if (connection) await connection.rollback().catch(() => {});
@@ -820,6 +841,7 @@ router.patch(
       if ((result as any).rowCount === 0) {
         return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
       }
+      await logAdminAction(req, req.user!.id, "reactivate_user", "user", String(userId));
       res.json({ success: true, message: "Compte réactivé" });
     } catch (error) {
       next(error);
@@ -1087,23 +1109,38 @@ router.post(
   }
 );
 
-/* GET /audit-log — dernières actions admin sensibles */
+/* GET /audit-log — dernières actions admin sensibles. ?date=today|week|month|all (défaut: all). */
 router.get(
   "/audit-log",
-  async (_req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
+      const dateFilter = req.query.date as string;
+      // Clauses SQL fixes, jamais construites depuis l'input — dateFilter ne
+      // sert qu'à choisir laquelle, pas à composer du texte.
+      let sinceClause: string | null = null;
+      if (dateFilter === "today") sinceClause = "NOW() - INTERVAL '1 day'";
+      else if (dateFilter === "week") sinceClause = "NOW() - INTERVAL '7 days'";
+      else if (dateFilter === "month") sinceClause = "NOW() - INTERVAL '30 days'";
+
       // enable_2fa/disable_2fa restent journalisés en base pour un audit de
       // sécurité interne, mais jamais renvoyés ici : le statut 2FA d'un admin
       // est un réglage personnel (voir /admin/profile), pas une donnée que
       // les autres admins doivent pouvoir consulter.
+      //
+      // target user : LEFT JOIN best-effort — ne résout que si target_type='user'
+      // ET que le compte existe encore (delete_user s'appuie sur metadata à la
+      // place, capturé avant suppression, voir DELETE /users/:id).
       const [rows] = await getDb().query(
         `SELECT l.id, l.action, l.target_type, l.target_id, l.metadata, l.ip, l.created_at,
-                u.first_name AS actor_first_name, u.last_name AS actor_last_name
+                u.first_name AS actor_first_name, u.last_name AS actor_last_name,
+                t.first_name AS target_first_name, t.last_name AS target_last_name
          FROM admin_audit_log l
          LEFT JOIN users u ON u.id = l.actor_id
+         LEFT JOIN users t ON l.target_type = 'user' AND t.id::text = l.target_id
          WHERE l.action NOT IN ('enable_2fa', 'disable_2fa')
+           ${sinceClause ? `AND l.created_at >= ${sinceClause}` : ""}
          ORDER BY l.created_at DESC
-         LIMIT 100`
+         LIMIT 200`
       );
       res.json({ success: true, data: rows });
     } catch (error) {
@@ -1410,6 +1447,9 @@ router.post(
             error: "Ce paiement ne peut pas être remboursé (statut ou moyen de paiement invalide)",
           });
         case "refunded":
+          await logAdminAction(req, req.user!.id, "refund_payment", "payment", paymentId, {
+            stripe_refund_id: result.stripeRefundId,
+          });
           return res.json({
             success: true,
             data: { id: paymentId, status: "refunded", stripe_refund_id: result.stripeRefundId },
@@ -2231,17 +2271,27 @@ router.patch(
 
 // ── Tâches internes admin (calendrier backoffice) ───────────────────────────
 
+/* Vérifie qu'un id correspond bien à un compte admin actif — utilisé pour
+   valider assigned_to avant de l'écrire (sinon une tâche pourrait finir
+   assignée à un client/pro, invisible pour toute l'équipe admin). */
+async function assertIsAdmin(userId: number): Promise<boolean> {
+  const [rows] = await getDb().query("SELECT is_admin FROM users WHERE id = ?", [userId]);
+  return !!(rows as any[])[0]?.is_admin;
+}
+
 /* GET /tasks — toutes les tâches, visibles par toute l'équipe admin */
 router.get(
   "/tasks",
   async (_req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const [rows] = await getDb().query(
-        `SELECT t.id, t.admin_id, t.title, t.description, t.start_time, t.end_time,
+        `SELECT t.id, t.admin_id, t.assigned_to, t.title, t.description, t.start_time, t.end_time,
                 t.status, t.color, t.created_at, t.updated_at,
-                u.first_name AS admin_first_name, u.last_name AS admin_last_name
+                u.first_name AS admin_first_name, u.last_name AS admin_last_name,
+                a.first_name AS assignee_first_name, a.last_name AS assignee_last_name
          FROM admin_tasks t
          JOIN users u ON u.id = t.admin_id
+         LEFT JOIN users a ON a.id = t.assigned_to
          ORDER BY t.start_time ASC`
       );
       res.json({ success: true, data: rows });
@@ -2257,13 +2307,21 @@ router.post(
   validate(adminTaskSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const { title, description, start_time, end_time, color } = req.body;
+      const { title, description, start_time, end_time, color, assigned_to } = req.body;
       const adminId = req.user!.id;
 
+      let assignee = adminId;
+      if (assigned_to != null && assigned_to !== adminId) {
+        if (!(await assertIsAdmin(assigned_to))) {
+          return res.status(400).json({ success: false, message: "assigned_to doit être un compte admin" });
+        }
+        assignee = assigned_to;
+      }
+
       const [rows] = await getDb().query(
-        `INSERT INTO admin_tasks (admin_id, title, description, start_time, end_time, color)
-         VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
-        [adminId, title, description || null, start_time, end_time, color]
+        `INSERT INTO admin_tasks (admin_id, assigned_to, title, description, start_time, end_time, color)
+         VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+        [adminId, assignee, title, description || null, start_time, end_time, color]
       );
       res.status(201).json({ success: true, data: { id: (rows as any[])[0].id } });
     } catch (error) {
@@ -2272,7 +2330,7 @@ router.post(
   }
 );
 
-/* PUT /tasks/:id — seule l'admin propriétaire peut modifier sa tâche */
+/* PUT /tasks/:id — seule l'admin créatrice peut modifier sa tâche (y compris la réassigner) */
 router.put(
   "/tasks/:id",
   validate(adminTaskSchema),
@@ -2280,13 +2338,21 @@ router.put(
     try {
       const taskId = parseParamToInt(req.params.id);
       const adminId = req.user!.id;
-      const { title, description, start_time, end_time, color } = req.body;
+      const { title, description, start_time, end_time, color, assigned_to } = req.body;
+
+      let assignee = adminId;
+      if (assigned_to != null) {
+        if (!(await assertIsAdmin(assigned_to))) {
+          return res.status(400).json({ success: false, message: "assigned_to doit être un compte admin" });
+        }
+        assignee = assigned_to;
+      }
 
       const [result] = await getDb().query(
         `UPDATE admin_tasks SET title = ?, description = ?, start_time = ?, end_time = ?,
-                color = ?, updated_at = NOW()
+                color = ?, assigned_to = ?, updated_at = NOW()
          WHERE id = ? AND admin_id = ?`,
-        [title, description || null, start_time, end_time, color, taskId, adminId]
+        [title, description || null, start_time, end_time, color, assignee, taskId, adminId]
       );
       if ((result as any).rowCount === 0) {
         return res.status(404).json({ success: false, message: "Tâche introuvable ou non modifiable" });
@@ -2298,7 +2364,7 @@ router.put(
   }
 );
 
-/* PATCH /tasks/:id/status */
+/* PATCH /tasks/:id/status — la créatrice ou l'admin assignée peuvent faire avancer le statut */
 router.patch(
   "/tasks/:id/status",
   validate(adminTaskStatusSchema),
@@ -2309,8 +2375,9 @@ router.patch(
       const { status } = req.body;
 
       const [result] = await getDb().query(
-        `UPDATE admin_tasks SET status = ?, updated_at = NOW() WHERE id = ? AND admin_id = ?`,
-        [status, taskId, adminId]
+        `UPDATE admin_tasks SET status = ?, updated_at = NOW()
+         WHERE id = ? AND (admin_id = ? OR assigned_to = ?)`,
+        [status, taskId, adminId, adminId]
       );
       if ((result as any).rowCount === 0) {
         return res.status(404).json({ success: false, message: "Tâche introuvable ou non modifiable" });

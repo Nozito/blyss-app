@@ -1,4 +1,5 @@
-import { type ReactNode, type LucideIcon } from "react";
+import { type ReactNode } from "react";
+import { type LucideIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { ErrorState } from "@/components/admin/ErrorState";

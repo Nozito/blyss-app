@@ -25,6 +25,7 @@ import {
   RotateCcw,
   KeyRound,
   Users as UsersIcon,
+  Flag,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -60,6 +61,11 @@ interface User {
   created_at: string;
   activity_name?: string;
   city?: string;
+  // Modération — voir GET /api/admin/users (backend/routes/admin.routes.ts)
+  reported_count?: number;
+  is_vigilant?: boolean;
+  abusive_reports_count?: number;
+  is_abusive_reporter?: boolean;
 }
 
 const AdminUsers = () => {
@@ -415,8 +421,26 @@ const AdminUsers = () => {
             {/* Header Compact */}
             <div className="relative p-5">
               {/* Badges top-right */}
-              {!!(user.is_verified || user.is_admin || !user.is_active) && (
+              {!!(user.is_verified || user.is_admin || !user.is_active || user.is_vigilant || user.is_abusive_reporter) && (
                 <div className="absolute top-3 right-3 flex gap-1.5">
+                  {user.is_vigilant && (
+                    <div
+                      className="w-7 h-7 rounded-lg bg-foreground/10 border border-foreground/30 flex items-center justify-center"
+                      title={`${user.reported_count} signalement(s) fondés — voir Modération`}
+                      aria-label="Compte sous vigilance (signalements fondés)"
+                    >
+                      <Flag size={14} className="text-foreground" strokeWidth={2.5} aria-hidden="true" />
+                    </div>
+                  )}
+                  {user.is_abusive_reporter && (
+                    <div
+                      className="w-7 h-7 rounded-lg bg-muted border border-border flex items-center justify-center"
+                      title={`${user.abusive_reports_count} signalement(s) abusifs déposés`}
+                      aria-label="A déposé des signalements abusifs"
+                    >
+                      <Flag size={14} className="text-foreground/50" strokeWidth={2.5} aria-hidden="true" />
+                    </div>
+                  )}
                   {!user.is_active && (
                     <div
                       className="w-7 h-7 rounded-lg bg-muted border border-border flex items-center justify-center"

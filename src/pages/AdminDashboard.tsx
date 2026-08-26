@@ -212,9 +212,9 @@ const AdminDashboard = () => {
       id: "reports",
       icon: Flag,
       title: `${pendingReports} signalement${pendingReports > 1 ? "s" : ""} en attente`,
-      description: "Conversations signalées, à examiner dans les fiches utilisateur.",
-      actionLabel: "Voir les utilisateurs",
-      actionHref: "/admin/users",
+      description: "Conversations et avis signalés, à examiner.",
+      actionLabel: "Voir la modération",
+      actionHref: "/admin/moderation",
     });
   }
   if (failedPayments) {

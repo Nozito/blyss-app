@@ -97,7 +97,6 @@ function Dock({
     <motion.div
       style={{
         height: height,
-        scrollbarWidth: 'none',
       }}
       className='mx-2 flex max-w-full items-end overflow-x-auto'
     >

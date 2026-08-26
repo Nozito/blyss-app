@@ -1,4 +1,5 @@
-import { type ReactNode, type LucideIcon } from "react";
+import { type ReactNode } from "react";
+import { type LucideIcon } from "lucide-react";
 
 export interface EmptyStateProps {
   icon: LucideIcon;

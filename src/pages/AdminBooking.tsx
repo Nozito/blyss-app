@@ -389,13 +389,13 @@ const AdminBookings = () => {
           </div>
 
           {/* Status Filter */}
-          <div className="flex gap-2 bg-muted p-1 rounded-xl overflow-x-auto">
+          <div className="flex flex-wrap gap-2 bg-muted p-1 rounded-xl">
             {(['all', 'pending', 'confirmed', 'completed', 'cancelled'] as const).map((status) => (
               <motion.button
                 key={status}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => { setStatusFilter(status); updateParams(searchQuery, status); }}
-                className={`px-3 py-2 rounded-lg font-bold text-xs whitespace-nowrap transition-all ${
+                className={`px-3 py-2 rounded-lg font-bold text-xs transition-all ${
                   statusFilter === status
                     ? 'bg-card text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground'

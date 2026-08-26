@@ -13,7 +13,6 @@ import {
   LogOut,
   Trash2,
   ShieldAlert,
-  Pencil,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -81,7 +80,6 @@ const AdminProfile = () => {
   const [lastName, setLastName] = useState(user?.last_name ?? "");
   const [savingInfo, setSavingInfo] = useState(false);
   const [infoErrors, setInfoErrors] = useState<{ first_name?: string; last_name?: string }>({});
-  const firstNameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setFirstName(user?.first_name ?? "");
@@ -90,10 +88,18 @@ const AdminProfile = () => {
 
   const infoDirty = firstName.trim() !== (user?.first_name ?? "") || lastName.trim() !== (user?.last_name ?? "");
 
-  const focusPersonalInfo = () => {
-    firstNameRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    firstNameRef.current?.focus();
-  };
+  // Ferme l'onglet / recharge avec des champs modifiés mais pas encore
+  // enregistrés (bouton "Enregistrer" cliqué) → la maj n'est jamais partie
+  // en DB, perte silencieuse sans ce garde-fou natif du navigateur.
+  useEffect(() => {
+    if (!infoDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [infoDirty]);
 
   const saveInfo = async () => {
     const errors: typeof infoErrors = {};
@@ -373,10 +379,6 @@ const AdminProfile = () => {
           </div>
 
           <div className="flex sm:flex-col gap-2 shrink-0">
-            <Button variant="outline" size="sm" onClick={focusPersonalInfo}>
-              <Pencil size={14} className="mr-1.5" aria-hidden="true" />
-              Modifier
-            </Button>
             {user?.profile_photo ? (
               <Button variant="ghost" size="sm" onClick={removeAvatar} disabled={avatarUploading} className="text-muted-foreground">
                 <X size={14} className="mr-1.5" aria-hidden="true" />
@@ -397,7 +399,6 @@ const AdminProfile = () => {
                   <Label htmlFor="profile-first-name">Prénom</Label>
                   <Input
                     id="profile-first-name"
-                    ref={firstNameRef}
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
                     aria-invalid={!!infoErrors.first_name}

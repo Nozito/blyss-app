@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Download, Pencil, Trash2, Mail, Bell, ShieldCheck, AlertTriangle } from "lucide-react";
+import { ChevronLeft, Download, Trash2, Mail, ShieldCheck, AlertTriangle } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { authApi } from "@/services/api";
@@ -91,7 +91,7 @@ function DeleteDialog({
 
 const RGPDCenter = () => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -131,15 +131,13 @@ const RGPDCenter = () => {
     }
   };
 
-  const userRoute = user?.role === "pro" ? "/pro/settings" : "/client/settings";
-
   return (
-    <MobileLayout showNav={false}>
+    <MobileLayout>
       <div className="min-h-screen bg-background">
         {/* Header */}
         <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3 flex items-center gap-3">
           <button
-            onClick={() => navigate(userRoute)}
+            onClick={() => navigate(-1)}
             className="p-2 -ml-2 rounded-xl hover:bg-muted/50 transition-colors"
             aria-label="Retour"
           >
@@ -171,20 +169,6 @@ const RGPDCenter = () => {
                 label="Télécharger mes données"
                 description="Récupère une copie complète de tes informations au format JSON"
                 onClick={handleExport}
-              />
-              <RGPDRow
-                icon={Pencil}
-                label="Modifier mes informations"
-                description="Nom, email, téléphone, photo de profil"
-                onClick={() => navigate(userRoute)}
-              />
-              <RGPDRow
-                icon={Bell}
-                label="Gérer les notifications"
-                description="Choisis quelles notifications tu souhaites recevoir"
-                onClick={() => navigate(
-                  user?.role === "pro" ? "/pro/notifications" : "/client/notifications"
-                )}
               />
             </div>
           </div>
@@ -218,12 +202,14 @@ const RGPDCenter = () => {
 
           {/* Footer discret */}
           <p className="text-center text-[11px] text-muted-foreground/60 px-4 leading-relaxed">
-            <button
-              onClick={() => navigate("/legal#confidentialite")}
+            <a
+              href="https://blyssapp.fr/mentions-legales"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-primary underline"
             >
               Politique de confidentialité
-            </button>
+            </a>
           </p>
         </div>
 

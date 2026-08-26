@@ -422,6 +422,9 @@ export const adminTaskSchema = z
     start_time: z.string().datetime("start_time doit être une date ISO valide"),
     end_time: z.string().datetime("end_time doit être une date ISO valide"),
     color: z.enum(["blue", "green", "purple", "orange", "pink", "red"]).default("blue"),
+    // Admin à qui la tâche est confiée — doit être un compte is_admin, vérifié
+    // en handler (pas ici, nécessite une requête DB). Absent → auto-assignée.
+    assigned_to: z.number().int().positive().optional(),
   })
   .refine((d) => new Date(d.start_time) < new Date(d.end_time), {
     message: "start_time doit être antérieur à end_time",

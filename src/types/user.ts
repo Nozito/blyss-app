@@ -14,12 +14,9 @@ export interface User {
    */
   is_admin?: boolean;
   profile_photo?: string | null;
-  avg_rating?: number | null;
-  clients_count?: number | null;
   // Pro-specific (populated after profile fetch)
   activity_name?: string | null;
   city?: string | null;
-  pro_status?: "active" | "inactive" | null;
   bio?: string | null;
   instagram_account?: string | null;
   banner_photo?: string | null;

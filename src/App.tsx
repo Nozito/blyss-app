@@ -6,19 +6,15 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { useAuth } from "@/contexts/AuthContext";
-import { RevenueCatProvider } from "@/contexts/RevenueCatContext";
-import SplashScreen from "@/components/SplashScreen";
 import ScrollToTop from "@/components/ScrollToTop";
-import { NotificationProvider } from "@/contexts/NotificationContext";
+import HtmlThemeSync from "@/components/HtmlThemeSync";
 import RequireAuth from "@/components/RequireAuth";
-import { LoadingBreadcrumb } from "@/components/ui/animated-loading-svg-text-shimmer";
+import FullScreenLoader from "@/components/FullScreenLoader";
 import { CookiePanel } from "@/components/ui/cookie-banner-1";
 
 // Eager — needed on first paint
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
-import Legal from "./pages/Legal";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 
@@ -36,6 +32,7 @@ const AdminBookings = lazy(() => import("./pages/AdminBooking"));
 const AdminLogs = lazy(() => import("./pages/AdminLogs"));
 const AdminAnalytics = lazy(() => import("./pages/AdminAnalytics"));
 const AdminTasks = lazy(() => import("./pages/AdminTasks"));
+const AdminModeration = lazy(() => import("./pages/AdminModeration"));
 const AdminProfile = lazy(() => import("./pages/AdminProfile"));
 const AdminLayout = lazy(() => import("./components/AdminLayout"));
 
@@ -58,50 +55,21 @@ const OfflineBanner = () => {
   );
 };
 
-// ── Shared fallback ───────────────────────────────────────────────────────────
-const PageLoader = () => {
-  // Ce fallback couvre TOUT le routeur (AdminLayout est lui-même lazy-loadé),
-  // donc il peut s'afficher en navigant entre pages admin, avant que le
-  // scope sombre .admin-theme ne soit monté. window.location (pas useLocation,
-  // indisponible ici) évite un flash rose sur le fond clair de l'app.
-  const isAdmin = typeof window !== "undefined" && window.location.pathname.startsWith("/admin");
-  return (
-    <div className={`flex items-center justify-center min-h-screen ${isAdmin ? "admin-theme bg-background" : "bg-cream"}`}>
-      <LoadingBreadcrumb text="Chargement" className={isAdmin ? "text-foreground" : undefined} />
-    </div>
-  );
-};
-
 const queryClient = new QueryClient();
 
-// AppInner a accès à useAuth (rendu à l'intérieur d'AuthProvider)
 const AppInner = () => {
-  const { isLoading: isAuthLoading } = useAuth();
-  const [showSplash, setShowSplash] = useState(true);
-
-  const handleSplashComplete = () => {
-    setShowSplash(false);
-  };
-
   return (
     <>
       <OfflineBanner />
       <ScrollToTop />
+      <HtmlThemeSync />
       <CookiePanel />
 
-      {/* Splash au-dessus de tout — attend que l'auth soit prête */}
-      {showSplash && (
-        <div className="fixed inset-0 z-[9999]">
-          <SplashScreen onComplete={handleSplashComplete} isAuthReady={!isAuthLoading} />
-        </div>
-      )}
-
-      <Suspense fallback={<PageLoader />}>
+      <Suspense fallback={<FullScreenLoader />}>
         <Routes>
           {/* Pas de wall marketing — accès direct au login */}
           <Route path="/" element={<Login />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/legal" element={<Legal />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
 
@@ -123,6 +91,7 @@ const AppInner = () => {
             <Route path="analytics" element={<AdminAnalytics />} />
             <Route path="logs" element={<AdminLogs />} />
             <Route path="tasks" element={<AdminTasks />} />
+            <Route path="moderation" element={<AdminModeration />} />
             <Route path="profile" element={<AdminProfile />} />
           </Route>
 
@@ -138,17 +107,13 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <RevenueCatProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <NotificationProvider>
-                <AppInner />
-              </NotificationProvider>
-            </BrowserRouter>
-          </TooltipProvider>
-        </RevenueCatProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <AppInner />
+          </BrowserRouter>
+        </TooltipProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

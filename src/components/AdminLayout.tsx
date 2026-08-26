@@ -9,6 +9,8 @@ import {
   LogOut,
   ListChecks,
   User,
+  MoreHorizontal,
+  ShieldAlert,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -23,6 +25,8 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { WaveLoader } from "@/components/ui/wave-loader";
 import { useIdleTimeout } from "@/hooks/useIdleTimeout";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
@@ -32,6 +36,7 @@ const IDLE_WARN_BEFORE_MS = 60 * 1000; // avertit 1 min avant
 interface DashboardCounts {
   totalUsers: number;
   totalBookings: number;
+  pendingReports?: number;
 }
 
 const AdminLayout = () => {
@@ -39,6 +44,7 @@ const AdminLayout = () => {
   const location = useLocation();
   const { logout } = useAuth();
   const [commandOpen, setCommandOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [counts, setCounts] = useState<DashboardCounts>({
     totalUsers: 0,
     totalBookings: 0,
@@ -102,6 +108,7 @@ const AdminLayout = () => {
     { icon: Users, label: "Utilisateurs", path: "/admin/users", badge: counts.totalUsers || null },
     { icon: Calendar, label: "Réservations", path: "/admin/bookings", badge: counts.totalBookings || null },
     { icon: DollarSign, label: "Finances", path: "/admin/analytics", badge: null },
+    { icon: ShieldAlert, label: "Modération", path: "/admin/moderation", badge: counts.pendingReports || null },
     { icon: FileText, label: "Logs", path: "/admin/logs", badge: null },
     { icon: ListChecks, label: "Tâches", path: "/admin/tasks", badge: null },
     { icon: User, label: "Profil", path: "/admin/profile", badge: null },
@@ -109,9 +116,18 @@ const AdminLayout = () => {
 
   const isActive = (path: string) => location.pathname === path;
 
+  // Dock (desktop/tablette, ≥640px) montre TOUTES les sections + déconnexion en
+  // entier — à leur taille de repos (40px), 8 icônes + logout tiennent
+  // largement dans n'importe quelle fenêtre ≥640px (~540px de large réel),
+  // donc pas besoin de les cacher derrière un "Plus" ici. Sous 640px (téléphone),
+  // ce calcul ne tient plus (trop de tap targets pour un écran étroit) : la
+  // bottom-nav bascule sur 4 items fixes + "Plus" pour le reste.
+  const primaryItems = menuItems.slice(0, 4);
+  const overflowItems = menuItems.slice(4);
+
   return (
     <div className="admin-theme min-h-screen flex flex-col bg-background text-foreground">
-      <main className="flex-1 overflow-y-auto pb-28">
+      <main className="flex-1 overflow-y-auto pb-24 sm:pb-28">
         <motion.div
           key={location.pathname}
           initial={{ opacity: 0, y: 10 }}
@@ -122,11 +138,11 @@ const AdminLayout = () => {
           {/* Suspense propre au backoffice : sans lui, changer de page admin
               (chaque page est lazy-loadée) remonte jusqu'au Suspense racine
               de App.tsx, démonte AdminLayout et affiche son fallback clair
-              (rose) le temps du chargement — d'où le flash observé. */}
+              le temps du chargement — d'où le flash observé. */}
           <Suspense
             fallback={
               <div className="flex items-center justify-center py-24">
-                <div className="h-6 w-6 rounded-full border-2 border-foreground/20 border-t-foreground animate-spin" aria-label="Chargement" />
+                <WaveLoader />
               </div>
             }
           >
@@ -135,8 +151,9 @@ const AdminLayout = () => {
         </motion.div>
       </main>
 
-      {/* Dock — navigation principale, style macOS */}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-1.5rem)]">
+      {/* Dock — navigation principale, style macOS, en entier. Caché sous sm
+          (voir bottom-nav ci-dessous). */}
+      <div className="hidden sm:block fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-1.5rem)]">
         <Dock className="items-end pb-3">
           {menuItems.map((item) => {
             const Icon = item.icon;
@@ -157,11 +174,7 @@ const AdminLayout = () => {
                   <div className="relative w-full h-full">
                     <Icon className={`h-full w-full ${active ? "text-primary" : "text-foreground/70"}`} strokeWidth={active ? 2.5 : 2} />
                     {item.badge ? (
-                      <span
-                        className={`absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[9px] font-black flex items-center justify-center ${
-                          item.pulse ? "animate-pulse" : ""
-                        }`}
-                      >
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[9px] font-black flex items-center justify-center">
                         {item.badge > 99 ? "99+" : item.badge}
                       </span>
                     ) : null}
@@ -183,6 +196,82 @@ const AdminLayout = () => {
           </DockItem>
         </Dock>
       </div>
+
+      {/* Bottom-nav — mobile uniquement. 4 sections fixes + "Plus" (feuille) au lieu
+          du Dock qui déborde et force un scroll horizontal sous ~640px. */}
+      <nav
+        className="sm:hidden fixed bottom-0 inset-x-0 z-40 grid grid-cols-5 border-t border-border bg-card"
+        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      >
+        {primaryItems.map((item) => {
+          const Icon = item.icon;
+          const active = isActive(item.path);
+          return (
+            <button
+              key={item.path}
+              onClick={() => navigate(item.path)}
+              aria-label={item.label}
+              aria-current={active ? "page" : undefined}
+              className="relative flex flex-col items-center justify-center gap-1 py-2.5 min-h-[56px]"
+            >
+              <Icon className={`h-5 w-5 ${active ? "text-primary" : "text-foreground/60"}`} strokeWidth={active ? 2.5 : 2} />
+              <span className={`text-[10px] leading-none ${active ? "text-primary font-semibold" : "text-foreground/60"}`}>
+                {item.label}
+              </span>
+              {item.badge ? (
+                <span className="absolute top-1 right-[22%] min-w-[14px] h-[14px] px-1 rounded-full bg-red-600 text-white text-[8px] font-black flex items-center justify-center">
+                  {item.badge > 99 ? "99+" : item.badge}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+
+        <button
+          onClick={() => setMoreOpen(true)}
+          aria-label="Plus"
+          className="flex flex-col items-center justify-center gap-1 py-2.5 min-h-[56px]"
+        >
+          <MoreHorizontal className="h-5 w-5 text-foreground/60" strokeWidth={2} />
+          <span className="text-[10px] leading-none text-foreground/60">Plus</span>
+        </button>
+      </nav>
+
+      {/* Feuille "Plus" — partagée par le Dock (desktop) et la bottom-nav (mobile),
+          ouverte via moreOpen depuis l'un ou l'autre trigger. */}
+      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+        <SheetContent side="bottom" className="bg-card border-border pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))]">
+          <div className="flex flex-col gap-1 pt-2">
+            {overflowItems.map((item) => {
+              const Icon = item.icon;
+              const active = isActive(item.path);
+              return (
+                <button
+                  key={item.path}
+                  onClick={() => { setMoreOpen(false); navigate(item.path); }}
+                  aria-current={active ? "page" : undefined}
+                  className={`flex items-center gap-3 px-3 py-3 rounded-xl min-h-[48px] ${active ? "bg-primary/15 text-primary" : "text-foreground hover:bg-muted"}`}
+                >
+                  <Icon className="h-5 w-5" strokeWidth={active ? 2.5 : 2} />
+                  <span className="font-medium">{item.label}</span>
+                  {item.badge ? (
+                    <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center">
+                      {item.badge > 99 ? "99+" : item.badge}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => { setMoreOpen(false); handleLogout(); }}
+              className="flex items-center gap-3 px-3 py-3 rounded-xl min-h-[48px] text-destructive hover:bg-destructive/10"
+            >
+              <LogOut className="h-5 w-5" />
+              <span className="font-medium">Déconnexion</span>
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <CommandDialog open={commandOpen} onOpenChange={setCommandOpen}>
         <CommandInput placeholder="Rechercher une section ou une action..." />

@@ -42,7 +42,7 @@ interface AuthProviderProps {
 const USER_CACHE_KEY = "blyss_user";
 
 // Champs non-sensibles stockés en localStorage pour l'affichage initial
-const SAFE_FIELDS = ["id", "first_name", "last_name", "role", "is_admin", "profile_photo", "avg_rating", "clients_count"] as const;
+const SAFE_FIELDS = ["id", "first_name", "last_name", "role", "is_admin", "profile_photo"] as const;
 const toSafeCache = (u: User) => Object.fromEntries(SAFE_FIELDS.filter(k => k in u).map(k => [k, (u as any)[k]])) as Partial<User>;
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {

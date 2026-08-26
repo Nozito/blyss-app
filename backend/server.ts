@@ -114,12 +114,24 @@ const REQUIRED_ENV_VARS = [
   "STRIPE_SECRET_KEY",
   "STRIPE_WEBHOOK_SECRET",
   "REVENUECAT_WEBHOOK_SECRET",
+  "TOTP_ENC_KEY",
 ] as const;
 
 const missingVars = REQUIRED_ENV_VARS.filter((v) => !process.env[v]);
 if (missingVars.length > 0) {
   console.error(
     `❌ Variables d'environnement manquantes : ${missingVars.join(", ")}`
+  );
+  process.exit(1);
+}
+
+// TOTP_ENC_KEY doit être 64 caractères hex (32 octets, clé AES-256-GCM —
+// voir backend/lib/totp.ts) : une clé présente mais mal formée passerait le
+// check de présence ci-dessus puis planterait silencieusement au premier
+// appel 2FA (setup/confirm/login), exactement le bug qu'on vient de corriger.
+if (!/^[0-9a-f]{64}$/i.test(process.env.TOTP_ENC_KEY!)) {
+  console.error(
+    "❌ TOTP_ENC_KEY invalide — attendu 64 caractères hexadécimaux (32 octets). Génère-en une avec `openssl rand -hex 32`."
   );
   process.exit(1);
 }

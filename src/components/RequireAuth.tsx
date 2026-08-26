@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import LoadingScreen from "@/components/LoadingScreen";
+import FullScreenLoader from "@/components/FullScreenLoader";
 
 interface RequireAuthProps {
   children: React.ReactNode;
@@ -23,7 +23,7 @@ const RequireAuth = ({ children, role }: RequireAuthProps) => {
   const location = useLocation();
 
   if (isLoading) {
-    return <LoadingScreen />;
+    return <FullScreenLoader />;
   }
 
   if (!isAuthenticated) {
@@ -40,11 +40,9 @@ const RequireAuth = ({ children, role }: RequireAuthProps) => {
       isAdmin || (role === "admin" ? isAdmin : userRole === role);
 
     if (!hasAccess) {
-      const fallback =
-        userRole === "pro"    ? "/pro/dashboard" :
-        userRole === "client" ? "/client"        :
-        "/";
-      return <Navigate to={fallback} replace />;
+      // pro/client n'ont plus d'interface web (app mobile uniquement, cf. Login.tsx) —
+      // /pro/dashboard et /client n'existent plus ici, seul "/" (login) reste valide.
+      return <Navigate to="/" replace />;
     }
   }
 

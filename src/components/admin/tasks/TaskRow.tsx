@@ -12,7 +12,10 @@ export const STATUS_CONFIG: Record<TaskStatus, { label: string; tone: StatusTone
 
 export interface TaskRowProps {
   task: AdminTask;
+  /** Créatrice — peut éditer/supprimer. */
   isOwner: boolean;
+  /** Créatrice OU admin assignée — peut faire avancer le statut. */
+  canAdvance: boolean;
   overdue?: boolean;
   onOpen: (task: AdminTask) => void;
   onAdvanceStatus: (task: AdminTask) => void;
@@ -21,8 +24,9 @@ export interface TaskRowProps {
 }
 
 /** Une ligne de tâche — utilisée par la vue liste et les listes compactes (en retard / aujourd'hui). */
-export function TaskRow({ task, isOwner, overdue, onOpen, onAdvanceStatus, onDelete, compact }: TaskRowProps) {
+export function TaskRow({ task, isOwner, canAdvance, overdue, onOpen, onAdvanceStatus, onDelete, compact }: TaskRowProps) {
   const status = STATUS_CONFIG[task.status];
+  const reassigned = task.assigned_to != null && task.assigned_to !== task.admin_id;
 
   return (
     <div className={`flex items-center gap-3 rounded-xl border border-border bg-card ${compact ? "p-2.5" : "p-3"}`}>
@@ -39,36 +43,35 @@ export function TaskRow({ task, isOwner, overdue, onOpen, onAdvanceStatus, onDel
           <time dateTime={task.start_time}>
             {new Date(task.start_time).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
           </time>
-          <span>· {task.admin_first_name} {task.admin_last_name}</span>
+          <span>· {task.assignee_first_name ?? task.admin_first_name} {task.assignee_last_name ?? task.admin_last_name}</span>
+          {reassigned && <span>(assignée par {task.admin_first_name})</span>}
           {overdue && <span className="font-semibold text-foreground">· En retard</span>}
         </p>
       </button>
       <StatusBadge tone={status.tone} label={status.label} />
+      {canAdvance && task.status !== "done" && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          onClick={() => onAdvanceStatus(task)}
+          aria-label={task.status === "pending" ? "Passer en cours" : "Marquer terminée"}
+          title={task.status === "pending" ? "Passer en cours" : "Marquer terminée"}
+        >
+          <Check className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      )}
       {isOwner && (
-        <>
-          {task.status !== "done" && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => onAdvanceStatus(task)}
-              aria-label={task.status === "pending" ? "Passer en cours" : "Marquer terminée"}
-              title={task.status === "pending" ? "Passer en cours" : "Marquer terminée"}
-            >
-              <Check className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-destructive"
-            onClick={() => onDelete(task)}
-            aria-label="Supprimer la tâche"
-            title="Supprimer la tâche"
-          >
-            <Trash2 className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        </>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-destructive"
+          onClick={() => onDelete(task)}
+          aria-label="Supprimer la tâche"
+          title="Supprimer la tâche"
+        >
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
+        </Button>
       )}
     </div>
   );

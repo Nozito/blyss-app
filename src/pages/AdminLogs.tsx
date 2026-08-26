@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   User,
@@ -7,7 +7,6 @@ import {
   CheckCircle,
   XCircle,
   Search,
-  Download,
   Clock,
   ChevronDown,
   ChevronUp,
@@ -23,23 +22,88 @@ import { EmptyState } from "@/components/admin/EmptyState";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
-interface Log {
+// Actions réellement journalisées côté backend (logAdminAction, table
+// admin_audit_log) — voir backend/routes/admin.routes.ts. Rien ici n'est
+// fictif : chaque entrée correspond à une vraie action admin passée.
+type AuditAction =
+  | "delete_user"
+  | "deactivate_user"
+  | "reactivate_user"
+  | "grant_admin"
+  | "revoke_admin"
+  | "revoke_all_sessions"
+  | "refund_payment";
+
+interface AuditLogEntry {
   id: number;
-  action: string;
-  description: string;
-  user_name?: string;
-  user_id?: number;
-  type: "info" | "success" | "warning" | "error";
-  ip_address?: string;
+  action: AuditAction | string;
+  target_type: string | null;
+  target_id: string | null;
+  metadata: Record<string, unknown> | null;
+  ip: string | null;
   created_at: string;
+  actor_first_name: string | null;
+  actor_last_name: string | null;
+  target_first_name: string | null;
+  target_last_name: string | null;
 }
 
+type Severity = "info" | "success" | "warning" | "error";
+
+const ACTION_CONFIG: Record<AuditAction, { label: string; severity: Severity }> = {
+  delete_user: { label: "Suppression d'un compte", severity: "error" },
+  deactivate_user: { label: "Désactivation d'un compte", severity: "warning" },
+  reactivate_user: { label: "Réactivation d'un compte", severity: "success" },
+  grant_admin: { label: "Accès admin accordé", severity: "warning" },
+  revoke_admin: { label: "Accès admin retiré", severity: "info" },
+  revoke_all_sessions: { label: "Déconnexion de toutes les sessions", severity: "info" },
+  refund_payment: { label: "Remboursement d'un paiement", severity: "warning" },
+};
+
+const SEVERITY_CONFIG: Record<Severity, { icon: typeof Info; label: string; tone: StatusTone }> = {
+  info: { icon: Info, label: "Info", tone: "info" },
+  success: { icon: CheckCircle, label: "Succès", tone: "success" },
+  warning: { icon: AlertCircle, label: "Attention", tone: "warning" },
+  error: { icon: XCircle, label: "Erreur", tone: "danger" },
+};
+
+const describe = (log: AuditLogEntry): string => {
+  const meta = log.metadata || {};
+  const targetName =
+    log.target_first_name || log.target_last_name
+      ? `${log.target_first_name ?? ""} ${log.target_last_name ?? ""}`.trim()
+      : (meta.first_name || meta.last_name)
+      ? `${meta.first_name ?? ""} ${meta.last_name ?? ""}`.trim()
+      : null;
+
+  switch (log.action) {
+    case "delete_user":
+      return targetName
+        ? `${targetName}${meta.email ? ` (${meta.email})` : ""} — compte #${log.target_id} supprimé définitivement`
+        : `Compte #${log.target_id} supprimé définitivement`;
+    case "deactivate_user":
+      return targetName ? `${targetName} (#${log.target_id}) désactivé` : `Compte #${log.target_id} désactivé`;
+    case "reactivate_user":
+      return targetName ? `${targetName} (#${log.target_id}) réactivé` : `Compte #${log.target_id} réactivé`;
+    case "grant_admin":
+      return targetName ? `${targetName} (#${log.target_id}) devient administrateur` : `Compte #${log.target_id} promu administrateur`;
+    case "revoke_admin":
+      return targetName ? `Accès admin retiré à ${targetName} (#${log.target_id})` : `Accès admin retiré au compte #${log.target_id}`;
+    case "revoke_all_sessions":
+      return "Toutes les sessions actives ont été révoquées";
+    case "refund_payment":
+      return `Paiement #${log.target_id} remboursé${meta.stripe_refund_id ? ` (Stripe ${meta.stripe_refund_id})` : ""}`;
+    default:
+      return log.target_id ? `${log.target_type ?? "Cible"} #${log.target_id}` : "";
+  }
+};
+
 const AdminLogs = () => {
-  const [logs, setLogs] = useState<Log[]>([]);
+  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState("today");
+  const [severityFilter, setSeverityFilter] = useState<"all" | Severity>("all");
+  const [dateFilter, setDateFilter] = useState("week");
   const [showIncidents, setShowIncidents] = useState(false);
 
   useEffect(() => {
@@ -47,58 +111,63 @@ const AdminLogs = () => {
   }, [dateFilter]);
 
   const fetchLogs = async () => {
+    setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/admin/logs?date=${dateFilter}`, {
-        credentials: 'include',
+      const response = await fetch(`${API_URL}/api/admin/audit-log?date=${dateFilter}`, {
+        credentials: "include",
       });
-
       if (response.ok) {
         const data = await response.json();
         setLogs(data.data || []);
+      } else {
+        toast.error("Erreur lors du chargement des logs");
       }
-    } catch (error) {
+    } catch {
       toast.error("Erreur lors du chargement des logs");
     } finally {
       setLoading(false);
     }
   };
 
-  const typeConfig: Record<
-    Log["type"],
-    { icon: typeof Info; label: string; tone: StatusTone }
-  > = {
-    info: { icon: Info, label: "Info", tone: "info" },
-    success: { icon: CheckCircle, label: "Succès", tone: "success" },
-    warning: { icon: AlertCircle, label: "Attention", tone: "warning" },
-    error: { icon: XCircle, label: "Erreur", tone: "danger" },
-  };
+  const enriched = useMemo(
+    () =>
+      logs.map((log) => {
+        const config = ACTION_CONFIG[log.action as AuditAction];
+        return {
+          log,
+          label: config?.label ?? log.action,
+          severity: config?.severity ?? ("info" as Severity),
+          description: describe(log),
+          actorName: `${log.actor_first_name ?? ""} ${log.actor_last_name ?? ""}`.trim() || "Compte supprimé",
+        };
+      }),
+    [logs]
+  );
 
-  const filteredLogs = logs.filter((log) => {
-    const matchesType = typeFilter === "all" || log.type === typeFilter;
+  const filtered = enriched.filter(({ log, label, description, severity, actorName }) => {
+    const matchesSeverity = severityFilter === "all" || severity === severityFilter;
+    const q = searchQuery.toLowerCase();
     const matchesSearch =
-      log.action.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      log.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      log.user_name?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesType && matchesSearch;
+      !q || label.toLowerCase().includes(q) || description.toLowerCase().includes(q) || actorName.toLowerCase().includes(q);
+    return matchesSeverity && matchesSearch;
   });
 
   const stats = {
-    total: logs.length,
-    info: logs.filter((l) => l.type === "info").length,
-    success: logs.filter((l) => l.type === "success").length,
-    warning: logs.filter((l) => l.type === "warning").length,
-    error: logs.filter((l) => l.type === "error").length,
+    total: enriched.length,
+    info: enriched.filter((e) => e.severity === "info").length,
+    success: enriched.filter((e) => e.severity === "success").length,
+    warning: enriched.filter((e) => e.severity === "warning").length,
+    error: enriched.filter((e) => e.severity === "error").length,
   };
 
-  // "Incidents" = warnings + erreurs réels du même flux de logs (pas de donnée fictive)
-  const incidents = logs
-    .filter((l) => l.type === "warning" || l.type === "error")
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const incidents = enriched
+    .filter((e) => e.severity === "warning" || e.severity === "error")
+    .sort((a, b) => new Date(b.log.created_at).getTime() - new Date(a.log.created_at).getTime());
 
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="h-20 rounded-xl" />
           ))}
@@ -116,26 +185,20 @@ const AdminLogs = () => {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Logs système"
-        description={`${filteredLogs.length} événement${filteredLogs.length > 1 ? "s" : ""}`}
+        title="Logs d'audit"
+        description={`${filtered.length} action${filtered.length > 1 ? "s" : ""} admin — suppressions, désactivations, accès admin, remboursements`}
         actions={
-          <>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => setShowIncidents((v) => !v)}
-              aria-label={showIncidents ? "Masquer les incidents" : "Voir les incidents"}
-            >
-              {showIncidents ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              <span className="text-xs">
-                Incidents {incidents.length > 0 && `(${incidents.length})`}
-              </span>
-            </Button>
-            <Button size="sm" variant="outline">
-              <Download size={16} className="mr-2" />
-              Exporter
-            </Button>
-          </>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setShowIncidents((v) => !v)}
+            aria-label={showIncidents ? "Masquer les incidents" : "Voir les incidents"}
+          >
+            {showIncidents ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            <span className="text-xs">
+              Incidents {incidents.length > 0 && `(${incidents.length})`}
+            </span>
+          </Button>
         }
       />
 
@@ -178,8 +241,8 @@ const AdminLogs = () => {
           </div>
 
           <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
+            value={severityFilter}
+            onChange={(e) => setSeverityFilter(e.target.value as "all" | Severity)}
             className="px-4 py-3 rounded-xl border-2 border-border bg-muted/40 focus:border-primary focus:bg-card outline-none font-semibold"
           >
             <option value="all">Tous les types</option>
@@ -213,21 +276,21 @@ const AdminLogs = () => {
           >
             <Card>
               <CardContent className="p-4 flex flex-col gap-2">
-                <span className="font-semibold text-sm mb-1">Historique des incidents</span>
+                <span className="font-semibold text-sm mb-1">Actions sensibles (attention / erreur)</span>
                 {incidents.length === 0 ? (
                   <p className="text-xs text-muted-foreground py-4 text-center">
-                    Aucun incident (warning/erreur) sur la période sélectionnée.
+                    Aucune action sensible sur la période sélectionnée.
                   </p>
                 ) : (
-                  incidents.map((inc) => (
+                  incidents.map(({ log, label, description }) => (
                     <div
-                      key={inc.id}
+                      key={log.id}
                       className="flex flex-col gap-1 border-b last:border-b-0 border-muted-foreground/10 pb-2 last:pb-0"
                     >
                       <span className="text-xs font-medium">
-                        {inc.action} — {new Date(inc.created_at).toLocaleString("fr-FR")}
+                        {label} — {new Date(log.created_at).toLocaleString("fr-FR")}
                       </span>
-                      <span className="text-xs text-muted-foreground">{inc.description}</span>
+                      <span className="text-xs text-muted-foreground">{description}</span>
                     </div>
                   ))
                 )}
@@ -240,59 +303,57 @@ const AdminLogs = () => {
       {/* Logs Timeline */}
       <Card>
         <CardContent className="p-6">
-        <div className="space-y-4">
-          {filteredLogs.map((log) => {
-            const config = typeConfig[log.type];
-            const Icon = config.icon;
+          <div className="space-y-4">
+            {filtered.map(({ log, label, description, severity, actorName }) => {
+              const config = SEVERITY_CONFIG[severity];
+              const Icon = config.icon;
 
-            return (
-              <motion.div
-                key={log.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="flex items-start gap-4 p-4 rounded-xl hover:bg-muted/40 transition-colors"
-              >
-                <div className="w-10 h-10 rounded-xl bg-muted border border-border flex items-center justify-center flex-shrink-0">
-                  <Icon size={20} className="text-foreground" />
-                </div>
-
-                <div className="flex-1">
-                  <div className="flex items-start justify-between mb-1 gap-3">
-                    <h3 className="font-semibold text-foreground">{log.action}</h3>
-                    <StatusBadge tone={config.tone} label={config.label} icon={config.icon} />
+              return (
+                <motion.div
+                  key={log.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="flex items-start gap-4 p-4 rounded-xl hover:bg-muted/40 transition-colors"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-muted border border-border flex items-center justify-center flex-shrink-0">
+                    <Icon size={20} className="text-foreground" />
                   </div>
-                  <p className="text-sm text-muted-foreground mb-2">{log.description}</p>
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    {log.user_name && (
+
+                  <div className="flex-1">
+                    <div className="flex items-start justify-between mb-1 gap-3">
+                      <h3 className="font-semibold text-foreground">{label}</h3>
+                      <StatusBadge tone={config.tone} label={config.label} icon={config.icon} />
+                    </div>
+                    {description && <p className="text-sm text-muted-foreground mb-2">{description}</p>}
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
                       <div className="flex items-center gap-1">
                         <User size={12} />
-                        {log.user_name}
+                        {actorName}
                       </div>
-                    )}
-                    <div className="flex items-center gap-1">
-                      <Clock size={12} />
-                      {new Date(log.created_at).toLocaleString("fr-FR")}
-                    </div>
-                    {log.ip_address && (
                       <div className="flex items-center gap-1">
-                        <Activity size={12} />
-                        {log.ip_address}
+                        <Clock size={12} />
+                        {new Date(log.created_at).toLocaleString("fr-FR")}
                       </div>
-                    )}
+                      {log.ip && (
+                        <div className="flex items-center gap-1">
+                          <Activity size={12} />
+                          {log.ip}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </motion.div>
-            );
-          })}
+                </motion.div>
+              );
+            })}
 
-          {filteredLogs.length === 0 && (
-            <EmptyState
-              icon={Activity}
-              title="Aucun log trouvé"
-              description="Essaie d'élargir la période ou de retirer les filtres actifs."
-            />
-          )}
-        </div>
+            {filtered.length === 0 && (
+              <EmptyState
+                icon={Activity}
+                title="Aucun log trouvé"
+                description="Essaie d'élargir la période ou de retirer les filtres actifs."
+              />
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

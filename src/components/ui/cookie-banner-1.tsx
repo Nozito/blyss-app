@@ -30,8 +30,8 @@ const CookiePanel = (props: CookiePanelProps) => {
     customizeText = "Personnaliser",
     icon = "cookie",
     className,
-    privacyHref = "/legal",
-    termsHref = "/legal",
+    privacyHref = "https://blyssapp.fr/mentions-legales",
+    termsHref = "https://blyssapp.fr/mentions-legales",
   } = props;
 
   const [visible, setVisible] = useState(false);
@@ -62,7 +62,7 @@ const CookiePanel = (props: CookiePanelProps) => {
     if (storedPrefs) {
       try {
         const parsed = JSON.parse(storedPrefs) as Prefs;
-        setPrefs({ necessary: true, ...parsed, necessary: true });
+        setPrefs({ ...parsed, necessary: true });
       } catch {}
     }
   }, []);
@@ -182,6 +182,8 @@ const CookiePanel = (props: CookiePanelProps) => {
           {message} Voir nos{" "}
           <a
             href={privacyHref}
+            target="_blank"
+            rel="noopener noreferrer"
             className="underline underline-offset-4 hover:text-foreground cursor-pointer"
           >
             mentions légales
@@ -189,6 +191,8 @@ const CookiePanel = (props: CookiePanelProps) => {
           et{" "}
           <a
             href={termsHref}
+            target="_blank"
+            rel="noopener noreferrer"
             className="underline underline-offset-4 hover:text-foreground cursor-pointer"
           >
             conditions générales
