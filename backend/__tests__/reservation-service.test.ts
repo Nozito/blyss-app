@@ -78,8 +78,8 @@ function installFixture(opts: {
     if (sql.includes("FROM working_hours")) return Promise.resolve([opts.workingHours ?? MON_9_18, []]);
     if (sql.includes("FROM blocked_clients")) return Promise.resolve([[], []]);
     if (sql.includes("FROM unavailabilities")) return Promise.resolve([[], []]);
-    // Moteur de dispo (pré-check) : "SELECT id, blocked_start_datetime, blocked_end_datetime"
-    if (sql.includes("blocked_start_datetime, blocked_end_datetime")) {
+    // Moteur de dispo (pré-check) : SELECT TO_CHAR(blocked_* AT TIME ZONE 'UTC') ...
+    if (sql.includes("AT TIME ZONE 'UTC'")) {
       return Promise.resolve([opts.availabilityReservations ?? [], []]);
     }
     // Re-check SOUS verrou : "SELECT id FROM reservations ... blocked_start_datetime IS NOT NULL"

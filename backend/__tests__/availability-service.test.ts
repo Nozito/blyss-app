@@ -149,6 +149,34 @@ describe("getAvailability — génération de créneaux", () => {
     expect(starts).toContain("2026-09-07T11:00:00.000Z"); // 13:00 Paris → OK
   });
 
+  it("gère une réservation bloquante dont les timestamps arrivent en Date (node-postgres) et pas en string", async () => {
+    // Régression : DateTime.fromISO(Date) est invalide → l'intervalle bloquant
+    // était silencieusement ignoré et le créneau restait affiché comme libre
+    // (double-booking possible à l'affichage, cf. E2E).
+    installFixture({
+      workingHours: MON_9_18,
+      reservations: [
+        {
+          id: 99,
+          blocked_start_datetime: new Date("2026-09-07T10:00:00.000Z"),
+          blocked_end_datetime: new Date("2026-09-07T11:00:00.000Z"),
+        },
+      ],
+    });
+    const res = await getAvailability({
+      proId: 1,
+      serviceIds: [10],
+      fromDate: "2026-09-07",
+      toDate: "2026-09-07",
+      timezone: "Europe/Paris",
+      requestedByRole: "public",
+      now: new Date("2026-09-01T08:00:00.000Z"),
+    });
+    const starts = res.days[0].slots.map((s) => s.start);
+    expect(starts).not.toContain("2026-09-07T09:15:00.000Z"); // 11:15 Paris → chevauche
+    expect(starts).toContain("2026-09-07T09:00:00.000Z"); // 11:00 Paris → OK
+  });
+
   it("exclut les départs sous le lead-time (public)", async () => {
     installFixture({
       workingHours: MON_9_18,
