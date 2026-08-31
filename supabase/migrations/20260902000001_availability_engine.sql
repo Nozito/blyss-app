@@ -165,21 +165,26 @@ CREATE INDEX idx_unavailabilities_pro_range
 -- Idempotent (WHERE blocked_start_datetime IS NULL). À rejouer sans risque.
 -- Pour l'historique on ne calcule que les RDV à venir : le moteur ne
 -- s'intéresse pas au passé et un backfill global serait inutilement coûteux.
+-- Sous-requêtes corrélées (pas de FROM ... JOIN : Postgres n'autorise pas la
+-- référence à la table cible `r` dans une condition de JOIN du FROM d'un UPDATE).
 UPDATE reservations r
 SET
   service_duration_minutes = GREATEST(
     1, ROUND(EXTRACT(EPOCH FROM (r.end_datetime - r.start_datetime)) / 60.0)::INT
   ),
   buffer_before_minutes = 0,
-  buffer_after_minutes = COALESCE(p.buffer_after_minutes, 0),
+  buffer_after_minutes = COALESCE(
+    (SELECT buffer_after_minutes FROM prestations WHERE id = r.prestation_id), 0
+  ),
   blocked_start_datetime = r.start_datetime,
   blocked_end_datetime = r.end_datetime
-    + (COALESCE(p.buffer_after_minutes, 0) || ' minutes')::INTERVAL,
-  timezone = COALESCE(pro.timezone, 'Europe/Paris')
-FROM users pro
-LEFT JOIN prestations p ON p.id = r.prestation_id
-WHERE pro.id = r.pro_id
-  AND r.blocked_start_datetime IS NULL
+    + (COALESCE(
+         (SELECT buffer_after_minutes FROM prestations WHERE id = r.prestation_id), 0
+       ) || ' minutes')::INTERVAL,
+  timezone = COALESCE(
+    (SELECT timezone FROM users WHERE id = r.pro_id), 'Europe/Paris'
+  )
+WHERE r.blocked_start_datetime IS NULL
   AND r.status NOT IN ('cancelled', 'completed')
   AND r.end_datetime > NOW();
 
