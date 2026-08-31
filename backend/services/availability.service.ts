@@ -274,6 +274,18 @@ function parseHms(hms: string): { hour: number; minute: number } {
 }
 
 /**
+ * Une valeur temporelle issue de la DB peut arriver en `string` (mode
+ * Management API, ou colonnes TO_CHAR) ou en `Date` (node-postgres parse les
+ * TIMESTAMPTZ). `DateTime.fromISO()` ne gère que la string → filet de sécurité
+ * pour ne jamais ignorer silencieusement un intervalle bloquant.
+ */
+function toDT(value: string | Date, zone: string): DateTime {
+  return value instanceof Date
+    ? DateTime.fromJSDate(value, { zone })
+    : DateTime.fromISO(value, { zone });
+}
+
+/**
  * Intervalles libres d'une pro sur une plage de jours, dans son fuseau.
  * = working_hours − unavailabilities − reservations bloquantes.
  * Cœur partagé entre getAvailability et checkSlotAvailability.
@@ -339,8 +351,8 @@ function computeFreeBlocks(params: {
 
   for (const r of blockedReservations) {
     const itv = Interval.fromDateTimes(
-      DateTime.fromISO(r.blocked_start_datetime, { zone: timezone }),
-      DateTime.fromISO(r.blocked_end_datetime, { zone: timezone })
+      toDT(r.blocked_start_datetime, timezone),
+      toDT(r.blocked_end_datetime, timezone)
     );
     if (itv.isValid) blockingIntervals.push(itv);
   }
@@ -384,7 +396,13 @@ async function loadBlockingInputs(
   );
 
   const [resaRows] = await db.query(
-    `SELECT id, blocked_start_datetime, blocked_end_datetime
+    // TO_CHAR en ISO-8601 UTC : node-postgres renverrait sinon un objet Date
+    // pour un TIMESTAMPTZ, que DateTime.fromISO() ne sait pas parser (→
+    // intervalle bloquant silencieusement ignoré). Cohérent avec le TO_CHAR
+    // déjà appliqué aux colonnes DATE/TIME de la requête unavailabilities.
+    `SELECT id,
+            TO_CHAR(blocked_start_datetime AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS blocked_start_datetime,
+            TO_CHAR(blocked_end_datetime   AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS blocked_end_datetime
      FROM reservations
      WHERE pro_id = ?
        AND status NOT IN ('cancelled')
@@ -585,8 +603,8 @@ export async function checkSlotAvailability(input: CheckSlotInput): Promise<Chec
   // 4. Réservations bloquantes.
   const overlaps = blockedReservations.some((r) => {
     const itv = Interval.fromDateTimes(
-      DateTime.fromISO(r.blocked_start_datetime, { zone: tz }),
-      DateTime.fromISO(r.blocked_end_datetime, { zone: tz })
+      toDT(r.blocked_start_datetime, tz),
+      toDT(r.blocked_end_datetime, tz)
     );
     return itv.isValid && itv.overlaps(blockedItv);
   });
