@@ -1,0 +1,319 @@
+/**
+ * Workflow de consentement client pour le report d'un RDV proposé par la pro.
+ *
+ * Principe : `reservations` ne doit JAMAIS être modifiée directement suite à
+ * une action unilatérale de la pro sur un RDV confirmé. La pro propose
+ * (createRescheduleRequest), la cliente accepte ou refuse
+ * (accept/declineRescheduleRequest). La réservation originale reste intacte
+ * tant que la cliente n'a pas explicitement accepté.
+ */
+
+import { getDb } from "../lib/db";
+import { log } from "../lib/logger";
+import { sendNotificationToUser } from "../lib/notifications";
+import { formatRdvWhen } from "../lib/notifyDate";
+
+const db = getDb();
+
+export const SLOT_NO_LONGER_AVAILABLE = "SLOT_NO_LONGER_AVAILABLE";
+
+export class RescheduleServiceError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+    public code?: string
+  ) {
+    super(message);
+  }
+}
+
+export type InitiatedVia = "app" | "phone";
+
+interface CreateRescheduleRequestInput {
+  reservationId: number;
+  proId: number;
+  proposedStart: string;
+  proposedEnd: string;
+  proposedPrestationId?: number;
+  reason?: string | null;
+  initiatedVia?: InitiatedVia;
+}
+
+export async function createRescheduleRequest(input: CreateRescheduleRequestInput) {
+  const { reservationId, proId, proposedStart, proposedEnd, proposedPrestationId, reason, initiatedVia = "app" } = input;
+
+  if (initiatedVia === "phone" && !reason?.trim()) {
+    throw new RescheduleServiceError(400, "Un motif est requis pour une proposition annoncée par téléphone");
+  }
+
+  const [existing] = await db.query(
+    `SELECT id, status, client_id, prestation_id, price, start_datetime FROM reservations WHERE id = ? AND pro_id = ?`,
+    [reservationId, proId]
+  );
+  const reservation = (existing as any[])[0];
+  if (!reservation) {
+    throw new RescheduleServiceError(404, "Réservation non trouvée");
+  }
+  if (reservation.status === "cancelled" || reservation.status === "completed") {
+    throw new RescheduleServiceError(400, "Impossible de modifier une réservation finalisée ou annulée");
+  }
+
+  let newPrestationId = reservation.prestation_id;
+  let newPrice = Number(reservation.price);
+  if (proposedPrestationId && proposedPrestationId !== reservation.prestation_id) {
+    const [prestationRows] = await db.query(
+      `SELECT id, price FROM prestations WHERE id = ? AND pro_id = ?`,
+      [proposedPrestationId, proId]
+    );
+    if ((prestationRows as any[]).length === 0) {
+      throw new RescheduleServiceError(403, "Prestation invalide pour ce professionnel");
+    }
+    newPrestationId = proposedPrestationId;
+    newPrice = Number((prestationRows as any[])[0].price);
+  }
+
+  const reservationStart = new Date(reservation.start_datetime).getTime();
+  const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+  const expiresAtMs = Math.min(Date.now() + twentyFourHoursMs, reservationStart);
+  if (expiresAtMs <= Date.now()) {
+    throw new RescheduleServiceError(
+      400,
+      "Ce rendez-vous est trop proche pour proposer un report via l'application — contacte directement la cliente."
+    );
+  }
+  const expiresAt = new Date(expiresAtMs).toISOString();
+
+  let requestRows;
+  try {
+    [requestRows] = await db.query(
+      `INSERT INTO reschedule_requests
+         (reservation_id, initiated_by, reason, proposed_start_datetime, proposed_end_datetime,
+          proposed_prestation_id, proposed_price, expires_at, created_by_user_id, initiated_via)
+       VALUES (?, 'pro', ?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING id, expires_at`,
+      [reservationId, reason ?? null, proposedStart, proposedEnd, newPrestationId, newPrice, expiresAt, proId, initiatedVia]
+    );
+  } catch (err) {
+    // Contrainte d'unicité partielle (une seule proposition pending par réservation) —
+    // ne convertir que la violation réelle en 409, laisser remonter les autres erreurs.
+    const pgCode = (err as { code?: string })?.code;
+    if (pgCode === "23505" || /unique constraint/i.test((err as Error)?.message ?? "")) {
+      throw new RescheduleServiceError(409, "Une proposition de report est déjà en attente pour ce rendez-vous");
+    }
+    throw err;
+  }
+  const created = (requestRows as any[])[0];
+
+  try {
+    const message =
+      initiatedVia === "phone"
+        ? `Ta pro te propose un nouveau créneau le ${formatRdvWhen(new Date(proposedStart))} suite à votre échange téléphonique. Accepte ou refuse dans l'application.`
+        : `Ta pro te propose un nouveau créneau le ${formatRdvWhen(new Date(proposedStart))}. Accepte ou refuse dans l'application.`;
+    const [notifRows] = await db.query(
+      `INSERT INTO notifications (user_id, type, title, message, data)
+       VALUES (?, 'booking_reschedule_proposed', 'Nouveau créneau proposé', ?, ?)
+       RETURNING id, created_at`,
+      [reservation.client_id, message, JSON.stringify({ request_id: created.id, reservation_id: reservationId })]
+    );
+    const notif = (notifRows as any[])[0];
+    if (notif) {
+      await sendNotificationToUser(reservation.client_id, {
+        id: notif.id,
+        type: "booking_reschedule_proposed",
+        title: "Nouveau créneau proposé",
+        message,
+        data: { request_id: created.id, reservation_id: reservationId },
+        created_at: notif.created_at,
+      });
+    }
+  } catch (notifErr) {
+    log.warn("[RESCHEDULE_CREATE]", "Client notification failed (non-fatal)", { reservationId });
+  }
+
+  return { requestId: created.id, expiresAt: created.expires_at };
+}
+
+interface ClientActionInput {
+  requestId: number;
+  clientId: number;
+}
+
+async function loadRequestForClient(requestId: number, clientId: number) {
+  const [rows] = await db.query(
+    `SELECT rr.id, rr.reservation_id, rr.status, rr.expires_at, rr.initiated_via, rr.reason,
+            rr.proposed_start_datetime, rr.proposed_end_datetime, rr.proposed_prestation_id, rr.proposed_price,
+            r.pro_id, r.client_id, r.start_datetime AS original_start_datetime, r.end_datetime AS original_end_datetime
+     FROM reschedule_requests rr
+     JOIN reservations r ON r.id = rr.reservation_id
+     WHERE rr.id = ? AND r.client_id = ?`,
+    [requestId, clientId]
+  );
+  return (rows as any[])[0];
+}
+
+export async function getRescheduleRequestForClient({ requestId, clientId }: ClientActionInput) {
+  const request = await loadRequestForClient(requestId, clientId);
+  if (!request) {
+    throw new RescheduleServiceError(404, "Proposition de report non trouvée");
+  }
+  return request;
+}
+
+export async function acceptRescheduleRequest({ requestId, clientId }: ClientActionInput) {
+  const request = await loadRequestForClient(requestId, clientId);
+  if (!request) {
+    throw new RescheduleServiceError(404, "Proposition de report non trouvée");
+  }
+  if (request.status !== "pending") {
+    throw new RescheduleServiceError(409, `Cette proposition n'est plus disponible (statut: ${request.status})`);
+  }
+  if (new Date(request.expires_at).getTime() <= Date.now()) {
+    await db.query(`UPDATE reschedule_requests SET status = 'expired' WHERE id = ?`, [requestId]);
+    throw new RescheduleServiceError(410, "Cette proposition a expiré");
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.query(`SELECT pg_advisory_xact_lock(?)`, [request.pro_id]);
+
+    // Re-vérifie l'état de la proposition ET de la réservation sous verrou (une
+    // autre requête a pu faire évoluer l'une ou l'autre entre-temps — ex. la
+    // réservation a été annulée après la création de cette proposition).
+    const [freshRows] = await connection.query(
+      `SELECT rr.status, rr.expires_at, r.status AS reservation_status
+       FROM reschedule_requests rr
+       JOIN reservations r ON r.id = rr.reservation_id
+       WHERE rr.id = ?`,
+      [requestId]
+    );
+    const fresh = (freshRows as any[])[0];
+    if (!fresh || fresh.status !== "pending") {
+      // Déjà traitée entre-temps par une autre action (accept/decline concurrent) :
+      // ne jamais écraser un statut déjà final.
+      await connection.rollback();
+      throw new RescheduleServiceError(409, "Cette proposition n'est plus disponible");
+    }
+    if (
+      new Date(fresh.expires_at).getTime() <= Date.now() ||
+      fresh.reservation_status === "cancelled" ||
+      fresh.reservation_status === "completed"
+    ) {
+      // Encore "pending" mais plus valide (expirée, ou réservation annulée entre
+      // la création de la proposition et cette tentative d'acceptation) : on sait
+      // que le statut est bien 'pending' ici, donc l'écraser en 'expired' est sûr.
+      await connection.query(`UPDATE reschedule_requests SET status = 'expired' WHERE id = ? AND status = 'pending'`, [requestId]);
+      await connection.commit();
+      throw new RescheduleServiceError(409, "Cette proposition n'est plus disponible");
+    }
+
+    const [overlapRows] = await connection.query(
+      `SELECT r.id FROM reservations r
+       LEFT JOIN prestations prev_p ON prev_p.id = r.prestation_id
+       WHERE r.pro_id = ?
+         AND r.id != ?
+         AND r.status NOT IN ('cancelled', 'rejected')
+         AND r.start_datetime < ?
+         AND (r.end_datetime + COALESCE(prev_p.buffer_after_minutes, 0) * INTERVAL '1 minute') > ?`,
+      [request.pro_id, request.reservation_id, request.proposed_end_datetime, request.proposed_start_datetime]
+    );
+    if ((overlapRows as any[]).length > 0) {
+      await connection.query(`UPDATE reschedule_requests SET status = 'expired' WHERE id = ?`, [requestId]);
+      await connection.commit();
+      throw new RescheduleServiceError(409, "Ce créneau n'est plus disponible", SLOT_NO_LONGER_AVAILABLE);
+    }
+
+    await connection.query(
+      `UPDATE reservations SET start_datetime = ?, end_datetime = ?, prestation_id = ?, price = ?, slot_id = NULL WHERE id = ?`,
+      [
+        request.proposed_start_datetime,
+        request.proposed_end_datetime,
+        request.proposed_prestation_id,
+        request.proposed_price,
+        request.reservation_id,
+      ]
+    );
+    await connection.query(
+      `UPDATE reschedule_requests SET status = 'accepted', accepted_at = NOW() WHERE id = ?`,
+      [requestId]
+    );
+
+    await connection.commit();
+  } catch (err) {
+    await connection.rollback().catch(() => {});
+    throw err;
+  } finally {
+    connection.release();
+  }
+
+  try {
+    const message = `La cliente a accepté le nouveau créneau du ${formatRdvWhen(new Date(request.proposed_start_datetime))}.`;
+    const [notifRows] = await db.query(
+      `INSERT INTO notifications (user_id, type, title, message, data)
+       VALUES (?, 'booking_rescheduled', 'Report accepté', ?, ?)
+       RETURNING id, created_at`,
+      [request.pro_id, message, JSON.stringify({ reservation_id: request.reservation_id })]
+    );
+    const notif = (notifRows as any[])[0];
+    if (notif) {
+      await sendNotificationToUser(request.pro_id, {
+        id: notif.id,
+        type: "booking_rescheduled",
+        title: "Report accepté",
+        message,
+        data: { reservation_id: request.reservation_id },
+        created_at: notif.created_at,
+      });
+    }
+  } catch (notifErr) {
+    log.warn("[RESCHEDULE_ACCEPT]", "Pro notification failed (non-fatal)", { requestId });
+  }
+
+  return { reservationId: request.reservation_id };
+}
+
+export async function declineRescheduleRequest({ requestId, clientId }: ClientActionInput) {
+  const request = await loadRequestForClient(requestId, clientId);
+  if (!request) {
+    throw new RescheduleServiceError(404, "Proposition de report non trouvée");
+  }
+  if (request.status !== "pending") {
+    throw new RescheduleServiceError(409, `Cette proposition n'est plus disponible (statut: ${request.status})`);
+  }
+
+  // Garde l'UPDATE conditionné à status='pending' : si un accept concurrent a
+  // déjà fait passer la proposition à 'accepted' entre la lecture ci-dessus et
+  // cet UPDATE, on ne doit jamais écraser ce statut final par 'declined'.
+  const [declineRows] = await db.query(
+    `UPDATE reschedule_requests SET status = 'declined' WHERE id = ? AND status = 'pending' RETURNING id`,
+    [requestId]
+  );
+  if ((declineRows as any[]).length === 0) {
+    throw new RescheduleServiceError(409, "Cette proposition vient d'être traitée, réessaie");
+  }
+
+  try {
+    const message = `La cliente a refusé le nouveau créneau proposé. Le rendez-vous initial reste inchangé.`;
+    const [notifRows] = await db.query(
+      `INSERT INTO notifications (user_id, type, title, message, data)
+       VALUES (?, 'booking_rescheduled', 'Report refusé', ?, ?)
+       RETURNING id, created_at`,
+      [request.pro_id, message, JSON.stringify({ reservation_id: request.reservation_id })]
+    );
+    const notif = (notifRows as any[])[0];
+    if (notif) {
+      await sendNotificationToUser(request.pro_id, {
+        id: notif.id,
+        type: "booking_rescheduled",
+        title: "Report refusé",
+        message,
+        data: { reservation_id: request.reservation_id },
+        created_at: notif.created_at,
+      });
+    }
+  } catch (notifErr) {
+    log.warn("[RESCHEDULE_DECLINE]", "Pro notification failed (non-fatal)", { requestId });
+  }
+
+  return { reservationId: request.reservation_id };
+}

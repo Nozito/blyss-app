@@ -16,6 +16,7 @@ const CLIENT_NOTIFICATION_MAPPING: { [key: string]: string } = {
   booking_reminder: "reminders",
   booking_cancelled: "changes",
   booking_rescheduled: "changes",
+  booking_reschedule_proposed: "changes",
   appointment_created_by_pro: "changes",
   no_show: "changes",
   slot_available: "reminders",
