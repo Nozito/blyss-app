@@ -12,6 +12,7 @@ import { getDb } from "../lib/db";
 import { log } from "../lib/logger";
 import { sendNotificationToUser } from "../lib/notifications";
 import { formatRdvWhen } from "../lib/notifyDate";
+import { RESERVATION_LOCK_NS } from "../lib/locks";
 
 const db = getDb();
 
@@ -175,7 +176,11 @@ export async function acceptRescheduleRequest({ requestId, clientId }: ClientAct
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
-    await connection.query(`SELECT pg_advisory_xact_lock(?)`, [request.pro_id]);
+    // MÊME clé de verrou que reservation.service.ts (withProReservationLock) :
+    // (RESERVATION_LOCK_NS, pro_id). Indispensable pour que l'acceptation d'un
+    // reschedule et une réservation cliente concurrente chez la même pro soient
+    // bien sérialisées l'une par rapport à l'autre (scénario C5 du design 3.3).
+    await connection.query(`SELECT pg_advisory_xact_lock(?, ?)`, [RESERVATION_LOCK_NS, request.pro_id]);
 
     // Re-vérifie l'état de la proposition ET de la réservation sous verrou (une
     // autre requête a pu faire évoluer l'une ou l'autre entre-temps — ex. la
@@ -223,13 +228,39 @@ export async function acceptRescheduleRequest({ requestId, clientId }: ClientAct
       throw new RescheduleServiceError(409, "Ce créneau n'est plus disponible", SLOT_NO_LONGER_AVAILABLE);
     }
 
+    // Le snapshot de calcul (blocked_start/end_datetime, buffers, durée) doit
+    // être RÉÉCRIT au nouveau créneau — sinon le moteur de disponibilité
+    // (availability.service.ts) continuerait de bloquer l'ancienne plage et de
+    // laisser la nouvelle libre. On fige les buffers de la prestation proposée
+    // au moment de l'acceptation (jamais recalculés ensuite).
+    const [prestaBufRows] = await connection.query(
+      `SELECT COALESCE(buffer_before_minutes, 0) AS bb, COALESCE(buffer_after_minutes, 0) AS ba
+       FROM prestations WHERE id = ?`,
+      [request.proposed_prestation_id]
+    );
+    const buf = (prestaBufRows as any[])[0] ?? { bb: 0, ba: 0 };
+    const proposedStartMs = new Date(request.proposed_start_datetime).getTime();
+    const proposedEndMs = new Date(request.proposed_end_datetime).getTime();
+    const visibleDurationMin = Math.max(1, Math.round((proposedEndMs - proposedStartMs) / 60000));
+    const blockedStart = new Date(proposedStartMs - buf.bb * 60000).toISOString();
+    const blockedEnd = new Date(proposedEndMs + buf.ba * 60000).toISOString();
+
     await connection.query(
-      `UPDATE reservations SET start_datetime = ?, end_datetime = ?, prestation_id = ?, price = ?, slot_id = NULL WHERE id = ?`,
+      `UPDATE reservations
+         SET start_datetime = ?, end_datetime = ?, prestation_id = ?, price = ?, slot_id = NULL,
+             service_duration_minutes = ?, buffer_before_minutes = ?, buffer_after_minutes = ?,
+             blocked_start_datetime = ?, blocked_end_datetime = ?
+       WHERE id = ?`,
       [
         request.proposed_start_datetime,
         request.proposed_end_datetime,
         request.proposed_prestation_id,
         request.proposed_price,
+        visibleDurationMin,
+        buf.bb,
+        buf.ba,
+        blockedStart,
+        blockedEnd,
         request.reservation_id,
       ]
     );
