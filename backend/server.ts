@@ -93,6 +93,8 @@ import adminRouter from "./routes/admin.routes";
 import cancellationRouter from "./routes/cancellation.routes";
 import rescheduleRouter from "./routes/reschedule.routes";
 import { createRescheduleRequest, RescheduleServiceError } from "./services/reschedule.service";
+import { createReservation, ReservationServiceError } from "./services/reservation.service";
+import { getAvailability, checkSlotAvailability, AvailabilityError } from "./services/availability.service";
 import messagesRouter from "./routes/messages.routes";
 import { getTopServices, getRevenueStats } from "./lib/finance";
 
@@ -1179,6 +1181,75 @@ app.get(
 /* ============================================
    SLOTS & AVAILABILITY ROUTES
    ============================================ */
+
+/* Moteur de disponibilités (chantier 3.2) — calcul côté serveur.
+ * Query : ?service_ids=10,11&from=YYYY-MM-DD&to=YYYY-MM-DD[&timezone=][&step=]
+ * `requestedByRole` déduit de la route : "public" (anonyme) ou "pro" (planning). */
+function parseAvailabilityQuery(req: Request) {
+  const serviceIds = String(req.query.service_ids ?? "")
+    .split(",")
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  const from = String(req.query.from ?? "");
+  const to = String(req.query.to ?? "");
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (serviceIds.length === 0 || !dateRe.test(from) || !dateRe.test(to)) {
+    return { error: "service_ids, from et to (YYYY-MM-DD) sont requis" as const };
+  }
+  // Garde-fou : plage bornée à 62 jours pour éviter un calcul non borné.
+  const spanDays = (Date.parse(to) - Date.parse(from)) / 86_400_000;
+  if (spanDays < 0 || spanDays > 62) {
+    return { error: "Plage de dates invalide (max 62 jours)" as const };
+  }
+  const step = req.query.step ? parseInt(String(req.query.step), 10) : undefined;
+  const timezone = req.query.timezone ? String(req.query.timezone) : undefined;
+  return { serviceIds, from, to, step, timezone };
+}
+
+async function handleAvailability(
+  req: Request,
+  res: Response,
+  proId: number,
+  requestedByRole: "public" | "pro"
+) {
+  const parsed = parseAvailabilityQuery(req);
+  if ("error" in parsed) {
+    return res.status(422).json({ success: false, error: "INVALID_INPUT", message: parsed.error });
+  }
+  try {
+    const data = await getAvailability({
+      proId,
+      serviceIds: parsed.serviceIds,
+      fromDate: parsed.from,
+      toDate: parsed.to,
+      timezone: parsed.timezone,
+      slotStepMinutes: parsed.step,
+      requestedByRole,
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    if (error instanceof AvailabilityError) {
+      return res.status(error.status).json({ success: false, error: error.code, message: error.message });
+    }
+    console.error("[AVAILABILITY] Error:", error);
+    return res.status(500).json({ success: false, message: "Erreur calcul disponibilité" });
+  }
+}
+
+// Public : réservation cliente.
+app.get("/api/availability/:proId", async (req: Request, res: Response) => {
+  const proId = parseParamToInt(req.params.proId);
+  return handleAvailability(req, res, proId, "public");
+});
+
+// Pro : ajout manuel / planning (gate /api/pro + requireProAccess déjà appliqués).
+app.get("/api/pro/:proId/availability", async (req: AuthenticatedRequest, res: Response) => {
+  const proId = parseParamToInt(req.params.proId);
+  if (getProId(req) !== proId) {
+    return res.status(403).json({ success: false, error: "FORBIDDEN" });
+  }
+  return handleAvailability(req, res, proId, "pro");
+});
 
 // GET: Récupérer les créneaux disponibles pour un pro sur une date donnée
 app.get(
@@ -4980,104 +5051,58 @@ app.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const proId = getProId(req);
-      const { client_id, prestation_id, start_datetime, end_datetime, early_execution_requested } = req.body;
-      const earlyExecutionRequestedAt = early_execution_requested ? new Date() : null;
+      const { client_id, prestation_id, start_datetime, early_execution_requested, manual_override } = req.body;
 
-      const [prestationRows] = await db.query(
-        `SELECT id, name, price, buffer_after_minutes FROM prestations WHERE id = ? AND pro_id = ?`,
-        [prestation_id, proId]
-      );
-      if ((prestationRows as any[]).length === 0) {
-        return res.status(403).json({ success: false, message: "Prestation invalide pour ce professionnel" });
-      }
-      const prestationName = (prestationRows as any[])[0].name as string;
-      const price = Number((prestationRows as any[])[0].price);
-
+      // Contrôle d'accès : la cliente doit exister ET être une cliente. Le
+      // client_id vient du body ici (la pro choisit), mais reste borné à un
+      // rôle 'client' — jamais une autre pro / un admin.
       const [clientRows] = await db.query(
-        `SELECT id, first_name, last_name FROM users WHERE id = ? AND role = 'client'`,
+        `SELECT id FROM users WHERE id = ? AND role = 'client'`,
         [client_id]
       );
       if ((clientRows as any[]).length === 0) {
         return res.status(404).json({ success: false, message: "Cliente introuvable" });
       }
 
-      const [blockedRows] = await db.query(
-        `SELECT id FROM blocked_clients WHERE pro_id = ? AND client_id = ?`,
-        [proId, client_id]
-      );
-      if ((blockedRows as any[]).length > 0) {
-        return res.status(403).json({ success: false, message: "Cette cliente est bloquée. Débloque-la avant de lui créer un rendez-vous." });
-      }
+      const result = await createReservation({
+        proId,
+        clientId: client_id,
+        serviceIds: [prestation_id],
+        startDatetime: start_datetime,
+        requestedByRole: "pro",
+        bookingSource: "pro",
+        earlyExecutionRequested: !!early_execution_requested,
+        manualOverride: manual_override
+          ? {
+              mode: manual_override.mode,
+              note: manual_override.note ?? null,
+              overrideByUserId: proId,
+              acknowledgedConflictReservationIds:
+                manual_override.acknowledged_conflict_reservation_ids ?? [],
+            }
+          : undefined,
+      });
 
-      const connection = await db.getConnection();
-      let insertId: number;
-      try {
-        await connection.beginTransaction();
-        await connection.query(`SELECT pg_advisory_xact_lock(?)`, [proId]);
-
-        const [overlapRows] = await connection.query(
-          `SELECT r.id FROM reservations r
-           LEFT JOIN prestations prev_p ON prev_p.id = r.prestation_id
-           WHERE r.pro_id = ?
-             AND r.status NOT IN ('cancelled', 'rejected')
-             AND r.start_datetime < ?
-             AND (r.end_datetime + COALESCE(prev_p.buffer_after_minutes, 0) * INTERVAL '1 minute') > ?`,
-          [proId, end_datetime, start_datetime]
-        );
-        if ((overlapRows as any[]).length > 0) {
-          await connection.rollback();
-          return res.status(409).json({ success: false, message: "Ce créneau est déjà réservé ou trop proche d'un autre rendez-vous" });
-        }
-
-        const [resaRows] = await connection.execute(
-          `INSERT INTO reservations (client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, payment_status, paid_online, booking_source, early_execution_requested_at, created_at)
-           VALUES (?, ?, ?, ?, ?, 'confirmed', ?, 'unpaid', false, 'pro', ?, NOW()) RETURNING id`,
-          [client_id, proId, prestation_id, start_datetime, end_datetime, price, earlyExecutionRequestedAt]
-        );
-        insertId = (resaRows as any[])[0]?.id;
-
-        await connection.commit();
-      } catch (txErr) {
-        await connection.rollback().catch(() => {});
-        throw txErr;
-      } finally {
-        connection.release();
-      }
-
-      try {
-        const [proRows] = await db.query(`SELECT first_name, last_name FROM users WHERE id = ?`, [proId]);
-        const pro = (proRows as any[])[0];
-        const proName = pro ? `${pro.first_name} ${pro.last_name}` : "Ta pro";
-        const startAt = new Date(start_datetime);
-        const notifMessage = `${proName} t'a réservé « ${prestationName} » le ${formatRdvWhen(startAt)}.`;
-
-        const [notifRows] = await db.query(
-          `INSERT INTO notifications (user_id, type, title, message, data)
-           VALUES (?, 'appointment_created_by_pro', 'Nouveau rendez-vous', ?, ?)
-           RETURNING id, created_at`,
-          [
-            client_id,
-            notifMessage,
-            JSON.stringify({ reservation_id: insertId, prestation: prestationName, price }),
-          ]
-        );
-        const notif = (notifRows as any[])[0];
-        if (notif) {
-          await sendNotificationToUser(client_id, {
-            id: notif.id,
-            type: "appointment_created_by_pro",
-            title: "Nouveau rendez-vous",
-            message: notifMessage,
-            data: { reservation_id: insertId },
-            created_at: notif.created_at,
-          });
-        }
-      } catch (notifErr) {
-        log.warn("[PRO_APPOINTMENT_CREATE]", "Client notification failed (non-fatal)", { reservationId: insertId! });
-      }
-
-      return res.json({ success: true, data: { id: insertId!, price } });
+      return res.json({
+        success: true,
+        data: {
+          id: result.reservationId,
+          price: result.price,
+          override_applied: result.overrideApplied,
+        },
+      });
     } catch (error) {
+      if (error instanceof ReservationServiceError) {
+        return res.status(error.status).json({
+          success: false,
+          error: error.code,
+          message: error.message,
+          ...(error.extra ?? {}),
+        });
+      }
+      if (error instanceof AvailabilityError) {
+        return res.status(error.status).json({ success: false, error: error.code, message: error.message });
+      }
       console.error("[PRO_APPOINTMENT_CREATE] Error:", error);
       if ((error as { code?: string })?.code === "23503") {
         return res.status(409).json({ success: false, message: "Cette prestation n'est plus disponible. Merci de rafraîchir la page." });
@@ -6545,208 +6570,55 @@ app.put("/api/pro/stripe/deposit", authenticateToken, validate(depositSchema), a
 // POST /api/reservations - Create a reservation
 app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reservationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const clientId = req.user?.id;
-    const { pro_id, prestation_id, start_datetime, end_datetime, slot_id, payment_method, early_execution_requested } = req.body;
+    const clientId = req.user?.id as number;
+    const { pro_id, prestation_id, start_datetime, slot_id, payment_method } = req.body;
     const paidOnline = payment_method === "online";
-    // Preuve horodatée du consentement exprès à l'exécution anticipée (art.
-    // L221-18 s. Code de la consommation) — validate() a déjà rejeté la
-    // requête si ce consentement manquait pour un RDV à moins de 14 jours.
-    const earlyExecutionRequestedAt = early_execution_requested ? new Date() : null;
 
-    // Verify prestation belongs to the given pro + get its name, price and buffer
-    // for the deposit calculation, notification and overlap check. The price is
-    // always read from here — never trusted from the client request body — so a
-    // tampered request can't book a prestation for an arbitrary amount.
-    const [prestationRows] = await db.query(
-      `SELECT id, name, price, buffer_after_minutes FROM prestations WHERE id = ? AND pro_id = ?`,
-      [prestation_id, pro_id]
-    );
-    if ((prestationRows as any[]).length === 0) {
-      return res.status(403).json({ success: false, message: "Prestation invalide pour ce professionnel" });
-    }
-    const prestationName = (prestationRows as any[])[0].name as string;
-    const price = Number((prestationRows as any[])[0].price);
+    // Toute la logique anti-double-booking (lock advisory pro_id → re-check
+    // sous verrou → INSERT snapshot → notif post-commit) vit désormais dans
+    // reservation.service.ts, partagée avec l'ajout manuel pro et
+    // l'acceptation de reschedule. requestedByRole "public" : jamais d'override.
+    const result = await createReservation({
+      proId: pro_id,
+      clientId,
+      serviceIds: [prestation_id],
+      startDatetime: start_datetime,
+      requestedByRole: "public",
+      bookingSource: "client",
+      paidOnline,
+      earlyExecutionRequested: !!req.body.early_execution_requested,
+    });
 
-    // Guard: client must not be blacklisted by this pro
-    const [blockedRows] = await db.query(
-      `SELECT id FROM blocked_clients WHERE pro_id = ? AND client_id = ?`,
-      [pro_id, clientId]
-    );
-    if ((blockedRows as any[]).length > 0) {
-      return res.status(403).json({ success: false, message: "Réservation impossible avec ce professionnel." });
-    }
-
-    // Everything below is contention-sensitive (two clients racing for the
-    // same slot/time) and must be serialized. A Postgres advisory lock keyed
-    // on pro_id — held for the transaction's duration — means a second
-    // concurrent booking attempt for the same pro blocks here instead of
-    // reading the same "still available" state and double-booking. Neither
-    // the slot check nor the overlap check previously re-verified anything
-    // at write time, so two near-simultaneous requests could both pass and
-    // both insert.
-    const connection = await db.getConnection();
-    let insertId: number;
-    let depositPct: number;
-    let depositAmount: number | null;
-    try {
-      await connection.beginTransaction();
-      await connection.query(`SELECT pg_advisory_xact_lock(?)`, [pro_id]);
-
-      // Slot check + overlap check + pro deposit lookup fusionnés en un seul
-      // aller-retour (CTE) — étaient 3 requêtes SELECT séquentielles et
-      // indépendantes (aucune ne dépend du résultat d'une autre). Mesuré en
-      // stress test : chaque requête s'exécute en < 0.1ms côté Postgres
-      // (EXPLAIN ANALYZE) mais coûte ~50-130ms de round-trip réseau — la
-      // latence vient entièrement du nombre d'allers-retours, pas du SQL.
-      // Le verrou advisory ci-dessus + le UPDATE ... WHERE status='available'
-      // RETURNING id plus bas restent la SEULE garantie anti-double-
-      // réservation ; ces 3 SELECT ne sont que des guards UX pour éviter un
-      // INSERT voué à un rollback — les fusionner ne change rien à la sûreté.
-      const [precheckRows] = await connection.query(
-        `WITH slot_check AS (
-           SELECT status FROM slots WHERE id = ? AND pro_id = ?
-         ),
-         overlap_check AS (
-           SELECT r.id FROM reservations r
-           LEFT JOIN prestations prev_p ON prev_p.id = r.prestation_id
-           WHERE r.pro_id = ?
-             AND r.status NOT IN ('cancelled', 'rejected')
-             AND r.start_datetime < ?
-             AND (r.end_datetime + COALESCE(prev_p.buffer_after_minutes, 0) * INTERVAL '1 minute') > ?
-         ),
-         pro_info AS (
-           SELECT deposit_percentage, stripe_onboarding_complete FROM users WHERE id = ?
-         )
-         SELECT
-           (SELECT status FROM slot_check) AS slot_status,
-           EXISTS(SELECT 1 FROM overlap_check) AS has_overlap,
-           EXISTS(SELECT 1 FROM pro_info) AS pro_exists,
-           (SELECT deposit_percentage FROM pro_info) AS deposit_percentage,
-           (SELECT stripe_onboarding_complete FROM pro_info) AS stripe_onboarding_complete`,
-        [slot_id || null, pro_id, pro_id, end_datetime, start_datetime, pro_id]
+    // Modèle `slots` précréés — déprécié mais encore utilisé le temps de la
+    // bascule mobile. Best-effort : la réservation (blocked_*) fait désormais
+    // autorité, un slot non marqué ne recrée pas de double-booking.
+    if (slot_id) {
+      db.query(`UPDATE slots SET status = 'booked' WHERE id = ? AND status = 'available'`, [slot_id]).catch(
+        (e) => log.warn("[RESERVATION_CREATE]", "legacy slot mark failed (non-fatal)", { slot_id })
       );
-      const precheck = (precheckRows as any[])[0];
-
-      if (slot_id && precheck.slot_status !== "available") {
-        await connection.rollback();
-        return res.status(409).json({ success: false, message: "Ce créneau n'est plus disponible" });
-      }
-
-      if (precheck.has_overlap) {
-        await connection.rollback();
-        return res.status(409).json({ success: false, message: "Ce créneau est déjà réservé ou trop proche d'un autre rendez-vous" });
-      }
-
-      // pro_exists distingue "pro introuvable" (précheck.deposit_percentage
-      // NULL parce que pro_info est vide) de "pro trouvé mais colonne NULL"
-      // (déjà un état légitime avant cette fusion — cf. `?? 50` ci-dessous).
-      if (!precheck.pro_exists) {
-        await connection.rollback();
-        return res.status(404).json({ success: false, message: "Professionnel introuvable" });
-      }
-      depositPct = precheck.deposit_percentage ?? 50;
-      depositAmount = depositPct > 0 ? Math.round(price * depositPct) / 100 : null;
-
-      const [resaRows] = await connection.execute(
-        `INSERT INTO reservations (client_id, pro_id, prestation_id, start_datetime, end_datetime, status, price, payment_status, deposit_amount, paid_online, slot_id, early_execution_requested_at, created_at)
-         VALUES (?, ?, ?, ?, ?, 'confirmed', ?, 'unpaid', ?, ?, ?, ?, NOW()) RETURNING id`,
-        [clientId, pro_id, prestation_id, start_datetime, end_datetime, price, depositAmount, paidOnline, slot_id || null, earlyExecutionRequestedAt]
-      );
-
-      insertId = (resaRows as any[])[0]?.id;
-
-      // If slot_id, mark the slot as booked — re-checked against 'available'
-      // one more time (belt and suspenders with the advisory lock above).
-      if (slot_id) {
-        const [slotUpdateRows] = await connection.query(
-          `UPDATE slots SET status = 'booked' WHERE id = ? AND status = 'available' RETURNING id`,
-          [slot_id]
-        );
-        if ((slotUpdateRows as any[]).length === 0) {
-          await connection.rollback();
-          return res.status(409).json({ success: false, message: "Ce créneau n'est plus disponible" });
-        }
-      }
-
-      await connection.commit();
-    } catch (txErr) {
-      await connection.rollback().catch(() => {});
-      throw txErr;
-    } finally {
-      connection.release();
-    }
-
-    // ── Notify pro of new booking with full details (best-effort) ─────────────
-    // Paiement en ligne : pas de notif ici — la réservation n'est que
-    // "unpaid" à ce stade (le client n'a pas encore vu la feuille de
-    // paiement Stripe). La notif arrive via le webhook payment_intent.succeeded
-    // (voir "Acompte encaissé"/"Paiement encaissé" plus haut), une fois
-    // l'argent réellement encaissé. Sur place : rien à attendre, on notifie
-    // tout de suite.
-    if (!paidOnline) {
-      try {
-        // Fetch client name
-        const [clientRows] = await db.query(
-          `SELECT first_name, last_name FROM users WHERE id = ?`,
-          [clientId]
-        );
-        const client = (clientRows as any[])[0];
-        const clientName = client ? `${client.first_name} ${client.last_name}` : "Un client";
-
-        const startAt = new Date(start_datetime);
-        // Kept separately (not just parsed back out of notifMessage) because
-        // the `data` payload below is structured data for the client, not
-        // display text.
-        const dateStr = formatRdvDate(startAt);
-        const timeStr = formatRdvTime(startAt);
-        const paymentLabel = `${formatEuros(price)}€ à encaisser sur place`;
-
-        const notifMessage = `${clientName} a réservé « ${prestationName} » le ${formatRdvWhen(startAt)} — ${paymentLabel}.`;
-
-        const [notifRows] = await db.query(
-          `INSERT INTO notifications (user_id, type, title, message, data)
-           VALUES (?, 'new_booking', 'Nouveau rendez-vous', ?, ?)
-           RETURNING id, created_at`,
-          [
-            pro_id,
-            notifMessage,
-            JSON.stringify({
-              reservation_id: insertId,
-              prestation: prestationName,
-              date: dateStr,
-              time: timeStr,
-              price: price,
-              deposit_amount: depositAmount,
-              payment_method: payment_method ?? "on_site",
-            }),
-          ]
-        );
-        const notif = (notifRows as any[])[0];
-        if (notif) {
-          await sendNotificationToUser(pro_id, {
-            id: notif.id,
-            type: "new_booking",
-            title: "Nouveau rendez-vous",
-            message: notifMessage,
-            data: { reservation_id: insertId },
-            created_at: notif.created_at,
-          });
-        }
-      } catch (notifErr) {
-        log.warn("[RESERVATION_CREATE]", "Pro notification failed (non-fatal)", { reservationId: insertId });
-      }
     }
 
     return res.json({
       success: true,
       data: {
-        id: insertId,
-        deposit_percentage: depositPct,
-        deposit_amount: depositAmount,
-        price: price,
+        id: result.reservationId,
+        deposit_percentage: result.depositPercentage,
+        deposit_amount: result.depositAmount,
+        price: result.price,
       },
     });
   } catch (error) {
+    if (error instanceof ReservationServiceError) {
+      return res.status(error.status).json({
+        success: false,
+        error: error.code,
+        message: error.message,
+        ...(error.extra ?? {}),
+      });
+    }
+    if (error instanceof AvailabilityError) {
+      return res.status(error.status).json({ success: false, error: error.code, message: error.message });
+    }
     console.error("[RESERVATION_CREATE] Error:", error);
     // The prestation existence check above runs before the transaction, so a
     // pro deleting that prestation in the narrow window between the check
