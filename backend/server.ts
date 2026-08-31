@@ -1327,6 +1327,7 @@ app.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const proId = req.user?.id;
+      if (!proId || !(await guardLegacySlotWrite(proId, res))) return;
       const { start_datetime, end_datetime, duration } = req.body;
 
       // Insérer le slot
@@ -4726,6 +4727,27 @@ app.put(
 // SLOTS MANAGEMENT
 // ==========================================
 
+/**
+ * Chantier 4.6 — la création de slots précréés est dépréciée. Pour une pro
+ * migrée (uses_availability_engine), c'est une erreur (410) : ses créneaux
+ * découlent des working_hours. Pour une pro legacy, on laisse passer mais on
+ * marque la réponse (header Deprecation + log) le temps de la bascule.
+ */
+async function guardLegacySlotWrite(proId: number, res: Response): Promise<boolean> {
+  const [rows] = await db.query(`SELECT uses_availability_engine FROM users WHERE id = ?`, [proId]);
+  if ((rows as any[])[0]?.uses_availability_engine) {
+    res.status(410).json({
+      success: false,
+      error: "SLOTS_DEPRECATED",
+      message: "Les créneaux précréés ne sont plus utilisés — gère tes disponibilités via tes horaires d'ouverture.",
+    });
+    return false;
+  }
+  res.setHeader("Deprecation", "true");
+  log.warn("[SLOTS]", "legacy slot write (deprecated, chantier 4.6)", { proId });
+  return true;
+}
+
 /* CREATE SLOT */
 app.post(
   "/api/pro/slots",
@@ -4734,6 +4756,7 @@ app.post(
     let connection;
     try {
       const proId = getProId(req);
+      if (!(await guardLegacySlotWrite(proId, res))) return;
       const { date, time, duration = 60 } = req.body;
 
       if (!date || !time) {
