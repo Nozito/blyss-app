@@ -169,10 +169,27 @@ export const proAppointmentSchema = z
     start_datetime: z.string().datetime("start_datetime doit être une date ISO valide"),
     end_datetime: z.string().datetime("end_datetime doit être une date ISO valide"),
     early_execution_requested: z.boolean().optional().default(false),
+    // 3.4 — override d'ajout manuel pro (jamais accepté sur le flow client).
+    // mode "outside_hours" : RDV hors horaires d'ouverture (avertissement simple).
+    // mode "conflict" : RDV forcé malgré un chevauchement — note obligatoire.
+    manual_override: z
+      .object({
+        mode: z.enum(["outside_hours", "conflict"]),
+        note: z.string().max(500, "Motif trop long").optional(),
+        acknowledged_conflict_reservation_ids: z
+          .array(z.number().int().positive())
+          .max(50)
+          .optional(),
+      })
+      .optional(),
   })
   .refine((d) => new Date(d.start_datetime) < new Date(d.end_datetime), {
     message: "start_datetime doit être antérieur à end_datetime",
     path: ["start_datetime"],
+  })
+  .refine((d) => d.manual_override?.mode !== "conflict" || !!d.manual_override.note?.trim(), {
+    message: "Un motif est obligatoire pour forcer un créneau en conflit",
+    path: ["manual_override", "note"],
   })
   .refine(
     (d) =>
