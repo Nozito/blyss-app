@@ -190,10 +190,16 @@ export const proAppointmentUpdateSchema = z
     start_datetime: z.string().datetime("start_datetime doit être une date ISO valide"),
     end_datetime: z.string().datetime("end_datetime doit être une date ISO valide"),
     prestation_id: z.number("prestation_id doit être un nombre").int().positive().optional(),
+    reason: z.string().max(500, "Motif trop long").optional(),
+    initiated_via: z.enum(["app", "phone"]).optional().default("app"),
   })
   .refine((d) => new Date(d.start_datetime) < new Date(d.end_datetime), {
     message: "start_datetime doit être antérieur à end_datetime",
     path: ["start_datetime"],
+  })
+  .refine((d) => d.initiated_via !== "phone" || !!d.reason?.trim(), {
+    message: "Un motif est requis pour une proposition annoncée par téléphone",
+    path: ["reason"],
   });
 
 export const depositSchema = z.object({

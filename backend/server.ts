@@ -50,6 +50,7 @@ import { startReminderCron, runReminderCycle } from "./lib/reminders";
 import { geocodeCity, haversineKm, jitterCoords } from "./lib/geocoding";
 import { startDataRetentionCron } from "./cron/data-retention";
 import { startPaymentCleanupCron } from "./cron/payment-cleanup";
+import { startRescheduleSweepCron } from "./cron/reschedule-sweep";
 import { startSubscriptionExpiryCron } from "./cron/subscription-expiry";
 import { startFinanceReportsCron } from "./cron/finance-reports";
 import { initiateRefundsForReservation } from "./lib/refunds";
@@ -90,6 +91,8 @@ import { applyLiveActivityPrivacy } from "./lib/liveActivityPrivacy";
 import authRouter from "./routes/auth.routes";
 import adminRouter from "./routes/admin.routes";
 import cancellationRouter from "./routes/cancellation.routes";
+import rescheduleRouter from "./routes/reschedule.routes";
+import { createRescheduleRequest, RescheduleServiceError } from "./services/reschedule.service";
 import messagesRouter from "./routes/messages.routes";
 import { getTopServices, getRevenueStats } from "./lib/finance";
 
@@ -522,6 +525,7 @@ app.use("/api/pro", authMiddleware, requireProAccess);
 
 app.use("/api/pro", router);
 app.use("/api", cancellationRouter);
+app.use("/api", rescheduleRouter);
 app.use("/api", nailTechRouter);
 app.use("/api/messages", messagesRouter);
 
@@ -5083,115 +5087,45 @@ app.post(
   }
 );
 
-/* PATCH /api/pro/appointments/:id — pro reschedules/edits a RDV she owns
- * (created by her or by the client). Modeled on the "no explicit slot"
- * branch of PATCH /api/client/my-booking/:id/reschedule. */
+/* PATCH /api/pro/appointments/:id — la pro PROPOSE un nouveau créneau pour
+ * un RDV qu'elle possède. Ne modifie plus jamais `reservations` directement :
+ * la cliente doit explicitement accepter via
+ * PATCH /api/client/reschedule-requests/:id/accept avant que le RDV bouge.
+ * Voir backend/services/reschedule.service.ts. */
 app.patch(
   "/api/pro/appointments/:id",
   authMiddleware,
   validate(proAppointmentUpdateSchema),
   async (req: AuthenticatedRequest, res: Response) => {
-    let connection;
     try {
       const proId = getProId(req);
       const reservationId = parseInt(String(req.params.id));
-      const { start_datetime, end_datetime, prestation_id } = req.body;
+      const { start_datetime, end_datetime, prestation_id, reason, initiated_via } = req.body;
 
       if (isNaN(reservationId)) return res.status(400).json({ success: false, message: "ID invalide" });
 
-      const [existing] = await db.query(
-        `SELECT id, status, slot_id, client_id, prestation_id, price FROM reservations WHERE id = ? AND pro_id = ?`,
-        [reservationId, proId]
-      );
-      if ((existing as any[]).length === 0) {
-        return res.status(404).json({ success: false, message: "Réservation non trouvée" });
-      }
-      const reservation = (existing as any[])[0];
-      if (reservation.status === "cancelled" || reservation.status === "completed") {
-        return res.status(400).json({ success: false, message: "Impossible de modifier une réservation finalisée ou annulée" });
-      }
+      const { requestId, expiresAt } = await createRescheduleRequest({
+        reservationId,
+        proId,
+        proposedStart: start_datetime,
+        proposedEnd: end_datetime,
+        proposedPrestationId: prestation_id,
+        reason: reason ?? null,
+        initiatedVia: initiated_via,
+      });
 
-      let newPrestationId = reservation.prestation_id;
-      let newPrice = Number(reservation.price);
-      if (prestation_id && prestation_id !== reservation.prestation_id) {
-        const [prestationRows] = await db.query(
-          `SELECT id, price FROM prestations WHERE id = ? AND pro_id = ?`,
-          [prestation_id, proId]
-        );
-        if ((prestationRows as any[]).length === 0) {
-          return res.status(403).json({ success: false, message: "Prestation invalide pour ce professionnel" });
-        }
-        newPrestationId = prestation_id;
-        newPrice = Number((prestationRows as any[])[0].price);
-      }
-
-      connection = await db.getConnection();
-      await connection.beginTransaction();
-      try {
-        await connection.query(`SELECT pg_advisory_xact_lock(?)`, [proId]);
-
-        const [overlapRows] = await connection.query(
-          `SELECT r.id FROM reservations r
-           LEFT JOIN prestations prev_p ON prev_p.id = r.prestation_id
-           WHERE r.pro_id = ?
-             AND r.id != ?
-             AND r.status NOT IN ('cancelled', 'rejected')
-             AND r.start_datetime < ?
-             AND (r.end_datetime + COALESCE(prev_p.buffer_after_minutes, 0) * INTERVAL '1 minute') > ?`,
-          [proId, reservationId, end_datetime, start_datetime]
-        );
-        if ((overlapRows as any[]).length > 0) {
-          await connection.rollback();
-          return res.status(409).json({ success: false, message: "Ce créneau est déjà réservé ou trop proche d'un autre rendez-vous" });
-        }
-
-        if (reservation.slot_id) {
-          await connection.query(`UPDATE slots SET status = 'available' WHERE id = ?`, [reservation.slot_id]);
-        }
-
-        await connection.query(
-          `UPDATE reservations SET start_datetime = ?, end_datetime = ?, prestation_id = ?, price = ?, slot_id = NULL WHERE id = ?`,
-          [start_datetime, end_datetime, newPrestationId, newPrice, reservationId]
-        );
-
-        await connection.commit();
-      } catch (txErr) {
-        await connection.rollback().catch(() => {});
-        throw txErr;
-      } finally {
-        connection.release();
-        connection = undefined;
-      }
-
-      res.json({ success: true, message: "Rendez-vous modifié" });
-
-      try {
-        const message = `Ta pro a modifié ton rendez-vous : nouveau créneau le ${formatRdvWhen(new Date(start_datetime))}.`;
-        const [notifRows] = await db.query(
-          `INSERT INTO notifications (user_id, type, title, message, data)
-           VALUES (?, 'booking_rescheduled', 'RDV modifié par le pro', ?, ?)
-           RETURNING id, created_at`,
-          [reservation.client_id, message, JSON.stringify({ reservation_id: reservationId })]
-        );
-        const notif = (notifRows as any[])[0];
-        if (notif) {
-          await sendNotificationToUser(reservation.client_id, {
-            id: notif.id,
-            type: "booking_rescheduled",
-            title: "RDV modifié par le pro",
-            message,
-            data: { reservation_id: reservationId },
-            created_at: notif.created_at,
-          });
-        }
-      } catch (notifErr) {
-        log.warn("[PRO_APPOINTMENT_UPDATE]", "Client notification failed (non-fatal)", { reservationId });
-      }
+      res.status(202).json({
+        success: true,
+        message: "Proposition envoyée à la cliente, en attente de confirmation",
+        request_id: requestId,
+        expires_at: expiresAt,
+      });
     } catch (err) {
+      if (err instanceof RescheduleServiceError) {
+        return res.status(err.status).json({ success: false, message: err.message });
+      }
       console.error("[PRO_APPOINTMENT_UPDATE] error =", err);
       res.status(500).json({ success: false, message: "Erreur serveur" });
-    } finally {
-      if (connection) connection.release();
     }
   }
 );
@@ -7103,6 +7037,7 @@ if (process.env.NODE_ENV !== "test") {
     startReminderCron();
     startDataRetentionCron();
     startPaymentCleanupCron();
+    startRescheduleSweepCron();
     startRecallCron();
     startSubscriptionExpiryCron();
     startFinanceReportsCron();
