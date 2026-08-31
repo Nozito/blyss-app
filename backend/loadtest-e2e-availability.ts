@@ -71,12 +71,15 @@ interface Seeded {
   proId: number;
   proInactiveId: number;
   proPrivateId: number;
+  proLegacyId: number;
   client1Id: number;
   client2Id: number;
   prestationId: number;
   prestationPrivateId: number;
+  prestationLegacyId: number;
   proToken: string;
   proPrivateToken: string;
+  proLegacyToken: string;
   client1Token: string;
   client2Token: string;
 }
@@ -113,6 +116,7 @@ async function seed(): Promise<Seeded> {
     deposit_percentage: 0,
     accept_online_payment: false,
     cancellation_notice_hours: 24,
+    uses_availability_engine: true,
   });
   const proInactiveId = await insertUser(E("pro-inactive"), "pro", {
     activity_name: "E2E Inactive",
@@ -125,6 +129,16 @@ async function seed(): Promise<Seeded> {
     activity_name: "E2E Private",
     pro_status: "active",
     profile_visibility: "private",
+    timezone: TZ,
+    deposit_percentage: 0,
+    cancellation_notice_hours: 24,
+    uses_availability_engine: true,
+  });
+  // Pro NON migrée (chantier 4) : reste sur les slots précréés.
+  const proLegacyId = await insertUser(E("pro-legacy"), "pro", {
+    activity_name: "E2E Legacy",
+    pro_status: "active",
+    profile_visibility: "public",
     timezone: TZ,
     deposit_percentage: 0,
     cancellation_notice_hours: 24,
@@ -149,6 +163,24 @@ async function seed(): Promise<Seeded> {
   )) as any[];
   const prestationPrivateId = prestaPriv[0].id as number;
 
+  const [prestaLegacy] = (await db.execute(
+    `INSERT INTO prestations (pro_id, name, description, price, duration_minutes, active,
+        buffer_before_minutes, buffer_after_minutes, is_online_bookable)
+     VALUES (?, 'E2E Presta legacy', 'jetable', 50, 60, TRUE, 0, 0, TRUE) RETURNING id`,
+    [proLegacyId]
+  )) as any[];
+  const prestationLegacyId = prestaLegacy[0].id as number;
+
+  // 2 slots précréés pour la pro legacy le jour BASE (14:00 et 16:00 locale).
+  for (const hhmm of ["14:00", "16:00"]) {
+    const start = at(BASE, hhmm);
+    await db.execute(
+      `INSERT INTO slots (pro_id, start_datetime, end_datetime, duration, status)
+       VALUES (?, ?::timestamptz, ?::timestamptz + INTERVAL '60 minutes', 60, 'available')`,
+      [proLegacyId, start, start]
+    );
+  }
+
   // working_hours : lun-ven 09:00-18:00 pour les scénarios 1-4, + dimanche
   // 09:00-18:00 pour les scénarios DST. Idem pour la pro privée (scénario 6).
   for (const pid of [proId, proPrivateId]) {
@@ -164,12 +196,15 @@ async function seed(): Promise<Seeded> {
     proId,
     proInactiveId,
     proPrivateId,
+    proLegacyId,
     client1Id,
     client2Id,
     prestationId,
     prestationPrivateId,
+    prestationLegacyId,
     proToken: await login(E("pro")),
     proPrivateToken: await login(E("pro-private")),
+    proLegacyToken: await login(E("pro-legacy")),
     client1Token: await login(E("c1")),
     client2Token: await login(E("c2")),
   };
@@ -188,6 +223,7 @@ async function cleanup() {
   await db.execute(`DELETE FROM payments WHERE client_id IN (${ids})`, []);
   await db.execute(`DELETE FROM reservations WHERE pro_id IN (${ids}) OR client_id IN (${ids})`, []);
   await db.execute(`DELETE FROM notifications WHERE user_id IN (${ids})`, []);
+  await db.execute(`DELETE FROM slots WHERE pro_id IN (${ids})`, []);
   await db.execute(`DELETE FROM working_hours WHERE pro_id IN (${ids})`, []);
   await db.execute(`DELETE FROM unavailabilities WHERE pro_id IN (${ids})`, []);
   await db.execute(`DELETE FROM prestations WHERE pro_id IN (${ids})`, []);
@@ -355,6 +391,55 @@ async function scenario6(s: Seeded) {
   check(publicOk.status === 200, `contrôle : pro publique active → 200 pour le public (reçu ${publicOk.status})`);
 }
 
+async function scenario7(s: Seeded) {
+  console.log("\n── Scénario 7 — Bascule (chantier 4) : pro legacy + working-hours ──");
+
+  // 7a. Pro NON migrée : /api/availability expose ses slots précréés (14:00, 16:00),
+  //     PAS un calcul depuis working_hours (elle n'en a pas).
+  const legacyPub = await request(app).get(`/api/availability/${s.proLegacyId}?service_ids=${s.prestationLegacyId}&from=${BASE}&to=${BASE}`);
+  const legacyStarts: string[] = (legacyPub.body?.data?.days?.[0]?.slots ?? []).map((x: any) => x.start);
+  check(legacyPub.status === 200, `pro legacy : GET availability → 200 (reçu ${legacyPub.status})`);
+  check(
+    legacyStarts.length === 2 && legacyStarts.includes(at(BASE, "14:00")) && legacyStarts.includes(at(BASE, "16:00")),
+    `pro legacy : les 2 slots précréés (14:00, 16:00) sont exposés (reçu ${legacyStarts.length})`
+  );
+
+  // 7b. La pro legacy configure ses working_hours → bascule uses_availability_engine.
+  const put1 = await request(app)
+    .put("/api/pro/working-hours")
+    .set("Authorization", `Bearer ${s.proLegacyToken}`)
+    .send({ days: [{ weekday: 1, ranges: [{ start_time: "09:00", end_time: "12:30" }, { start_time: "13:30", end_time: "18:00" }] }] });
+  check(put1.status === 200 && put1.body?.data?.migrated === true, `PUT working-hours → 200 migrated:true (reçu ${put1.status} ${put1.body?.data?.migrated})`);
+
+  const [flagRows] = (await db.query(`SELECT uses_availability_engine FROM users WHERE id = ?`, [s.proLegacyId])) as any[];
+  check(flagRows[0]?.uses_availability_engine === true, "DB : uses_availability_engine = true après la 1ʳᵉ sauvegarde");
+
+  // 7c. Maintenant la dispo est CALCULÉE depuis working_hours (créneaux de 15 min),
+  //     plus les slots précréés bruts.
+  const after = await request(app).get(`/api/availability/${s.proLegacyId}?service_ids=${s.prestationLegacyId}&from=${BASE}&to=${BASE}`);
+  const afterStarts: string[] = (after.body?.data?.days?.[0]?.slots ?? []).map((x: any) => x.start);
+  check(afterStarts.length > 5 && afterStarts.includes(at(BASE, "09:00")), `pro migrée : dispo calculée depuis working_hours (${afterStarts.length} créneaux, dont 09:00)`);
+  check(!afterStarts.includes(at(BASE, "12:45")), "pro migrée : la pause 12:30–13:30 est respectée (pas de créneau à 12:45)");
+
+  // 7d. 2ᵉ sauvegarde : plus de migration.
+  const put2 = await request(app)
+    .put("/api/pro/working-hours")
+    .set("Authorization", `Bearer ${s.proLegacyToken}`)
+    .send({ days: [{ weekday: 1, ranges: [{ start_time: "10:00", end_time: "17:00" }] }] });
+  check(put2.status === 200 && put2.body?.data?.migrated === false, "2ᵉ PUT working-hours → migrated:false");
+
+  const get = await request(app).get("/api/pro/working-hours").set("Authorization", `Bearer ${s.proLegacyToken}`);
+  check(get.status === 200 && get.body?.data?.days?.length === 7, "GET working-hours → 7 jours");
+  check(get.body?.data?.days?.find((d: any) => d.weekday === 1)?.ranges?.[0]?.start_time === "10:00", "GET reflète la dernière sauvegarde");
+
+  // 7e. Validation serveur : chevauchement → 422.
+  const bad = await request(app)
+    .put("/api/pro/working-hours")
+    .set("Authorization", `Bearer ${s.proLegacyToken}`)
+    .send({ days: [{ weekday: 2, ranges: [{ start_time: "09:00", end_time: "13:00" }, { start_time: "12:00", end_time: "18:00" }] }] });
+  check(bad.status === 422 && bad.body?.error === "OVERLAPPING_RANGES", `plages qui se chevauchent → 422 OVERLAPPING_RANGES (reçu ${bad.status})`);
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 async function main() {
   console.log(`E2E moteur de disponibilités — base lundi ${BASE}, DST ${DST_FALL} / ${DST_SPRING}`);
@@ -368,6 +453,7 @@ async function main() {
     await scenario4(seeded);
     await scenario5(seeded);
     await scenario6(seeded);
+    await scenario7(seeded);
   } finally {
     await cleanup().catch((e) => console.error("⚠️  cleanup a échoué :", e?.message));
     console.log("\nCleanup effectué.");

@@ -71,7 +71,7 @@ function installFixture(opts: {
     }
     if (sql.includes("FROM users WHERE id")) {
       return Promise.resolve([
-        [{ id: 1, timezone: "Europe/Paris", default_booking_lead_time_minutes: null, default_booking_horizon_days: null, deposit_percentage: 30, stripe_onboarding_complete: true }],
+        [{ id: 1, timezone: "Europe/Paris", default_booking_lead_time_minutes: null, default_booking_horizon_days: null, deposit_percentage: 30, stripe_onboarding_complete: true, uses_availability_engine: true }],
         [],
       ]);
     }

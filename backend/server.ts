@@ -92,6 +92,7 @@ import authRouter from "./routes/auth.routes";
 import adminRouter from "./routes/admin.routes";
 import cancellationRouter from "./routes/cancellation.routes";
 import rescheduleRouter from "./routes/reschedule.routes";
+import workingHoursRouter from "./routes/working-hours.routes";
 import { createRescheduleRequest, RescheduleServiceError } from "./services/reschedule.service";
 import { createReservation, ReservationServiceError } from "./services/reservation.service";
 import { getAvailability, checkSlotAvailability, AvailabilityError } from "./services/availability.service";
@@ -528,6 +529,7 @@ app.use("/api/pro", authMiddleware, requireProAccess);
 app.use("/api/pro", router);
 app.use("/api", cancellationRouter);
 app.use("/api", rescheduleRouter);
+app.use("/api", workingHoursRouter);
 app.use("/api", nailTechRouter);
 app.use("/api/messages", messagesRouter);
 
