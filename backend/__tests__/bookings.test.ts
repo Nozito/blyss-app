@@ -23,6 +23,7 @@ const { mockExecute, mockQuery } = vi.hoisted(() => {
 
 // ─── 2. Mock lib/db ───────────────────────────────────────────────────────
 vi.mock("../lib/db", () => ({
+  DbTimeoutError: class DbTimeoutError extends Error {},
   getDb: () => ({
     execute: mockExecute,
     query: mockQuery,
@@ -36,6 +37,16 @@ vi.mock("../lib/db", () => ({
     }),
   }),
 }));
+
+// ─── 2b. Mock du service de réservation ───────────────────────────────────
+// La logique anti-double-booking (lock, re-check, snapshot) est testée
+// unitairement dans reservation.service / availability.service. Ici on vérifie
+// seulement que l'endpoint mappe correctement résultats & erreurs → HTTP.
+const { mockCreateReservation } = vi.hoisted(() => ({ mockCreateReservation: vi.fn() }));
+vi.mock("../services/reservation.service", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/reservation.service")>();
+  return { ...actual, createReservation: mockCreateReservation };
+});
 
 // ─── 3. Mock Stripe ───────────────────────────────────────────────────────
 vi.mock("stripe", () => {
@@ -144,49 +155,39 @@ describe("POST /api/reservations — validation Zod", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("POST /api/reservations — logique métier", () => {
   const token = makeClientToken();
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Modèle `slots` legacy : l'endpoint fait un UPDATE best-effort si slot_id.
+    mockQuery.mockResolvedValue([[], []]);
+  });
+
+  async function importErrors() {
+    return await import("../services/reservation.service");
+  }
 
   it("403 si la prestation n'appartient pas au pro", async () => {
-    // Prestation check → vide (non trouvée pour ce pro)
-    mockQuery.mockResolvedValueOnce([[]]);
+    const { ReservationServiceError } = await importErrors();
+    mockCreateReservation.mockRejectedValueOnce(
+      new ReservationServiceError(422, "Prestation invalide pour ce professionnel", "SERVICE_NOT_BOOKABLE")
+    );
 
     const res = await request(app)
       .post("/api/reservations")
       .set("Authorization", `Bearer ${token}`)
       .send(validBody);
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(422);
     expect(res.body.success).toBe(false);
+    expect(res.body.error).toBe("SERVICE_NOT_BOOKABLE");
   });
 
-  it("409 si le créneau est déjà réservé (slot_id fourni)", async () => {
-    // Prestation check → OK
-    mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
-    // Blacklist check → non bloquée
-    mockQuery.mockResolvedValueOnce([[]]);
-    // pg_advisory_xact_lock (serialization guard, no meaningful return value)
-    mockQuery.mockResolvedValueOnce([[]]);
-    // Precheck fusionné (slot + overlap + pro) → slot_status = 'booked'
-    mockQuery.mockResolvedValueOnce([[{ slot_status: "booked", has_overlap: false, pro_exists: true, deposit_percentage: 30 }]]);
-
-    const res = await request(app)
-      .post("/api/reservations")
-      .set("Authorization", `Bearer ${token}`)
-      .send({ ...validBody, slot_id: 5 });
-
-    expect(res.status).toBe(409);
-    expect(res.body.success).toBe(false);
-  });
-
-  it("409 si chevauchement de réservation détecté", async () => {
-    // Prestation check → OK
-    mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
-    // Blacklist check → non bloquée
-    mockQuery.mockResolvedValueOnce([[]]);
-    // pg_advisory_xact_lock (serialization guard, no meaningful return value)
-    mockQuery.mockResolvedValueOnce([[]]);
-    // Precheck fusionné (pas de slot_id) → has_overlap = true
-    mockQuery.mockResolvedValueOnce([[{ slot_status: null, has_overlap: true, pro_exists: true, deposit_percentage: 30 }]]);
+  it("409 SLOT_NO_LONGER_AVAILABLE + alternativeSlots si conflit", async () => {
+    const { ReservationServiceError, SLOT_NO_LONGER_AVAILABLE } = await importErrors();
+    mockCreateReservation.mockRejectedValueOnce(
+      new ReservationServiceError(409, "Ce créneau vient d'être réservé.", SLOT_NO_LONGER_AVAILABLE, {
+        alternativeSlots: [{ start: "2027-06-01T14:00:00.000Z", end: "2027-06-01T15:00:00.000Z" }],
+      })
+    );
 
     const res = await request(app)
       .post("/api/reservations")
@@ -194,40 +195,38 @@ describe("POST /api/reservations — logique métier", () => {
       .send(validBody);
 
     expect(res.status).toBe(409);
-    expect(res.body.success).toBe(false);
+    expect(res.body.error).toBe("SLOT_NO_LONGER_AVAILABLE");
+    expect(res.body.alternativeSlots).toHaveLength(1);
   });
 
-  it("404 si le pro n'existe pas en DB", async () => {
-    // Prestation check → OK
-    mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
-    // Blacklist check → non bloquée
-    mockQuery.mockResolvedValueOnce([[]]);
-    // pg_advisory_xact_lock (serialization guard, no meaningful return value)
-    mockQuery.mockResolvedValueOnce([[]]);
-    // Precheck fusionné → pro_exists = false
-    mockQuery.mockResolvedValueOnce([[{ slot_status: null, has_overlap: false, pro_exists: false, deposit_percentage: null }]]);
+  it("le flow client ne transmet jamais d'override au service", async () => {
+    mockCreateReservation.mockResolvedValueOnce({
+      reservationId: 55,
+      price: 80,
+      depositPercentage: 30,
+      depositAmount: 24,
+      overrideApplied: null,
+    });
 
-    const res = await request(app)
+    await request(app)
       .post("/api/reservations")
       .set("Authorization", `Bearer ${token}`)
-      .send(validBody);
+      .send({ ...validBody, manual_override: { mode: "conflict", note: "x" } });
 
-    expect(res.status).toBe(404);
-    expect(res.body.success).toBe(false);
+    const arg = mockCreateReservation.mock.calls[0][0];
+    expect(arg.requestedByRole).toBe("public");
+    expect(arg.bookingSource).toBe("client");
+    expect(arg.manualOverride).toBeUndefined();
   });
 
-  it("200 et retourne l'id de la réservation créée", async () => {
-    // Prestation check → OK
-    mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
-    // Blacklist check → non bloquée
-    mockQuery.mockResolvedValueOnce([[]]);
-    // pg_advisory_xact_lock (serialization guard, no meaningful return value)
-    mockQuery.mockResolvedValueOnce([[]]);
-    // Precheck fusionné → pas de chevauchement, deposit 30%
-    mockQuery.mockResolvedValueOnce([[{ slot_status: null, has_overlap: false, pro_exists: true, deposit_percentage: 30 }]]);
-    // INSERT reservations
-    mockExecute.mockResolvedValueOnce([[{ id: 55 }], []]);
-    // (notification queries sont dans un try/catch — si non mockées, elles échouent silencieusement)
+  it("200 et retourne l'id + l'acompte de la réservation créée", async () => {
+    mockCreateReservation.mockResolvedValueOnce({
+      reservationId: 55,
+      price: 80,
+      depositPercentage: 30,
+      depositAmount: 24,
+      overrideApplied: null,
+    });
 
     const res = await request(app)
       .post("/api/reservations")
@@ -238,45 +237,36 @@ describe("POST /api/reservations — logique métier", () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.id).toBe(55);
     expect(res.body.data.deposit_percentage).toBe(30);
+    expect(res.body.data.deposit_amount).toBe(24);
   });
 
-  it("acquiert un verrou Postgres scopé au pro_id avant toute vérification de disponibilité", async () => {
-    mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
-    mockQuery.mockResolvedValueOnce([[]]);
-    mockQuery.mockResolvedValueOnce([[]]); // pg_advisory_xact_lock
-    mockQuery.mockResolvedValueOnce([[{ slot_status: null, has_overlap: false, pro_exists: true, deposit_percentage: 30 }]]);
-    mockExecute.mockResolvedValueOnce([[{ id: 55 }], []]);
+  it("délègue à createReservation avec le clientId du token (jamais du body)", async () => {
+    mockCreateReservation.mockResolvedValueOnce({
+      reservationId: 55,
+      price: 80,
+      depositPercentage: null,
+      depositAmount: null,
+      overrideApplied: null,
+    });
 
     await request(app)
       .post("/api/reservations")
-      .set("Authorization", `Bearer ${token}`)
-      .send(validBody);
+      .set("Authorization", `Bearer ${makeClientToken(42)}`)
+      .send({ ...validBody, client_id: 999 });
 
-    const lockCall = (mockQuery.mock.calls as unknown[][]).find(
-      (a) => typeof a[0] === "string" && (a[0] as string).includes("pg_advisory_xact_lock")
-    );
-    expect(lockCall).toBeDefined();
-    expect(lockCall?.[1]).toEqual([validBody.pro_id]);
+    expect(mockCreateReservation.mock.calls[0][0].clientId).toBe(42);
   });
 
-  it("409 si le créneau est pris entre la vérification et l'écriture (course concurrente)", async () => {
-    mockQuery.mockResolvedValueOnce([[{ id: 10, name: "Pose gel", buffer_after_minutes: 0 }]]);
-    mockQuery.mockResolvedValueOnce([[]]); // blacklist
-    mockQuery.mockResolvedValueOnce([[]]); // pg_advisory_xact_lock
-    // Precheck fusionné → toujours "available" à ce moment-là
-    mockQuery.mockResolvedValueOnce([[{ slot_status: "available", has_overlap: false, pro_exists: true, deposit_percentage: 30 }]]);
-    mockExecute.mockResolvedValueOnce([[{ id: 55 }], []]); // INSERT réservation réussi
-    // Le slot a été pris par une autre transaction juste avant ce UPDATE —
-    // 0 ligne affectée malgré le check initial "available".
-    mockQuery.mockResolvedValueOnce([[]]); // UPDATE slots ... RETURNING id → vide
+  it("503 si le service signale une surcharge (DbTimeoutError remonté)", async () => {
+    mockCreateReservation.mockRejectedValueOnce(new Error("timeout exceeded when trying to connect"));
 
     const res = await request(app)
       .post("/api/reservations")
       .set("Authorization", `Bearer ${token}`)
-      .send({ ...validBody, slot_id: 5 });
+      .send(validBody);
 
-    expect(res.status).toBe(409);
-    expect(res.body.success).toBe(false);
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe("service_overloaded");
   });
 });
 

@@ -273,6 +273,7 @@ describe("PATCH /api/client/reschedule-requests/:id/accept", () => {
       .mockResolvedValueOnce([[], []]) // advisory lock
       .mockResolvedValueOnce([[{ status: "pending", expires_at: futureExpiry, reservation_status: "confirmed" }], []]) // re-check sous verrou
       .mockResolvedValueOnce([[], []]) // overlap check → aucun conflit
+      .mockResolvedValueOnce([[{ bb: 0, ba: 10 }], []]) // buffers prestation proposée (snapshot)
       .mockResolvedValueOnce([[], []]) // UPDATE reservations
       .mockResolvedValueOnce([[], []]); // UPDATE reschedule_requests accepted
 
