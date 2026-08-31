@@ -31,6 +31,8 @@ interface Fixture {
   workingHours?: any[];
   unavailabilities?: any[];
   reservations?: any[];
+  /** false ⇒ la pro est filtrée par le garde-fou public (désactivée / privée). */
+  proPublicVisible?: boolean;
 }
 
 function installFixture(f: Fixture) {
@@ -52,7 +54,12 @@ function installFixture(f: Fixture) {
     },
   ];
   mockQuery.mockImplementation((sql: string) => {
-    if (sql.includes("FROM users WHERE id")) return Promise.resolve([[pro], []]);
+    if (sql.includes("FROM users WHERE id")) {
+      // Garde-fou public : la requête ajoute pro_status/is_active/visibility.
+      const isPublicGated = sql.includes("pro_status = 'active'");
+      if (isPublicGated && f.proPublicVisible === false) return Promise.resolve([[], []]);
+      return Promise.resolve([[pro], []]);
+    }
     if (sql.includes("FROM prestations")) return Promise.resolve([services, []]);
     if (sql.includes("FROM working_hours")) return Promise.resolve([f.workingHours ?? [], []]);
     if (sql.includes("FROM unavailabilities")) return Promise.resolve([f.unavailabilities ?? [], []]);
@@ -206,6 +213,31 @@ describe("getAvailability — génération de créneaux", () => {
       now: new Date("2026-09-01T08:00:00.000Z"),
     });
     expect(res.days[0].slots).toEqual([]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("getAvailability — confidentialité (garde-fou public)", () => {
+  const input = {
+    proId: 1,
+    serviceIds: [10] as number[],
+    fromDate: "2026-09-07",
+    toDate: "2026-09-07",
+    timezone: "Europe/Paris",
+    now: new Date("2026-09-01T08:00:00.000Z"),
+  };
+
+  it("pro désactivée / profil privé → 404 pour le rôle public", async () => {
+    installFixture({ workingHours: MON_9_18, proPublicVisible: false });
+    await expect(
+      getAvailability({ ...input, requestedByRole: "public" })
+    ).rejects.toMatchObject({ status: 404, code: "PRO_NOT_FOUND" });
+  });
+
+  it("pro désactivée / profil privé → 200 pour le rôle pro (son propre planning)", async () => {
+    installFixture({ workingHours: MON_9_18, proPublicVisible: false });
+    const res = await getAvailability({ ...input, requestedByRole: "pro" });
+    expect(res.days[0].slots.length).toBeGreaterThan(0);
   });
 });
 

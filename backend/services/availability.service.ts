@@ -162,9 +162,18 @@ async function loadProContext(
     throw new AvailabilityError(422, "Au moins une prestation est requise", "INVALID_INPUT");
   }
 
+  // Flow public : une pro désactivée, suspendue ou en profil privé ne doit pas
+  // exposer ses horaires ni ses créneaux occupés/libres à un appelant anonyme
+  // (cf. revue sécurité — parité avec GET /api/slots/available/:proId/:date).
+  // Flow "pro" : aucun filtre — une pro voit toujours son propre planning, même
+  // compte désactivé (l'ownership est déjà vérifié en amont sur la route).
+  const publicGate =
+    role === "public"
+      ? "AND pro_status = 'active' AND is_active = TRUE AND (profile_visibility = 'public' OR profile_visibility IS NULL)"
+      : "";
   const [proRows] = await db.query(
     `SELECT id, timezone, default_booking_lead_time_minutes, default_booking_horizon_days
-     FROM users WHERE id = ? AND role = 'pro'`,
+     FROM users WHERE id = ? AND role = 'pro' ${publicGate}`,
     [proId]
   );
   const pro = (proRows as any[])[0];
