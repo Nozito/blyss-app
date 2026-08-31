@@ -21,6 +21,7 @@ import {
   getAvailability,
   checkSlotAvailability,
   resolveServiceBlocking,
+  validateWorkingHoursPayload,
 } from "../services/availability.service";
 
 // ── Fixtures routables par SQL ─────────────────────────────────────────────
@@ -33,14 +34,18 @@ interface Fixture {
   reservations?: any[];
   /** false ⇒ la pro est filtrée par le garde-fou public (désactivée / privée). */
   proPublicVisible?: boolean;
+  /** Slots précréés (adaptateur legacy, chantier 4). Colonnes : start, "end". */
+  slots?: { start: string; end: string }[];
 }
 
 function installFixture(f: Fixture) {
-  const pro = f.pro ?? {
+  const pro = {
     id: 1,
     timezone: "Europe/Paris",
     default_booking_lead_time_minutes: null,
     default_booking_horizon_days: null,
+    uses_availability_engine: true, // par défaut migrée ; un test peut passer pro:{...,uses_availability_engine:false}
+    ...(f.pro ?? {}),
   };
   const services = f.services ?? [
     {
@@ -63,6 +68,7 @@ function installFixture(f: Fixture) {
     if (sql.includes("FROM prestations")) return Promise.resolve([services, []]);
     if (sql.includes("FROM working_hours")) return Promise.resolve([f.workingHours ?? [], []]);
     if (sql.includes("FROM unavailabilities")) return Promise.resolve([f.unavailabilities ?? [], []]);
+    if (sql.includes("FROM slots")) return Promise.resolve([f.slots ?? [], []]);
     if (sql.includes("FROM reservations")) return Promise.resolve([f.reservations ?? [], []]);
     return Promise.resolve([[], []]);
   });
@@ -241,6 +247,119 @@ describe("getAvailability — génération de créneaux", () => {
       now: new Date("2026-09-01T08:00:00.000Z"),
     });
     expect(res.days[0].slots).toEqual([]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("getAvailability — pro NON migrée (adaptateur slots précréés, chantier 4)", () => {
+  const input = {
+    proId: 1,
+    serviceIds: [10],
+    fromDate: "2026-09-07",
+    toDate: "2026-09-07",
+    timezone: "Europe/Paris",
+    requestedByRole: "public" as const,
+    now: new Date("2026-09-01T08:00:00.000Z"),
+  };
+
+  it("expose les lignes `slots` telles quelles, sans calculer depuis working_hours", async () => {
+    installFixture({
+      pro: { uses_availability_engine: false },
+      workingHours: MON_9_18, // ignoré en mode legacy
+      slots: [
+        { start: "2026-09-07T08:00:00Z", end: "2026-09-07T09:00:00Z" },
+        { start: "2026-09-07T13:00:00Z", end: "2026-09-07T14:30:00Z" },
+      ],
+    });
+    const res = await getAvailability(input);
+    const starts = res.days[0].slots.map((s) => s.start);
+    expect(starts).toEqual(["2026-09-07T08:00:00.000Z", "2026-09-07T13:00:00.000Z"]);
+    expect(res.days[0].slots[1].end).toBe("2026-09-07T14:30:00.000Z"); // durée du slot, pas de la prestation
+  });
+
+  it("retire un slot qui chevauche une réservation bloquante", async () => {
+    installFixture({
+      pro: { uses_availability_engine: false },
+      slots: [
+        { start: "2026-09-07T08:00:00Z", end: "2026-09-07T09:00:00Z" },
+        { start: "2026-09-07T10:00:00Z", end: "2026-09-07T11:00:00Z" },
+      ],
+      reservations: [
+        { id: 9, blocked_start_datetime: "2026-09-07T10:30:00Z", blocked_end_datetime: "2026-09-07T11:30:00Z" },
+      ],
+    });
+    const res = await getAvailability(input);
+    expect(res.days[0].slots.map((s) => s.start)).toEqual(["2026-09-07T08:00:00.000Z"]);
+  });
+
+  it("AVAILABILITY_ENGINE_FORCE_OFF force l'adaptateur même si le flag pro est true", async () => {
+    process.env.AVAILABILITY_ENGINE_FORCE_OFF = "true";
+    try {
+      installFixture({
+        pro: { uses_availability_engine: true },
+        workingHours: MON_9_18,
+        slots: [{ start: "2026-09-07T08:00:00Z", end: "2026-09-07T09:00:00Z" }],
+      });
+      const res = await getAvailability(input);
+      // 1 slot legacy, PAS les 33 créneaux calculés depuis 09:00-18:00
+      expect(res.days[0].slots).toHaveLength(1);
+    } finally {
+      delete process.env.AVAILABILITY_ENGINE_FORCE_OFF;
+    }
+  });
+});
+
+describe("checkSlotAvailability — pro NON migrée : pas d'enforcement des horaires", () => {
+  it("un créneau hors working_hours n'est PAS refusé outside_hours si la pro n'est pas migrée", async () => {
+    installFixture({ pro: { uses_availability_engine: false }, workingHours: MON_9_18 });
+    const r = await checkSlotAvailability({
+      proId: 1,
+      serviceIds: [10],
+      timezone: "Europe/Paris",
+      requestedByRole: "public",
+      now: new Date("2026-09-01T08:00:00.000Z"),
+      startDatetime: "2026-09-07T20:00:00.000Z", // 22:00 Paris, hors 09-18
+    });
+    expect(r.available).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("validateWorkingHoursPayload", () => {
+  it("accepte des plages valides (plusieurs par jour, triées ou non)", () => {
+    expect(() =>
+      validateWorkingHoursPayload([
+        { weekday: 1, ranges: [{ start_time: "13:30", end_time: "18:00" }, { start_time: "09:00", end_time: "12:30" }] },
+        { weekday: 3, ranges: [] },
+      ])
+    ).not.toThrow();
+  });
+
+  it("rejette end_time <= start_time", () => {
+    expect(() =>
+      validateWorkingHoursPayload([{ weekday: 1, ranges: [{ start_time: "18:00", end_time: "09:00" }] }])
+    ).toThrow(/finir après/);
+  });
+
+  it("rejette deux plages qui se chevauchent le même jour", () => {
+    expect(() =>
+      validateWorkingHoursPayload([
+        { weekday: 2, ranges: [{ start_time: "09:00", end_time: "13:00" }, { start_time: "12:00", end_time: "18:00" }] },
+      ])
+    ).toThrow(/chevauchent/);
+  });
+
+  it("rejette un format d'heure invalide", () => {
+    expect(() =>
+      validateWorkingHoursPayload([{ weekday: 1, ranges: [{ start_time: "9h", end_time: "18:00" }] }])
+    ).toThrow(/HH:MM/);
+  });
+
+  it("rejette un weekday hors 0-6 ou en double", () => {
+    expect(() => validateWorkingHoursPayload([{ weekday: 7, ranges: [] }])).toThrow();
+    expect(() =>
+      validateWorkingHoursPayload([{ weekday: 1, ranges: [] }, { weekday: 1, ranges: [] }])
+    ).toThrow(/double/);
   });
 });
 

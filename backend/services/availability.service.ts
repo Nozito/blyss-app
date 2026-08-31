@@ -28,6 +28,15 @@ export const DEFAULT_HORIZON_DAYS = 60;
 export const DEFAULT_SLOT_STEP_MINUTES = 15;
 export const DEFAULT_TIMEZONE = "Europe/Paris";
 
+/**
+ * Kill-switch global (chantier 4) : force TOUTES les pros à se comporter comme
+ * "non migrées" (getAvailability lit les slots précréés), sans toucher au flag
+ * `users.uses_availability_engine`. Rollback d'urgence sans migration.
+ */
+export function isAvailabilityEngineForcedOff(): boolean {
+  return process.env.AVAILABILITY_ENGINE_FORCE_OFF === "true";
+}
+
 export type RequestedByRole = "public" | "pro";
 
 export type UnavailableReason =
@@ -138,6 +147,8 @@ interface BlockedReservationRow {
 
 interface ProContext {
   timezone: string;
+  /** false ⇒ pro non migrée : getAvailability lit les slots précréés (adaptateur). */
+  engineEnabled: boolean;
   services: Array<{
     id: number;
     duration_minutes: number;
@@ -172,7 +183,8 @@ async function loadProContext(
       ? "AND pro_status = 'active' AND is_active = TRUE AND (profile_visibility = 'public' OR profile_visibility IS NULL)"
       : "";
   const [proRows] = await db.query(
-    `SELECT id, timezone, default_booking_lead_time_minutes, default_booking_horizon_days
+    `SELECT id, timezone, default_booking_lead_time_minutes, default_booking_horizon_days,
+            uses_availability_engine
      FROM users WHERE id = ? AND role = 'pro' ${publicGate}`,
     [proId]
   );
@@ -180,6 +192,7 @@ async function loadProContext(
   if (!pro) {
     throw new AvailabilityError(404, "Professionnel introuvable", "PRO_NOT_FOUND");
   }
+  const engineEnabled = Boolean(pro.uses_availability_engine) && !isAvailabilityEngineForcedOff();
 
   const placeholders = serviceIds.map(() => "?").join(", ");
   const [serviceRows] = await db.query(
@@ -214,6 +227,7 @@ async function loadProContext(
 
   return {
     timezone: timezoneOverride || pro.timezone || DEFAULT_TIMEZONE,
+    engineEnabled,
     services: orderedServices,
     defaultLeadTimeMinutes: pro.default_booking_lead_time_minutes ?? null,
     defaultHorizonDays: pro.default_booking_horizon_days ?? null,
@@ -435,6 +449,13 @@ export async function getAvailability(input: GetAvailabilityInput): Promise<Avai
   const blocking = resolveServiceBlocking(ctx.services);
   const limits = resolveEffectiveLimits(ctx);
 
+  // Pro non migrée (chantier 4) : on ne calcule pas depuis working_hours, on
+  // expose les créneaux `slots` précréés via un adaptateur — même contrat de
+  // réponse, `NewAppointmentSheet` et le flow client fonctionnent à l'identique.
+  if (!ctx.engineEnabled) {
+    return getAvailabilityFromSlots(input, ctx, blocking, now);
+  }
+
   const { unavailabilities, blockedReservations } = await loadBlockingInputs(
     input.proId,
     tz,
@@ -506,6 +527,98 @@ export async function getAvailability(input: GetAvailabilityInput): Promise<Avai
   };
 }
 
+// ── Adaptateur legacy : slots précréés → AvailabilityResponse ──────────────
+
+/**
+ * Pro non migrée (chantier 4) : les créneaux réservables sont les lignes
+ * `slots` (status='available', futures), moins celles qui chevauchent une
+ * réservation bloquante ou une indisponibilité. On préserve la sémantique
+ * legacy : un slot EST un créneau réservable, sa durée est celle du slot.
+ */
+async function getAvailabilityFromSlots(
+  input: GetAvailabilityInput,
+  ctx: ProContext,
+  blocking: ServiceBlocking,
+  now: Date
+): Promise<AvailabilityResponse> {
+  const tz = ctx.timezone;
+  const limits = resolveEffectiveLimits(ctx);
+  const nowDt = DateTime.fromJSDate(now, { zone: tz });
+  const earliestStart =
+    input.requestedByRole === "public" ? nowDt.plus({ minutes: limits.leadTimeMinutes }) : nowDt;
+  const latestStart =
+    input.requestedByRole === "public" ? nowDt.plus({ days: limits.horizonDays }) : nowDt.plus({ years: 2 });
+
+  const [slotRows] = await db.query(
+    `SELECT TO_CHAR(start_datetime AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS start,
+            TO_CHAR(end_datetime   AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS "end"
+     FROM slots
+     WHERE pro_id = ?
+       AND status = 'available'
+       AND start_datetime >= ?::date
+       AND start_datetime <  (?::date + INTERVAL '1 day')
+       AND start_datetime > NOW()
+     ORDER BY start_datetime`,
+    [input.proId, input.fromDate, input.toDate]
+  );
+
+  const { unavailabilities, blockedReservations } = await loadBlockingInputs(
+    input.proId,
+    tz,
+    input.fromDate,
+    input.toDate
+  );
+
+  const blockers: Interval<boolean>[] = [];
+  for (const r of blockedReservations) {
+    const itv = Interval.fromDateTimes(toDT(r.blocked_start_datetime, tz), toDT(r.blocked_end_datetime, tz));
+    if (itv.isValid) blockers.push(itv);
+  }
+  for (const u of unavailabilities) {
+    if (u.start_time && u.end_time) {
+      const day = DateTime.fromISO(u.start_date, { zone: tz }).startOf("day");
+      const s = parseHms(u.start_time);
+      const e = parseHms(u.end_time);
+      const itv = Interval.fromDateTimes(day.set({ hour: s.hour, minute: s.minute }), day.set({ hour: e.hour, minute: e.minute }));
+      if (itv.isValid) blockers.push(itv);
+    } else {
+      const itv = Interval.fromDateTimes(
+        DateTime.fromISO(u.start_date, { zone: tz }).startOf("day"),
+        DateTime.fromISO(u.end_date, { zone: tz }).plus({ days: 1 }).startOf("day")
+      );
+      if (itv.isValid) blockers.push(itv);
+    }
+  }
+
+  const byDate = new Map<string, AvailabilitySlot[]>();
+  for (const row of slotRows as { start: string; end: string }[]) {
+    const startDt = DateTime.fromISO(row.start, { zone: tz });
+    const endDt = DateTime.fromISO(row.end, { zone: tz });
+    if (!startDt.isValid || !endDt.isValid) continue;
+    if (startDt < earliestStart || startDt > latestStart) continue;
+    const slotItv = Interval.fromDateTimes(startDt, endDt);
+    if (blockers.some((b) => b.overlaps(slotItv))) continue;
+    const isoDate = startDt.toISODate()!;
+    if (!byDate.has(isoDate)) byDate.set(isoDate, []);
+    byDate.get(isoDate)!.push({ start: startDt.toUTC().toISO()!, end: endDt.toUTC().toISO()! });
+  }
+
+  const days: AvailabilityResponse["days"] = [];
+  let d = DateTime.fromISO(input.fromDate, { zone: tz }).startOf("day");
+  const last = DateTime.fromISO(input.toDate, { zone: tz }).startOf("day");
+  for (; d <= last; d = d.plus({ days: 1 })) {
+    const isoDate = d.toISODate()!;
+    days.push({ date: isoDate, slots: byDate.get(isoDate) ?? [] });
+  }
+
+  return {
+    timezone: tz,
+    requested_duration_minutes: blocking.serviceDurationMinutes,
+    total_blocked_minutes: blocking.totalBlockedMinutes,
+    days,
+  };
+}
+
 // ── API publique : checkSlotAvailability ───────────────────────────────────
 
 export async function checkSlotAvailability(input: CheckSlotInput): Promise<CheckSlotResult> {
@@ -560,11 +673,10 @@ export async function checkSlotAvailability(input: CheckSlotInput): Promise<Chec
   const blockedItv = Interval.fromDateTimes(blockedStartDt, blockedEndDt);
 
   // 2. Horaires d'ouverture (working_hours seulement, sans les autres soustractions).
-  // Rétrocompatibilité bascule : tant qu'une pro n'a pas configuré ses
-  // working_hours, on N'ENFORCE PAS les horaires (comportement legacy : seul le
-  // chevauchement d'un autre RDV bloque). Sans ce garde-fou, tout RDV serait
-  // refusé "outside_hours" pour les pros pas encore migrées.
-  if (ctx.workingHours.length > 0) {
+  // On N'ENFORCE PAS les horaires si : la pro n'est pas migrée (chantier 4,
+  // modèle slots précréés), OU elle n'a pas encore configuré de working_hours.
+  // Sinon tout RDV serait refusé "outside_hours".
+  if (ctx.engineEnabled && ctx.workingHours.length > 0) {
     const openOnly = computeFreeBlocks({
       timezone: tz,
       fromDate: dayIso,
@@ -654,4 +766,127 @@ export async function findAlternativeSlots(params: {
     });
     return [];
   }
+}
+
+// ── Working hours — CRUD (chantier 4) ─────────────────────────────────────
+
+export interface WorkingHoursRange {
+  start_time: string; // "HH:MM"
+  end_time: string; // "HH:MM"
+}
+export interface WorkingHoursDay {
+  weekday: number; // 0 = dimanche … 6 = samedi
+  ranges: WorkingHoursRange[];
+}
+
+const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function toMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+/** Valide la charge utile d'un PUT working-hours (miroir serveur du contrôle mobile). */
+export function validateWorkingHoursPayload(days: WorkingHoursDay[]): void {
+  if (!Array.isArray(days)) {
+    throw new AvailabilityError(422, "Format invalide", "INVALID_INPUT");
+  }
+  const seenWeekdays = new Set<number>();
+  for (const day of days) {
+    if (!Number.isInteger(day.weekday) || day.weekday < 0 || day.weekday > 6) {
+      throw new AvailabilityError(422, "Jour de semaine invalide", "INVALID_INPUT");
+    }
+    if (seenWeekdays.has(day.weekday)) {
+      throw new AvailabilityError(422, "Jour de semaine en double", "INVALID_INPUT");
+    }
+    seenWeekdays.add(day.weekday);
+
+    const ranges = Array.isArray(day.ranges) ? day.ranges : [];
+    const sorted = [...ranges].sort((a, b) => toMinutes(a.start_time) - toMinutes(b.start_time));
+    for (let i = 0; i < sorted.length; i++) {
+      const r = sorted[i];
+      if (!HHMM_RE.test(r.start_time) || !HHMM_RE.test(r.end_time)) {
+        throw new AvailabilityError(422, "Heure invalide (attendu HH:MM)", "INVALID_INPUT");
+      }
+      if (toMinutes(r.end_time) <= toMinutes(r.start_time)) {
+        throw new AvailabilityError(422, "Une plage doit finir après son début", "INVALID_RANGE");
+      }
+      if (i > 0 && toMinutes(r.start_time) < toMinutes(sorted[i - 1].end_time)) {
+        throw new AvailabilityError(422, "Deux plages du même jour se chevauchent", "OVERLAPPING_RANGES");
+      }
+    }
+  }
+}
+
+export async function getWorkingHours(proId: number): Promise<{ days: WorkingHoursDay[] }> {
+  const [rows] = await db.query(
+    `SELECT id, weekday,
+            TO_CHAR(start_time, 'HH24:MI') AS start_time,
+            TO_CHAR(end_time, 'HH24:MI')   AS end_time
+     FROM working_hours WHERE pro_id = ? ORDER BY weekday, start_time`,
+    [proId]
+  );
+  const byDay = new Map<number, WorkingHoursRange[]>();
+  for (const r of rows as { id: number; weekday: number; start_time: string; end_time: string }[]) {
+    if (!byDay.has(r.weekday)) byDay.set(r.weekday, []);
+    byDay.get(r.weekday)!.push({ start_time: r.start_time, end_time: r.end_time });
+  }
+  const days: WorkingHoursDay[] = [];
+  for (let wd = 0; wd <= 6; wd++) days.push({ weekday: wd, ranges: byDay.get(wd) ?? [] });
+  return { days };
+}
+
+/**
+ * Remplace TOUTES les plages de la pro (DELETE + INSERT transactionnel).
+ * À la première sauvegarde non vide, bascule `uses_availability_engine = true`
+ * et renvoie `{ migrated: true }`.
+ */
+export async function setWorkingHours(
+  proId: number,
+  days: WorkingHoursDay[]
+): Promise<{ migrated: boolean }> {
+  validateWorkingHoursPayload(days);
+
+  const hasAnyRange = days.some((d) => (d.ranges?.length ?? 0) > 0);
+
+  const connection = (await db.getConnection()) as unknown as {
+    beginTransaction: () => Promise<unknown>;
+    commit: () => Promise<unknown>;
+    rollback: () => Promise<unknown>;
+    release: () => unknown;
+    query: (sql: string, params?: any[]) => Promise<[any[], any[]]>;
+  };
+  let migrated = false;
+  try {
+    await connection.beginTransaction();
+
+    await connection.query(`DELETE FROM working_hours WHERE pro_id = ?`, [proId]);
+    for (const day of days) {
+      for (const r of day.ranges ?? []) {
+        await connection.query(
+          `INSERT INTO working_hours (pro_id, weekday, start_time, end_time) VALUES (?, ?, ?, ?)`,
+          [proId, day.weekday, r.start_time, r.end_time]
+        );
+      }
+    }
+
+    if (hasAnyRange) {
+      const [flagRows] = await connection.query(
+        `UPDATE users SET uses_availability_engine = TRUE
+         WHERE id = ? AND uses_availability_engine = FALSE
+         RETURNING id`,
+        [proId]
+      );
+      migrated = (flagRows as any[]).length > 0;
+    }
+
+    await connection.commit();
+  } catch (err) {
+    await connection.rollback().catch(() => {});
+    throw err;
+  } finally {
+    connection.release();
+  }
+
+  return { migrated };
 }
