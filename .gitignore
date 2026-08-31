@@ -68,3 +68,4 @@ codeql-results.sarif
 
 # Load-test raw output dumps — large generated artifacts, not source
 loadtest/results/
+backend/migration-snapshots/
