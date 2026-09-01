@@ -4732,8 +4732,22 @@ app.put(
  * migrée (uses_availability_engine), c'est une erreur (410) : ses créneaux
  * découlent des working_hours. Pour une pro legacy, on laisse passer mais on
  * marque la réponse (header Deprecation + log) le temps de la bascule.
+ *
+ * SLOTS_HARD_DEPRECATION=true (à activer une fois toutes les pros basculées) :
+ * 410 pour TOUT LE MONDE, la route est alors morte côté serveur avant sa
+ * suppression complète en 4.6b.
  */
+const SLOTS_HARD_DEPRECATION = process.env.SLOTS_HARD_DEPRECATION === "true";
+
 async function guardLegacySlotWrite(proId: number, res: Response): Promise<boolean> {
+  if (SLOTS_HARD_DEPRECATION) {
+    res.status(410).json({
+      success: false,
+      error: "SLOTS_DEPRECATED",
+      message: "Les créneaux précréés ne sont plus utilisés — gère tes disponibilités via tes horaires d'ouverture.",
+    });
+    return false;
+  }
   const [rows] = await db.query(`SELECT uses_availability_engine FROM users WHERE id = ?`, [proId]);
   if ((rows as any[])[0]?.uses_availability_engine) {
     res.status(410).json({
@@ -4851,6 +4865,7 @@ app.patch(
     let connection;
     try {
       const proId = getProId(req);
+      if (!(await guardLegacySlotWrite(proId, res))) return;
       const slotId = parseInt(String(req.params.id));
       const { status, date, time, duration } = req.body;
 

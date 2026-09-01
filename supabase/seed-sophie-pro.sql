@@ -73,6 +73,14 @@ DECLARE
 
   extra_slots int;
   slot_hour int;
+
+  -- Chantier 4.6 — évite les chevauchements de réservations sur une même
+  -- journée (la contrainte reservations_no_overlap interdit tout recouvrement
+  -- des plages bloquées confirmed/pending d'une même pro, buffer inclus).
+  day_ranges tstzrange[];
+  cand_range tstzrange;
+  retry int;
+  overlaps boolean;
 BEGIN
   -- ── 1. Compte pro "Sophie" ────────────────────────────────────────────────
   INSERT INTO users (
@@ -156,6 +164,8 @@ BEGIN
     END IF;
     IF is_today THEN day_count := GREATEST(day_count, 4); END IF;
 
+    day_ranges := '{}';  -- réservations déjà posées ce jour (anti-chevauchement)
+
     FOR i IN 1..day_count LOOP
       pres_idx := 1 + floor(random()*array_length(prestation_ids,1))::int;
       chosen_prestation_id := prestation_ids[pres_idx];
@@ -163,10 +173,22 @@ BEGIN
       chosen_duration := prestation_durations[pres_idx];
       client_id_var := weighted_pool[1+floor(random()*array_length(weighted_pool,1))::int];
 
-      hour_v := 9 + floor(random()*8)::int; -- 9h-16h
-      minute_v := (ARRAY[0,15,30,45])[1+floor(random()*4)::int];
-      start_dt := d + (hour_v::text || ' hours')::interval + (minute_v::text || ' minutes')::interval;
-      end_dt := start_dt + (chosen_duration::text || ' minutes')::interval;
+      -- Cherche un créneau libre dans la journée (buffer after de 10 min inclus,
+      -- cf. prestations.buffer_after_minutes). Si la journée est saturée après
+      -- 25 tentatives, on abandonne cette réservation.
+      overlaps := TRUE;
+      FOR retry IN 1..25 LOOP
+        hour_v := 9 + floor(random()*8)::int; -- 9h-16h
+        minute_v := (ARRAY[0,15,30,45])[1+floor(random()*4)::int];
+        start_dt := d + (hour_v::text || ' hours')::interval + (minute_v::text || ' minutes')::interval;
+        end_dt := start_dt + (chosen_duration::text || ' minutes')::interval;
+        cand_range := tstzrange(start_dt, end_dt + INTERVAL '10 minutes');
+        SELECT COALESCE(bool_or(r && cand_range), FALSE) INTO overlaps
+        FROM unnest(day_ranges) AS r;
+        EXIT WHEN NOT overlaps;
+      END LOOP;
+      IF overlaps THEN CONTINUE; END IF;
+      day_ranges := day_ranges || cand_range;
 
       IF is_future THEN
         status_v := CASE WHEN random() < 0.75 THEN 'confirmed' ELSE 'pending' END;
