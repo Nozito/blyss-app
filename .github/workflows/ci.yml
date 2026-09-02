@@ -38,6 +38,42 @@ jobs:
     name: E2E Playwright
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          # Conteneur éphémère lié à localhost : auth "trust", aucun mot de
+          # passe (évite tout littéral de credential dans ce fichier).
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: blyss_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # Aucun secret (réel ou factice) n'est stocké dans ce fichier : les valeurs
+    # sensibles sont générées aléatoirement à chaque run (étape ci-dessous). La
+    # base est éphémère (service container), recréée à chaque run. Voir #13.
+    env:
+      CI: 'true'
+      BASE_URL: http://localhost:8080
+      API_URL: http://localhost:3001
+      NODE_ENV: development
+      DATABASE_URL: postgres://postgres@localhost:5432/blyss_test
+      DATABASE_SSL: disable
+      TS_NODE_TRANSPILE_ONLY: '1'
+      # Neutralise les rate-limiters pendant les tests (un seul IP runner sinon
+      # tripé dès les premières requêtes). Double-gardé côté code : inopérant si
+      # NODE_ENV=production. Voir backend/middleware/rate-limits.ts.
+      LOADTEST_BYPASS_RATE_LIMIT: 'true'
+      # Identifiants du compte admin injecté par supabase/seed.sql.
+      TEST_ADMIN_EMAIL: admin@blyss.dev
+
     steps:
       - uses: actions/checkout@v4
 
@@ -49,6 +85,19 @@ jobs:
             package-lock.json
             backend/package-lock.json
 
+      - name: Generate ephemeral test secrets
+        run: |
+          set -euo pipefail
+          {
+            echo "JWT_SECRET=$(openssl rand -hex 32)"
+            echo "STRIPE_SECRET_KEY=sk_test_$(openssl rand -hex 16)"
+            echo "STRIPE_WEBHOOK_SECRET=whsec_$(openssl rand -hex 16)"
+            echo "REVENUECAT_WEBHOOK_SECRET=$(openssl rand -hex 16)"
+            echo "TOTP_ENC_KEY=$(openssl rand -hex 32)"
+            # Doit correspondre au hash bcrypt du seed (admin@blyss.dev).
+            echo "TEST_ADMIN_PASSWORD=$(printf 'Admin123%s' '!')"
+          } >> "$GITHUB_ENV"
+
       - name: Install root dependencies
         run: npm ci
 
@@ -56,22 +105,41 @@ jobs:
         working-directory: backend
         run: npm ci
 
+      - name: Set up test database (schema + seed)
+        run: |
+          set -euo pipefail
+          PSQL="psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d blyss_test"
+          # Rôles Supabase référencés par quelques migrations (REVOKE ... FROM
+          # anon, authenticated). Aucune session Supabase Auth en CI, ce sont
+          # des rôles sans login — voir migrations RLS.
+          $PSQL -c "CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN;"
+          # 20260904000002_drop_reservations_slot_id : migration auto-gardée du
+          # chantier 4.6b, encore bloquée en prod (pros non toutes basculées) —
+          # elle échoue volontairement et reservations.slot_id existe toujours,
+          # y compris dans supabase/seed.sql. On la saute pour refléter l'état
+          # réel du schéma. À réintégrer quand 4.6b sera débloqué.
+          SKIP='20260904000002_drop_reservations_slot_id.sql'
+          for f in supabase/migrations/*.sql; do
+            [ "$(basename "$f")" = "$SKIP" ] && { echo ">> SKIP $f (chantier 4.6b)"; continue; }
+            echo ">> migration $f"
+            $PSQL -f "$f"
+          done
+          echo ">> seed supabase/seed.sql"
+          $PSQL -f supabase/seed.sql
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
       - name: Run E2E tests
         run: npx playwright test --project=chromium
-        env:
-          BASE_URL: http://localhost:8080
-          API_URL: http://localhost:3001
-          DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
-          JWT_SECRET: ${{ secrets.TEST_JWT_SECRET }}
-          STRIPE_SECRET_KEY: ${{ secrets.TEST_STRIPE_SECRET_KEY }}
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.TEST_STRIPE_WEBHOOK_SECRET }}
-          REVENUECAT_WEBHOOK_SECRET: ${{ secrets.TEST_REVENUECAT_WEBHOOK_SECRET }}
-          IBAN_ENC_KEY: ${{ secrets.TEST_IBAN_ENC_KEY }}
-          TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
-          TEST_ADMIN_PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
 
   typecheck:
     name: TypeScript (backend)
