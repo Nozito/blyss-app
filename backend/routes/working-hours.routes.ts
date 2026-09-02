@@ -10,6 +10,7 @@
 
 import express, { Response } from "express";
 import { getProId } from "../lib/helpers";
+import { validate, workingHoursSchema } from "../middleware/validate";
 import { AvailabilityError, getWorkingHours, setWorkingHours } from "../services/availability.service";
 import type { AuthenticatedRequest } from "../lib/types";
 
@@ -33,9 +34,9 @@ router.get("/pro/working-hours", async (req: AuthenticatedRequest, res: Response
   }
 });
 
-router.put("/pro/working-hours", async (req: AuthenticatedRequest, res: Response) => {
+router.put("/pro/working-hours", validate(workingHoursSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { days } = req.body ?? {};
+    const { days } = req.body;
     const result = await setWorkingHours(getProId(req), days);
     res.json({ success: true, data: result });
   } catch (err) {

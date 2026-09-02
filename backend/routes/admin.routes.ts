@@ -37,6 +37,7 @@ import { logAdminAction } from "../lib/audit";
 import { AuthenticatedRequest } from "../lib/types";
 import { parseParamToInt } from "../lib/helpers";
 import { runReminderCycle } from "../lib/reminders";
+import { log } from "../lib/logger";
 
 const router = express.Router();
 
@@ -1614,14 +1615,15 @@ router.post(
           : target === "clients" ? "WHERE role = 'client' AND is_active = TRUE"
           : "WHERE is_active = TRUE";
         const sql = `SELECT id FROM users ${whereClause}`;
-        console.log("[push] query:", sql);
         const [rows] = await db.query(sql);
         userIds = (rows as any[]).map((r: any) => r.id);
-        console.log("[push] userIds found:", userIds.length, "target:", target);
+        // `target` vient de req.body : passé en contexte structuré (JSON-encodé
+        // + scrub) et non concaténé dans la ligne de log — anti log-injection.
+        log.warn("POST /admin/notifications/send", "push recipients resolved", { target, count: userIds.length });
       }
 
       if (userIds.length === 0) {
-        console.warn("[push] No active users found for target:", target);
+        log.warn("POST /admin/notifications/send", "push: no active users", { target });
         return res.json({ success: true, data: { sent: 0 } });
       }
 

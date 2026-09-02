@@ -1,6 +1,7 @@
 import { Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { AuthenticatedRequest } from "../lib/types";
+import { jwtVerifyOpts } from "../lib/tokens";
 
 export function authMiddleware(
   req: AuthenticatedRequest,
@@ -21,7 +22,7 @@ export function authMiddleware(
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!, jwtVerifyOpts) as {
       id: number;
       purpose?: string;
     };

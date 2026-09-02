@@ -28,11 +28,10 @@ if (process.env.SENTRY_DSN) {
 import express, { Request, Response, NextFunction, Router } from "express";
 import cors from "cors";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
 import bcrypt from "bcrypt";
 import { getDb, DbTimeoutError } from "./lib/db";
-import { formatRdvWhen, formatRdvDate, formatRdvTime, formatEuros } from "./lib/notifyDate";
+import { formatRdvWhen, formatEuros } from "./lib/notifyDate";
 import dotenv from "dotenv";
 import multer, { FileFilterCallback } from "multer";
 import path from "path";
@@ -45,8 +44,7 @@ const UPLOADS_DIR = path.resolve(
   ["production", "staging"].includes(process.env.NODE_ENV ?? "") ? "../uploads" : "uploads"
 );
 import sharp from "sharp";
-import { sendPushToUser } from "./lib/push";
-import { startReminderCron, runReminderCycle } from "./lib/reminders";
+import { startReminderCron } from "./lib/reminders";
 import { geocodeCity, haversineKm, jitterCoords } from "./lib/geocoding";
 import { startDataRetentionCron } from "./cron/data-retention";
 import { startPaymentCleanupCron } from "./cron/payment-cleanup";
@@ -74,9 +72,9 @@ import {
   connectedClients,
   sendUnreadNotifications,
   sendNotificationToUser,
-  broadcastNotification,
 } from "./lib/notifications";
 import { authMiddleware, authenticateToken } from "./middleware/auth";
+import { jwtVerifyOpts } from "./lib/tokens";
 import {
   bookingLimiter,
   paymentIntentLimiter,
@@ -95,7 +93,7 @@ import rescheduleRouter from "./routes/reschedule.routes";
 import workingHoursRouter from "./routes/working-hours.routes";
 import { createRescheduleRequest, RescheduleServiceError } from "./services/reschedule.service";
 import { createReservation, ReservationServiceError } from "./services/reservation.service";
-import { getAvailability, checkSlotAvailability, AvailabilityError } from "./services/availability.service";
+import { getAvailability, AvailabilityError } from "./services/availability.service";
 import messagesRouter from "./routes/messages.routes";
 import { getTopServices, getRevenueStats } from "./lib/finance";
 
@@ -500,8 +498,9 @@ async function requireProAccess(req: AuthenticatedRequest, res: Response, next: 
     return;
   }
 
-  // Admins passent toujours
-  if (user.is_admin === 1) return next();
+  // Admins passent toujours. `is_admin` remonte en booléen pg (TRUE/FALSE) :
+  // un test `=== 1` était toujours faux (fail-safe mais incohérent).
+  if (user.is_admin) return next();
 
   // Doit être un pro
   if (user.role !== "pro") {
@@ -556,7 +555,6 @@ interface WebSocketMessage {
 // ✅ Configuration des timeouts
 const AUTH_TIMEOUT = 10000; // 10 secondes pour s'authentifier
 const HEARTBEAT_INTERVAL = 30000; // 30 secondes
-const HEARTBEAT_TIMEOUT = 35000; // 35 secondes
 
 // ✅ Interface pour le WebSocket avec métadonnées
 interface AuthenticatedWebSocket extends WebSocket {
@@ -580,7 +578,7 @@ function parseCookies(cookieHeader: string): Record<string, string> {
 // Helper: authenticate a WS client and flush unread notifications
 async function wsAuthenticate(ws: AuthenticatedWebSocket, token: string): Promise<boolean> {
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number };
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!, jwtVerifyOpts) as { id: number };
     ws.userId = decoded.id;
     ws.isAuthenticated = true;
     if (ws.authTimeout) {
@@ -6634,7 +6632,7 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
     // autorité, un slot non marqué ne recrée pas de double-booking.
     if (slot_id) {
       db.query(`UPDATE slots SET status = 'booked' WHERE id = ? AND status = 'available'`, [slot_id]).catch(
-        (e) => log.warn("[RESERVATION_CREATE]", "legacy slot mark failed (non-fatal)", { slot_id })
+        () => log.warn("[RESERVATION_CREATE]", "legacy slot mark failed (non-fatal)", { slot_id })
       );
     }
 

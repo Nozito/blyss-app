@@ -361,6 +361,17 @@ describe("validateWorkingHoursPayload", () => {
       validateWorkingHoursPayload([{ weekday: 1, ranges: [] }, { weekday: 1, ranges: [] }])
     ).toThrow(/double/);
   });
+
+  it("rejette proprement (AvailabilityError 422) un start_time absent au lieu de planter le tri (L4)", () => {
+    expect(() =>
+      // @ts-expect-error — payload malformé volontaire
+      validateWorkingHoursPayload([{ weekday: 1, ranges: [{ end_time: "18:00" }] }])
+    ).toThrow(/HH:MM/);
+    expect(() =>
+      // @ts-expect-error — start_time non-string
+      validateWorkingHoursPayload([{ weekday: 1, ranges: [{ start_time: 900, end_time: "18:00" }] }])
+    ).toThrow(/HH:MM/);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

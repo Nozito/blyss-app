@@ -94,6 +94,22 @@ export const bookingLimiter = rateLimit({
   },
 });
 
+// 30 actions de report (accept/decline/get) par 15 min par IP. Ces routes
+// sont authentifiées et re-vérifient l'ownership, mais restent des écritures
+// d'état sur une réservation — un limiter ferme le brute-force / spam d'IDs.
+export const rescheduleLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  skip: loadtestBypass,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de requêtes, réessayez dans 15 minutes.",
+  },
+});
+
 // 10 payment intents par 15 min par IP
 export const paymentIntentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
