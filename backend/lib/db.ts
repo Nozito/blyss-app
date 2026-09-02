@@ -13,6 +13,13 @@ export class DbTimeoutError extends Error {
 const PG_QUERY_TIMEOUT_MS = 5000;
 const MGMT_QUERY_TIMEOUT_MS = 30000;
 
+// Config SSL du pool pg. Par défaut : TLS actif, validation CA désactivée
+// (le pooler Supabase présente un certificat AWS intermédiaire absent du trust
+// store Node). DATABASE_SSL=disable coupe complètement TLS — nécessaire face à
+// un Postgres local/CI (service container GitHub Actions) qui n'expose pas SSL.
+const PG_SSL: false | { rejectUnauthorized: boolean } =
+  process.env.DATABASE_SSL === "disable" ? false : { rejectUnauthorized: false };
+
 // ── Mode de connexion ────────────────────────────────────────────────────────
 // "pg"         : connexion TCP directe via node-postgres (pool)
 // "management" : fallback HTTP via Supabase Management API (si pg inaccessible)
@@ -76,10 +83,9 @@ function getPool(): Pool {
     if (!url) throw new Error("DATABASE_URL manquante");
     _pool = new Pool({
       connectionString: url,
-      // rejectUnauthorized: false requis même en prod — le pooler Supabase utilise
-    // un certificat AWS intermédiaire absent du trust store Node.js par défaut.
-    // Le chiffrement TLS reste actif (ssl: { ... }), seule la validation CA est désactivée.
-    ssl: { rejectUnauthorized: false },
+      // Voir PG_SSL : TLS + CA non validée en prod (pooler Supabase), ou
+      // désactivé si DATABASE_SSL=disable (Postgres local/CI sans SSL).
+      ssl: PG_SSL,
       connectionTimeoutMillis: 10000,
       idleTimeoutMillis: 30000,
       // Sans ceci, node-postgres retombe sur son défaut (10) — largement
@@ -136,7 +142,7 @@ async function detectMode(): Promise<DbMode> {
   // Probe pool is dev-only (we already returned early for production above)
   const probe = new Pool({
     connectionString: url,
-    ssl: { rejectUnauthorized: false },
+    ssl: PG_SSL,
     connectionTimeoutMillis: 3000,
     max: 1,
   });
