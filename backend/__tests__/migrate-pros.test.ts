@@ -17,11 +17,40 @@ function makeDb(scan: any[], slotsByPro: Record<number, any[]> = {}, deleteCount
     if (sql.includes("FROM slots WHERE pro_id")) return [slotsByPro[params?.[0] as number] ?? [], []];
     return [[], []];
   });
-  const execute = vi.fn(async (sql: string, _params?: any[]) => {
-    if (sql.startsWith("DELETE FROM slots")) return [Array.from({ length: deleteCount }, (_, i) => ({ id: i })), []];
+
+  // La bascule (DELETE slots + UPDATE flag) passe désormais par une
+  // transaction dédiée via db.getConnection() — cxExecute porte donc les
+  // écritures, pas le `execute` de premier niveau.
+  const beginTransaction = vi.fn().mockResolvedValue(undefined);
+  const commit = vi.fn().mockResolvedValue(undefined);
+  const rollback = vi.fn().mockResolvedValue(undefined);
+  const release = vi.fn();
+  const cxExecute = vi.fn(async (sql: string, _params?: any[]) => {
+    if (sql.startsWith("DELETE FROM slots")) {
+      return [Array.from({ length: deleteCount }, (_, i) => ({ id: i })), []];
+    }
     return [[], []];
   });
-  return { db: { query, execute } as any, query, execute };
+  const getConnection = vi.fn().mockResolvedValue({
+    execute: cxExecute,
+    query: cxExecute,
+    beginTransaction,
+    commit,
+    rollback,
+    release,
+  });
+
+  return {
+    db: { query, execute: query, getConnection } as any,
+    query,
+    execute: cxExecute,
+    cxExecute,
+    beginTransaction,
+    commit,
+    rollback,
+    release,
+    getConnection,
+  };
 }
 
 let tmpDir: string;
@@ -95,6 +124,41 @@ describe("runMigration — --force-clear-open", () => {
 
     // snapshot écrit AVANT la suppression
     expect(fs.readdirSync(tmpDir).some((f) => f.includes("pro-11"))).toBe(true);
+  });
+});
+
+describe("runMigration — atomicité de la bascule (revue sécurité M2 / issue #11)", () => {
+  it("un échec de l'UPDATE flag après le DELETE slots déclenche un ROLLBACK et n'écrit pas la pro comme migrée", async () => {
+    const { db, cxExecute, commit, rollback } = makeDb(
+      [proWithHoursOpenSlots],
+      { 11: [{ id: 1, status: "available" }] },
+      1
+    );
+    // DELETE ok, puis UPDATE users échoue (ex. connexion coupée)
+    cxExecute.mockImplementation(async (sql: string) => {
+      if (sql.startsWith("DELETE FROM slots")) return [[{ id: 0 }], []];
+      if (sql.includes("uses_availability_engine = TRUE")) throw new Error("connection reset");
+      return [[], []];
+    });
+
+    const res = await runMigration(db, { snapshotDir: tmpDir, forceClearOpen: true, log: () => {} });
+
+    expect(res.migrated).toEqual([]);
+    expect(res.failed).toEqual([11]);
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("DELETE + UPDATE passent par une seule transaction (begin → … → commit)", async () => {
+    const { db, beginTransaction, commit, release } = makeDb(
+      [proWithHoursNoSlots],
+      { 10: [{ id: 1 }] }
+    );
+    await runMigration(db, { snapshotDir: tmpDir, log: () => {} });
+
+    expect(beginTransaction).toHaveBeenCalledTimes(1);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledTimes(1);
   });
 });
 

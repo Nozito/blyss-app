@@ -249,17 +249,56 @@ router.post(
         throw new CancellationWindowExpiredError(deadline);
       }
 
-      // ── 5. Annulation en base
-      await db.query(
-        `UPDATE reservations SET status = 'cancelled', cancelled_by = 'client' WHERE id = ?`,
-        [reservationId]
-      );
+      // ── 5. Annulation en base — UPDATE conditionné au statut, atomique
+      // Le `WHERE ... AND status IN ('confirmed','pending')` + `RETURNING id`
+      // fait de l'annulation une opération « qui gagne la course » : de deux
+      // requêtes cancel concurrentes (double-tap, retry réseau) ou d'un
+      // cancel client qui croise un passage `completed`/`cancelled` côté pro,
+      // une SEULE obtient une ligne en retour et exécute les effets de bord
+      // (libération du slot, remboursement, notifications). L'autre reçoit 0
+      // ligne → 409, sans re-notifier la pro ni relancer un remboursement.
+      //
+      // L'UPDATE réservation + la libération du slot sont dans une même
+      // transaction. Le remboursement Stripe reste HORS de cette transaction
+      // (appel réseau + `initiateClientCancellationRefunds` gère lui-même ses
+      // propres transactions par paiement, avec `FOR UPDATE` + garde
+      // `stripe_refund_id IS NULL` → déjà idempotent).
+      const cx = await db.getConnection();
+      let cancelled = false;
+      try {
+        await cx.beginTransaction();
 
-      if (reservation.slot_id !== null) {
-        await db.query(
-          `UPDATE slots SET status = 'available' WHERE id = ? AND status = 'booked'`,
-          [reservation.slot_id]
+        const [updRows] = await cx.query(
+          `UPDATE reservations
+             SET status = 'cancelled', cancelled_by = 'client'
+           WHERE id = ? AND status IN ('confirmed', 'pending')
+           RETURNING id`,
+          [reservationId]
         );
+        cancelled = (updRows as unknown[]).length > 0;
+
+        if (cancelled && reservation.slot_id !== null) {
+          await cx.query(
+            `UPDATE slots SET status = 'available' WHERE id = ? AND status = 'booked'`,
+            [reservation.slot_id]
+          );
+        }
+
+        await cx.commit();
+      } catch (txErr) {
+        await cx.rollback().catch(() => {});
+        throw txErr;
+      } finally {
+        cx.release();
+      }
+
+      if (!cancelled) {
+        res.status(409).json({
+          success: false,
+          error: "invalid_status",
+          message: "Cette réservation ne peut plus être annulée.",
+        });
+        return;
       }
 
       // ── Notifier la liste d'attente (best-effort) ─────────────────────────

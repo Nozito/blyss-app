@@ -226,4 +226,35 @@ describe("authenticateToken middleware", () => {
     // Le middleware laisse passer → code ≠ 401
     expect(res.status).not.toBe(401);
   });
+
+  // Régression revue sécurité H1 : le challenge 2FA (émis AVANT la vérification
+  // TOTP) est signé avec le même JWT_SECRET. Il ne doit JAMAIS être accepté
+  // comme un token d'accès, sinon la 2FA admin est entièrement contournable.
+  it("401 avec un challenge 2FA utilisé comme token d'accès", async () => {
+    const challengeToken = jwt.sign(
+      { id: 1, purpose: "2fa_challenge" },
+      JWT_SECRET,
+      { expiresIn: "5m" }
+    );
+
+    const res = await request(app)
+      .get("/api/auth/profile")
+      .set("Authorization", `Bearer ${challengeToken}`);
+
+    expect(res.status).toBe(401);
+  });
+
+  it("401 avec n'importe quel token portant un claim purpose", async () => {
+    const tokenWithPurpose = jwt.sign(
+      { id: 1, purpose: "anything" },
+      JWT_SECRET,
+      { expiresIn: "15m" }
+    );
+
+    const res = await request(app)
+      .get("/api/auth/profile")
+      .set("Authorization", `Bearer ${tokenWithPurpose}`);
+
+    expect(res.status).toBe(401);
+  });
 });

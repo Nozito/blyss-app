@@ -136,19 +136,35 @@ export async function runMigration(db: Db, opts: MigrateOptions = {}): Promise<M
         )
       );
 
+      // La suppression sèche des slots ouverts et la bascule du flag doivent
+      // être ATOMIQUES : un crash entre les deux laisserait la pro sans slots
+      // et toujours en mode legacy (invisible côté client). Même pattern
+      // transactionnel que cleanup-legacy-slots.ts.
       let openDeleted = 0;
-      if (opts.forceClearOpen && r.open_future_slots > 0) {
-        const [del] = (await db.execute(
-          `DELETE FROM slots WHERE pro_id = ? AND status = 'available' AND end_datetime > NOW() RETURNING id`,
-          [r.id]
-        )) as [unknown[], unknown];
-        openDeleted = (del as unknown[]).length;
-      }
+      const cx = await db.getConnection();
+      try {
+        await cx.beginTransaction();
 
-      await db.execute(
-        `UPDATE users SET uses_availability_engine = TRUE WHERE id = ? AND uses_availability_engine = FALSE`,
-        [r.id]
-      );
+        if (opts.forceClearOpen && r.open_future_slots > 0) {
+          const [del] = (await cx.execute(
+            `DELETE FROM slots WHERE pro_id = ? AND status = 'available' AND end_datetime > NOW() RETURNING id`,
+            [r.id]
+          )) as [unknown[], unknown];
+          openDeleted = (del as unknown[]).length;
+        }
+
+        await cx.execute(
+          `UPDATE users SET uses_availability_engine = TRUE WHERE id = ? AND uses_availability_engine = FALSE`,
+          [r.id]
+        );
+
+        await cx.commit();
+      } catch (err) {
+        await cx.rollback().catch(() => {});
+        throw err;
+      } finally {
+        cx.release();
+      }
 
       result.migrated.push(r.id);
       log(`✅ pro #${r.id} <${r.email}> — snapshot ${slotRows.length} slot(s)` +

@@ -122,7 +122,7 @@ describe("PUT /api/pro/working-hours", () => {
       .send({ days: validDays });
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ migrated: true });
+    expect(res.body.data).toEqual({ migrated: true, reverted: false });
 
     const calls = mockConn.query.mock.calls.map((c) => String(c[0]));
     expect(calls.some((s) => s.includes("DELETE FROM working_hours"))).toBe(true);
@@ -143,18 +143,45 @@ describe("PUT /api/pro/working-hours", () => {
       .send({ days: validDays });
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ migrated: false });
+    expect(res.body.data).toEqual({ migrated: false, reverted: false });
   });
 
-  it("payload vide (toutes plages retirées) : pas de bascule de flag", async () => {
+  // ── Revue sécurité M1 / issue #10 — pro migrée qui vide ses working_hours ──
+
+  it("pro migrée + plages vidées → repasse en mode legacy (reverted:true), dans la transaction", async () => {
+    mockConn.query.mockImplementation((sql: string) => {
+      // UPDATE ... uses_availability_engine = FALSE WHERE ... = TRUE → 1 ligne
+      if (sql.includes("uses_availability_engine = FALSE")) return Promise.resolve([[{ id: 7 }], []]);
+      return Promise.resolve([[], []]);
+    });
+
+    const res = await request(app)
+      .put("/api/pro/working-hours")
+      .set("Cookie", `access_token=${proToken(7)}`)
+      .send({ days: [{ weekday: 1, ranges: [] }, { weekday: 2, ranges: [] }] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ migrated: false, reverted: true });
+
+    const calls = mockConn.query.mock.calls.map((c) => String(c[0]));
+    expect(calls.some((s) => s.includes("DELETE FROM working_hours"))).toBe(true);
+    expect(calls.some((s) => /SET uses_availability_engine = FALSE/.test(s))).toBe(true);
+    // jamais de bascule vers TRUE quand il n'y a aucune plage
+    expect(calls.some((s) => /SET uses_availability_engine = TRUE/.test(s))).toBe(false);
+    expect(mockConn.commit).toHaveBeenCalled();
+    expect(mockConn.rollback).not.toHaveBeenCalled();
+  });
+
+  it("pro legacy + plages vidées → aucun changement de flag (reverted:false)", async () => {
+    // UPDATE ... WHERE uses_availability_engine = TRUE → 0 ligne (pro déjà legacy)
+    mockConn.query.mockResolvedValue([[], []]);
+
     const res = await request(app)
       .put("/api/pro/working-hours")
       .set("Cookie", `access_token=${proToken()}`)
       .send({ days: [{ weekday: 1, ranges: [] }] });
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ migrated: false });
-    const calls = mockConn.query.mock.calls.map((c) => String(c[0]));
-    expect(calls.some((s) => s.includes("UPDATE users SET uses_availability_engine"))).toBe(false);
+    expect(res.body.data).toEqual({ migrated: false, reverted: false });
   });
 });

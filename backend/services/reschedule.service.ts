@@ -13,6 +13,11 @@ import { log } from "../lib/logger";
 import { sendNotificationToUser } from "../lib/notifications";
 import { formatRdvWhen } from "../lib/notifyDate";
 import { RESERVATION_LOCK_NS } from "../lib/locks";
+import {
+  checkSlotAvailability,
+  AvailabilityError,
+  type UnavailableReason,
+} from "./availability.service";
 
 const db = getDb();
 
@@ -25,6 +30,23 @@ export class RescheduleServiceError extends Error {
     public code?: string
   ) {
     super(message);
+  }
+}
+
+/** Message client selon le motif de refus renvoyé par le moteur de disponibilité. */
+function rescheduleUnavailableMessage(reason: UnavailableReason | undefined): string {
+  switch (reason) {
+    case "outside_hours":
+      return "Ce créneau est en dehors des horaires d'ouverture du professionnel.";
+    case "overlaps_unavailability":
+      return "Ce créneau chevauche une absence du professionnel.";
+    case "overlaps_reservation":
+      return "Ce créneau vient d'être réservé.";
+    case "before_lead_time":
+    case "after_horizon":
+      return "Ce créneau n'est plus réservable.";
+    default:
+      return "Ce créneau n'est plus disponible.";
   }
 }
 
@@ -212,39 +234,57 @@ export async function acceptRescheduleRequest({ requestId, clientId }: ClientAct
       throw new RescheduleServiceError(409, "Cette proposition n'est plus disponible");
     }
 
-    const [overlapRows] = await connection.query(
-      `SELECT r.id FROM reservations r
-       LEFT JOIN prestations prev_p ON prev_p.id = r.prestation_id
-       WHERE r.pro_id = ?
-         AND r.id != ?
-         AND r.status NOT IN ('cancelled', 'rejected')
-         AND r.start_datetime < ?
-         AND (r.end_datetime + COALESCE(prev_p.buffer_after_minutes, 0) * INTERVAL '1 minute') > ?`,
-      [request.pro_id, request.reservation_id, request.proposed_end_datetime, request.proposed_start_datetime]
-    );
-    if ((overlapRows as any[]).length > 0) {
-      await connection.query(`UPDATE reschedule_requests SET status = 'expired' WHERE id = ?`, [requestId]);
-      await connection.commit();
-      throw new RescheduleServiceError(409, "Ce créneau n'est plus disponible", SLOT_NO_LONGER_AVAILABLE);
+    // Re-check sous verrou avec le MOTEUR COMPLET (checkSlotAvailability) au
+    // lieu de l'ancienne requête de chevauchement maison, qui ignorait les
+    // absences (unavailabilities), les horaires d'ouverture et le
+    // buffer_before de la prestation proposée — et lisait start/end_datetime
+    // au lieu des colonnes d'autorité blocked_* (revue sécurité M3).
+    //
+    // Le verrou consultatif pris ci-dessus (RESERVATION_LOCK_NS, pro_id)
+    // sérialise les créations / reports concurrents de cette pro : toute
+    // écriture concurrente est bloquée sur ce verrou, l'état lu par
+    // checkSlotAvailability est donc stable jusqu'au COMMIT.
+    let availability;
+    try {
+      availability = await checkSlotAvailability({
+        proId: request.pro_id,
+        serviceIds: [request.proposed_prestation_id],
+        startDatetime: request.proposed_start_datetime,
+        excludeReservationId: request.reservation_id,
+        requestedByRole: "pro",
+      });
+    } catch (checkErr) {
+      if (checkErr instanceof AvailabilityError) {
+        throw new RescheduleServiceError(checkErr.status, checkErr.message, checkErr.code);
+      }
+      throw checkErr;
     }
 
-    // Le snapshot de calcul (blocked_start/end_datetime, buffers, durée) doit
-    // être RÉÉCRIT au nouveau créneau — sinon le moteur de disponibilité
-    // (availability.service.ts) continuerait de bloquer l'ancienne plage et de
-    // laisser la nouvelle libre. On fige les buffers de la prestation proposée
-    // au moment de l'acceptation (jamais recalculés ensuite).
-    const [prestaBufRows] = await connection.query(
-      `SELECT COALESCE(buffer_before_minutes, 0) AS bb, COALESCE(buffer_after_minutes, 0) AS ba
-       FROM prestations WHERE id = ?`,
-      [request.proposed_prestation_id]
-    );
-    const buf = (prestaBufRows as any[])[0] ?? { bb: 0, ba: 0 };
-    const proposedStartMs = new Date(request.proposed_start_datetime).getTime();
-    const proposedEndMs = new Date(request.proposed_end_datetime).getTime();
-    const visibleDurationMin = Math.max(1, Math.round((proposedEndMs - proposedStartMs) / 60000));
-    const blockedStart = new Date(proposedStartMs - buf.bb * 60000).toISOString();
-    const blockedEnd = new Date(proposedEndMs + buf.ba * 60000).toISOString();
+    if (!availability.available) {
+      await connection.query(
+        `UPDATE reschedule_requests SET status = 'expired' WHERE id = ? AND status = 'pending'`,
+        [requestId]
+      );
+      await connection.commit();
+      log.warn("[RESCHEDULE_ACCEPT]", "re-check moteur : créneau indisponible", {
+        requestId,
+        reservationId: request.reservation_id,
+        reason: availability.reason,
+      });
+      throw new RescheduleServiceError(
+        409,
+        rescheduleUnavailableMessage(availability.reason),
+        SLOT_NO_LONGER_AVAILABLE
+      );
+    }
 
+    // Snapshot de calcul (blocked_start/end_datetime, buffers, durée) réécrit
+    // au nouveau créneau — sinon le moteur continuerait de bloquer l'ancienne
+    // plage et de laisser la nouvelle libre. Les valeurs sont prises TELLES
+    // QUELLES du moteur (durée + buffers dérivés de la prestation, comme pour
+    // createReservation) : la fenêtre vérifiée == la fenêtre écrite. La durée
+    // « visible » suit la prestation proposée ; `proposed_end_datetime` de la
+    // proposition devient indicatif.
     await connection.query(
       `UPDATE reservations
          SET start_datetime = ?, end_datetime = ?, prestation_id = ?, price = ?, slot_id = NULL,
@@ -253,14 +293,14 @@ export async function acceptRescheduleRequest({ requestId, clientId }: ClientAct
        WHERE id = ?`,
       [
         request.proposed_start_datetime,
-        request.proposed_end_datetime,
+        availability.visibleEnd,
         request.proposed_prestation_id,
         request.proposed_price,
-        visibleDurationMin,
-        buf.bb,
-        buf.ba,
-        blockedStart,
-        blockedEnd,
+        availability.serviceDurationMinutes,
+        availability.bufferBeforeMinutes,
+        availability.bufferAfterMinutes,
+        availability.blockedStart,
+        availability.blockedEnd,
         request.reservation_id,
       ]
     );

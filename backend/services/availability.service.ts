@@ -844,7 +844,7 @@ export async function getWorkingHours(proId: number): Promise<{ days: WorkingHou
 export async function setWorkingHours(
   proId: number,
   days: WorkingHoursDay[]
-): Promise<{ migrated: boolean }> {
+): Promise<{ migrated: boolean; reverted: boolean }> {
   validateWorkingHoursPayload(days);
 
   const hasAnyRange = days.some((d) => (d.ranges?.length ?? 0) > 0);
@@ -857,6 +857,7 @@ export async function setWorkingHours(
     query: (sql: string, params?: any[]) => Promise<[any[], any[]]>;
   };
   let migrated = false;
+  let reverted = false;
   try {
     await connection.beginTransaction();
 
@@ -878,6 +879,26 @@ export async function setWorkingHours(
         [proId]
       );
       migrated = (flagRows as any[]).length > 0;
+    } else {
+      // Toutes les plages retirées. Si la pro utilisait le moteur, on la
+      // repasse en mode legacy (slots précréés) DANS LA MÊME TRANSACTION.
+      // Sinon on laisserait un état incohérent — uses_availability_engine =
+      // TRUE avec 0 working_hours — dans lequel checkSlotAvailability
+      // n'enforce plus AUCUNE borne horaire (garde `ctx.workingHours.length
+      // > 0`, availability.service.ts) : un RDV pourrait alors être créé à
+      // n'importe quelle heure via POST /api/reservations (revue sécurité
+      // M1 / issue #10). Le trigger users_availability_engine_disable
+      // (migration 20260903000001) renseigne availability_engine_disabled_at.
+      const [revertRows] = await connection.query(
+        `UPDATE users SET uses_availability_engine = FALSE
+         WHERE id = ? AND uses_availability_engine = TRUE
+         RETURNING id`,
+        [proId]
+      );
+      reverted = (revertRows as any[]).length > 0;
+      if (reverted) {
+        log.warn("[WORKING_HOURS]", "pro reset to legacy engine (working_hours vidés)", { proId });
+      }
     }
 
     await connection.commit();
@@ -888,5 +909,5 @@ export async function setWorkingHours(
     connection.release();
   }
 
-  return { migrated };
+  return { migrated, reverted };
 }

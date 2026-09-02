@@ -37,9 +37,21 @@ const { mockQuery } = vi.hoisted(() => {
 // ─── 2. Mock lib/db ───────────────────────────────────────────────────────
 vi.mock("../lib/db", () => {
   class DbTimeoutError extends Error {}
+  const conn = {
+    query: mockQuery,
+    execute: mockQuery,
+    beginTransaction: vi.fn().mockResolvedValue(undefined),
+    commit: vi.fn().mockResolvedValue(undefined),
+    rollback: vi.fn().mockResolvedValue(undefined),
+    release: vi.fn(),
+  };
   return {
     DbTimeoutError,
-    getDb: () => ({ query: mockQuery, execute: mockQuery }),
+    getDb: () => ({
+      query: mockQuery,
+      execute: mockQuery,
+      getConnection: vi.fn().mockResolvedValue(conn),
+    }),
   };
 });
 
@@ -324,6 +336,75 @@ describe("POST /api/reservations/:id/cancel — validation / erreurs", () => {
     expect(res.status).toBe(422);
     expect(res.body.error).toBe("cancellation_window_expired");
     expect(res.body.deadline).toBeDefined();
+  });
+});
+
+describe("POST /api/reservations/:id/cancel — concurrence (revue sécurité M4)", () => {
+  beforeEach(() => mockQuery.mockReset());
+
+  it("409 si l'UPDATE conditionné ne touche aucune ligne (annulation concurrente déjà passée)", async () => {
+    // 1. SELECT réservation → encore 'confirmed' au moment de la lecture
+    mockQuery.mockResolvedValueOnce([
+      [
+        {
+          id: 5,
+          client_id: 42,
+          pro_id: 7,
+          status: "confirmed",
+          start_datetime: new Date(Date.now() + 48 * 3600 * 1000),
+          slot_id: 11,
+          payment_status: "unpaid",
+          cancellation_notice_hours: 24,
+        },
+      ],
+      [],
+    ]);
+    // 2. UPDATE reservations ... WHERE status IN ('confirmed','pending') RETURNING id
+    //    → 0 ligne : une requête concurrente a déjà annulé/finalisé entre-temps
+    mockQuery.mockResolvedValueOnce([[], []]);
+
+    const token = makeToken(42, "client");
+    const res = await request(app)
+      .post("/api/reservations/5/cancel")
+      .set("Cookie", `access_token=${token}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("invalid_status");
+
+    // Aucune notification / libération de slot après le perdant de la course
+    const calls = mockQuery.mock.calls
+      .map((c) => c[0])
+      .filter((sql): sql is string => typeof sql === "string");
+    expect(calls.some((sql) => sql.includes("UPDATE slots"))).toBe(false);
+    expect(calls.some((sql) => sql.includes("INSERT INTO notifications"))).toBe(false);
+  });
+
+  it("l'UPDATE reservations est conditionné au statut (WHERE ... status IN ('confirmed','pending'))", async () => {
+    mockQuery.mockResolvedValueOnce([
+      [
+        {
+          id: 5,
+          client_id: 42,
+          pro_id: 7,
+          status: "confirmed",
+          start_datetime: new Date(Date.now() + 48 * 3600 * 1000),
+          slot_id: null,
+          payment_status: "unpaid",
+          cancellation_notice_hours: 24,
+        },
+      ],
+      [],
+    ]);
+    mockQuery.mockResolvedValue([[{ id: 5 }], []]);
+
+    const token = makeToken(42, "client");
+    await request(app).post("/api/reservations/5/cancel").set("Cookie", `access_token=${token}`);
+
+    const updateSql = mockQuery.mock.calls
+      .map((c) => c[0])
+      .find((sql): sql is string => typeof sql === "string" && sql.includes("UPDATE reservations"));
+    expect(updateSql).toMatch(/status IN \('confirmed', 'pending'\)/);
+    expect(updateSql).toMatch(/RETURNING id/);
   });
 });
 
