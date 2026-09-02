@@ -24,7 +24,7 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 
 // ─── 1. Mocks hoistés ─────────────────────────────────────────────────────
-const { mockConnection, mockTopQuery } = vi.hoisted(() => {
+const { mockConnection, mockTopQuery, mockCheckSlotAvailability } = vi.hoisted(() => {
   const mockConnection = {
     query: vi.fn(),
     execute: vi.fn(),
@@ -34,8 +34,27 @@ const { mockConnection, mockTopQuery } = vi.hoisted(() => {
     release: vi.fn(),
   };
   const mockTopQuery = vi.fn();
-  return { mockConnection, mockTopQuery };
+  const mockCheckSlotAvailability = vi.fn();
+  return { mockConnection, mockTopQuery, mockCheckSlotAvailability };
 });
+
+// Le re-check sous verrou de acceptRescheduleRequest appelle désormais le
+// moteur complet checkSlotAvailability (revue sécurité M3) — on le mocke pour
+// piloter available / reason sans avoir à simuler toutes ses requêtes DB.
+vi.mock("../services/availability.service", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/availability.service")>();
+  return { ...actual, checkSlotAvailability: mockCheckSlotAvailability };
+});
+
+const AVAILABLE_OK = {
+  available: true as const,
+  blockedStart: "2030-01-01T09:00:00.000Z",
+  blockedEnd: "2030-01-01T10:10:00.000Z",
+  visibleEnd: "2030-01-01T10:00:00.000Z",
+  serviceDurationMinutes: 60,
+  bufferBeforeMinutes: 0,
+  bufferAfterMinutes: 10,
+};
 
 // ─── 2. Mock lib/db ───────────────────────────────────────────────────────
 vi.mock("../lib/db", () => {
@@ -265,6 +284,7 @@ describe("PATCH /api/client/reschedule-requests/:id/accept", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("200 nominal : reservations mise à jour, request accepted", async () => {
+    mockCheckSlotAvailability.mockResolvedValueOnce(AVAILABLE_OK);
     mockTopQuery
       .mockResolvedValueOnce([[baseRequestRow], []]) // loadRequestForClient
       .mockResolvedValueOnce([[{ id: 900, created_at: new Date().toISOString() }], []]); // notif pro
@@ -272,8 +292,6 @@ describe("PATCH /api/client/reschedule-requests/:id/accept", () => {
     mockConnection.query
       .mockResolvedValueOnce([[], []]) // advisory lock
       .mockResolvedValueOnce([[{ status: "pending", expires_at: futureExpiry, reservation_status: "confirmed" }], []]) // re-check sous verrou
-      .mockResolvedValueOnce([[], []]) // overlap check → aucun conflit
-      .mockResolvedValueOnce([[{ bb: 0, ba: 10 }], []]) // buffers prestation proposée (snapshot)
       .mockResolvedValueOnce([[], []]) // UPDATE reservations
       .mockResolvedValueOnce([[], []]); // UPDATE reschedule_requests accepted
 
@@ -283,19 +301,28 @@ describe("PATCH /api/client/reschedule-requests/:id/accept", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
+    expect(mockCheckSlotAvailability).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proId: 7,
+        serviceIds: [3],
+        startDatetime: baseRequestRow.proposed_start_datetime,
+        excludeReservationId: 1,
+        requestedByRole: "pro",
+      })
+    );
 
     const calls = mockConnection.query.mock.calls.map((c) => String(c[0]));
     expect(calls.some((sql) => sql.toUpperCase().includes("UPDATE RESERVATIONS"))).toBe(true);
     expect(mockConnection.commit).toHaveBeenCalled();
   });
 
-  it("409 SLOT_NO_LONGER_AVAILABLE si conflit à la revalidation, reservation inchangée", async () => {
+  it("409 SLOT_NO_LONGER_AVAILABLE si le moteur refuse le créneau (conflit RDV), reservation inchangée", async () => {
+    mockCheckSlotAvailability.mockResolvedValueOnce({ available: false, reason: "overlaps_reservation" });
     mockTopQuery.mockResolvedValueOnce([[baseRequestRow], []]); // loadRequestForClient
 
     mockConnection.query
       .mockResolvedValueOnce([[], []]) // advisory lock
       .mockResolvedValueOnce([[{ status: "pending", expires_at: futureExpiry, reservation_status: "confirmed" }], []]) // re-check
-      .mockResolvedValueOnce([[{ id: 999 }], []]) // overlap check → CONFLIT
       .mockResolvedValueOnce([[], []]); // UPDATE reschedule_requests → expired
 
     const res = await request(app)
@@ -308,6 +335,43 @@ describe("PATCH /api/client/reschedule-requests/:id/accept", () => {
     const calls = mockConnection.query.mock.calls.map((c) => String(c[0]));
     expect(calls.some((sql) => sql.toUpperCase().includes("UPDATE RESERVATIONS"))).toBe(false);
     expect(mockConnection.commit).toHaveBeenCalled(); // commit du changement de statut de la request uniquement
+  });
+
+  it("409 si le moteur refuse : créneau chevauchant une ABSENCE (que l'ancien re-check ignorait — M3)", async () => {
+    mockCheckSlotAvailability.mockResolvedValueOnce({ available: false, reason: "overlaps_unavailability" });
+    mockTopQuery.mockResolvedValueOnce([[baseRequestRow], []]);
+
+    mockConnection.query
+      .mockResolvedValueOnce([[], []]) // advisory lock
+      .mockResolvedValueOnce([[{ status: "pending", expires_at: futureExpiry, reservation_status: "confirmed" }], []]) // re-check
+      .mockResolvedValueOnce([[], []]); // UPDATE reschedule_requests → expired
+
+    const res = await request(app)
+      .patch("/api/client/reschedule-requests/501/accept")
+      .set("Cookie", `access_token=${clientToken}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("SLOT_NO_LONGER_AVAILABLE");
+    expect(res.body.message).toMatch(/absence/i);
+    const calls = mockConnection.query.mock.calls.map((c) => String(c[0]));
+    expect(calls.some((sql) => sql.toUpperCase().includes("UPDATE RESERVATIONS"))).toBe(false);
+  });
+
+  it("409 si le moteur refuse : créneau HORS horaires d'ouverture (que l'ancien re-check ignorait — M3)", async () => {
+    mockCheckSlotAvailability.mockResolvedValueOnce({ available: false, reason: "outside_hours" });
+    mockTopQuery.mockResolvedValueOnce([[baseRequestRow], []]);
+
+    mockConnection.query
+      .mockResolvedValueOnce([[], []])
+      .mockResolvedValueOnce([[{ status: "pending", expires_at: futureExpiry, reservation_status: "confirmed" }], []])
+      .mockResolvedValueOnce([[], []]);
+
+    const res = await request(app)
+      .patch("/api/client/reschedule-requests/501/accept")
+      .set("Cookie", `access_token=${clientToken}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/horaires/i);
   });
 
   it("409 si la réservation a été annulée entre la proposition et la tentative d'acceptation", async () => {
