@@ -2,16 +2,31 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { getDb } from "./db";
 
-// Algorithme explicite, partagé par TOUS les jwt.sign / jwt.verify du backend
-// (middleware/auth, server WS, routes/auth). Sans `algorithms` au verify, un
-// token forgé en `alg: none` ou via confusion RS256/HS256 serait accepté.
-// (issuer/audience : amélioration possible plus tard — impose de mettre à jour
-//  tous les helpers de test qui signent des tokens à la main.)
+// Algorithme + issuer + audience explicites, partagés par TOUS les jwt.sign /
+// jwt.verify du backend (middleware/auth, server WS, routes/auth). Sans
+// `algorithms` au verify, un token forgé en `alg: none` ou via confusion
+// RS256/HS256 serait accepté ; sans `issuer`/`audience`, un token émis par un
+// autre service partageant par erreur le secret, ou réutilisé hors contexte,
+// passerait aussi.
+//
+// NB : un token émis AVANT cette version (sans iss/aud) est rejeté au premier
+// appel — les access tokens (15 min) se renouvellent via le refresh opaque,
+// le challenge 2FA (5 min) se refait, le WS se reconnecte.
 export const JWT_ALGO = "HS256" as const;
+export const JWT_ISSUER = "blyss-api" as const;
+export const JWT_AUDIENCE = "blyss-app" as const;
 
-export const jwtSignOpts: jwt.SignOptions = { algorithm: JWT_ALGO };
+export const jwtSignOpts: jwt.SignOptions = {
+  algorithm: JWT_ALGO,
+  issuer: JWT_ISSUER,
+  audience: JWT_AUDIENCE,
+};
 
-export const jwtVerifyOpts: jwt.VerifyOptions = { algorithms: [JWT_ALGO] };
+export const jwtVerifyOpts: jwt.VerifyOptions = {
+  algorithms: [JWT_ALGO],
+  issuer: JWT_ISSUER,
+  audience: JWT_AUDIENCE,
+};
 
 export function generateAccessToken(userId: number): string {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET!, { ...jwtSignOpts, expiresIn: "15m" });

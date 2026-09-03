@@ -55,7 +55,7 @@ import { app } from "../server";
 const JWT_SECRET = process.env.JWT_SECRET!;
 
 function makeAccessToken(userId: number) {
-  return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: "15m" });
+  return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" });
 }
 
 // Faux utilisateur retourné par le mock DB
@@ -234,7 +234,7 @@ describe("authenticateToken middleware", () => {
     const challengeToken = jwt.sign(
       { id: 1, purpose: "2fa_challenge" },
       JWT_SECRET,
-      { expiresIn: "5m" }
+      { expiresIn: "5m", issuer: "blyss-api", audience: "blyss-app" }
     );
 
     const res = await request(app)
@@ -248,13 +248,34 @@ describe("authenticateToken middleware", () => {
     const tokenWithPurpose = jwt.sign(
       { id: 1, purpose: "anything" },
       JWT_SECRET,
-      { expiresIn: "15m" }
+      { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" }
     );
 
     const res = await request(app)
       .get("/api/auth/profile")
       .set("Authorization", `Bearer ${tokenWithPurpose}`);
 
+    expect(res.status).toBe(401);
+  });
+
+  // Régression #22 : issuer / audience obligatoires.
+  it("401 avec un token sans issuer/audience (émis hors contexte)", async () => {
+    const noIssAud = jwt.sign({ id: 1 }, JWT_SECRET, { expiresIn: "15m" });
+    const res = await request(app)
+      .get("/api/auth/profile")
+      .set("Authorization", `Bearer ${noIssAud}`);
+    expect(res.status).toBe(401);
+  });
+
+  it("401 avec un token dont l'issuer / audience ne correspond pas", async () => {
+    const wrongIssAud = jwt.sign({ id: 1 }, JWT_SECRET, {
+      expiresIn: "15m",
+      issuer: "someone-else",
+      audience: "another-app",
+    });
+    const res = await request(app)
+      .get("/api/auth/profile")
+      .set("Authorization", `Bearer ${wrongIssAud}`);
     expect(res.status).toBe(401);
   });
 });

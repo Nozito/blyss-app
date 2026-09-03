@@ -94,7 +94,7 @@ import { app } from "../server";
 const JWT_SECRET = process.env.JWT_SECRET!;
 
 function makeToken(userId: number, role: "client" | "pro") {
-  return jwt.sign({ id: userId, role }, JWT_SECRET, { expiresIn: "15m" });
+  return jwt.sign({ id: userId, role }, JWT_SECRET, { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" });
 }
 
 const FAR_FUTURE = new Date(Date.now() + 10 * 24 * 3600 * 1000); // dans 10 jours — largement au-delà des 24h

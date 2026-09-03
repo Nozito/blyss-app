@@ -63,7 +63,7 @@ import { app } from "../server";
 const JWT_SECRET = process.env.JWT_SECRET!;
 
 function makeToken(userId = 42, role = "client") {
-  return jwt.sign({ id: userId, role }, JWT_SECRET, { expiresIn: "15m" });
+  return jwt.sign({ id: userId, role }, JWT_SECRET, { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" });
 }
 
 // Vérifie que la structure d'erreur Zod est cohérente

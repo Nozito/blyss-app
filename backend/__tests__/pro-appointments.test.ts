@@ -38,7 +38,7 @@ vi.mock("stripe", () => {
 import { app } from "../server";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
-const proToken = (id = 7) => jwt.sign({ id, role: "pro" }, JWT_SECRET, { expiresIn: "15m" });
+const proToken = (id = 7) => jwt.sign({ id, role: "pro" }, JWT_SECRET, { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" });
 
 const FAR = new Date(Date.now() + 20 * 24 * 3600 * 1000);
 const validBody = {
@@ -169,7 +169,7 @@ describe("POST /api/pro/appointments — M1 à M9", () => {
     });
     const res = await request(app)
       .post("/api/pro/appointments")
-      .set("Cookie", `access_token=${jwt.sign({ id: 99, role: "client" }, JWT_SECRET, { expiresIn: "15m" })}`)
+      .set("Cookie", `access_token=${jwt.sign({ id: 99, role: "client" }, JWT_SECRET, { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" })}`)
       .send(validBody);
     expect(res.status).toBe(403);
   });
