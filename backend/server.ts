@@ -54,7 +54,6 @@ import { startRescheduleSweepCron } from "./cron/reschedule-sweep";
 import { startSubscriptionExpiryCron } from "./cron/subscription-expiry";
 import { startFinanceReportsCron } from "./cron/finance-reports";
 import { initiateRefundsForReservation } from "./lib/refunds";
-import { classifyContact } from "./lib/contact-match";
 import { getActiveEntitlement } from "./lib/revenuecat";
 import { startRecallCron } from "./cron/recall";
 import { startDailyRecapCron } from "./cron/daily-recap";
@@ -4090,12 +4089,10 @@ app.get(
 
 /* PRO CLIENT SEARCH — RGPD : minimisation appliquée ICI, pas seulement dans l'app.
  *
- *  - défaut (mode relation) : recherche par nom/email/téléphone bornée aux
- *    clientes ayant déjà une réservation confirmed/completed avec CETTE pro
- *    (pro_id issu du token, jamais du client).
- *  - ?exact=1 (walk-in) : résout une cliente sans historique UNIQUEMENT sur
- *    correspondance exacte d'un email ou d'un téléphone que la pro connaît
- *    déjà. Aucun match par nom / fragment → pas d'énumération de l'annuaire.
+ * Recherche par nom/email/téléphone STRICTEMENT bornée aux clientes ayant déjà
+ * une réservation confirmed/completed avec CETTE pro (pro_id issu du token,
+ * jamais du client). Aucun mode "walk-in" / contact exact : une pro ne peut
+ * pas atteindre une cliente avec qui elle n'a pas de relation.
  */
 app.get(
   "/api/pro/clients/search",
@@ -4105,36 +4102,7 @@ app.get(
     try {
       const proId = getProId(req);
       const q = String(req.query.q ?? "").trim();
-      const exact = req.query.exact === "1" || req.query.exact === "true";
 
-      if (exact) {
-        const contact = classifyContact(q);
-        if (!contact) return res.json({ success: true, data: [] });
-
-        // Minimisation : la pro connaît déjà UN identifiant (celui qu'elle
-        // vient de taper). On ne renvoie que de quoi confirmer l'identité et
-        // rattacher le RDV — pas l'autre coordonnée, pas de données de fiche.
-        const [rows] =
-          contact.kind === "email"
-            ? await db.query(
-                `SELECT id, first_name, last_name, profile_photo
-                 FROM users
-                 WHERE role = 'client' AND LOWER(email) = ?
-                 LIMIT 1`,
-                [contact.value]
-              )
-            : await db.query(
-                `SELECT id, first_name, last_name, profile_photo
-                 FROM users
-                 WHERE role = 'client' AND regexp_replace(phone_number, '[^0-9+]', '', 'g') = ?
-                 LIMIT 1`,
-                [contact.value]
-              );
-
-        return res.json({ success: true, data: rows });
-      }
-
-      // Mode relation — nom/fragment autorisé, mais périmètre = clientes de la pro.
       if (q.length < 2) return res.json({ success: true, data: [] });
 
       const like = `%${q}%`;
@@ -5131,15 +5099,13 @@ app.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const proId = getProId(req);
-      const { client_id, prestation_id, start_datetime, early_execution_requested, manual_override, client_contact } = req.body;
+      const { client_id, prestation_id, start_datetime, early_execution_requested, manual_override } = req.body;
 
       // Contrôle d'accès RGPD — le client_id vient du body (la pro choisit),
-      // donc on ne s'y fie pas : autorisé seulement si
-      //   (a) il existe une réservation confirmed/completed entre CETTE pro
-      //       (pro_id du token) et ce client_id ; OU
-      //   (b) la pro fournit un client_contact (email/téléphone) qui correspond
-      //       EXACTEMENT à ce client_id (walk-in — elle connaît déjà la cliente).
-      // Sinon : réponse générique, sans révéler si le compte existe.
+      // donc on ne s'y fie pas : autorisé UNIQUEMENT s'il existe une
+      // réservation confirmed/completed entre CETTE pro (pro_id du token) et
+      // ce client_id. Sinon : réponse générique, sans révéler si le compte
+      // existe (client_id inexistant, non lié ou d'une autre pro → même 403).
       const [relRows] = await db.query(
         `SELECT 1 FROM reservations
          WHERE pro_id = ? AND client_id = ? AND status IN ('confirmed','completed')
@@ -5147,27 +5113,7 @@ app.post(
         [proId, client_id]
       );
 
-      let allowed = (relRows as any[]).length > 0;
-
-      if (!allowed) {
-        const contact = classifyContact(client_contact);
-        if (contact) {
-          const [matchRows] =
-            contact.kind === "email"
-              ? await db.query(
-                  `SELECT 1 FROM users WHERE id = ? AND role = 'client' AND LOWER(email) = ? LIMIT 1`,
-                  [client_id, contact.value]
-                )
-              : await db.query(
-                  `SELECT 1 FROM users WHERE id = ? AND role = 'client'
-                     AND regexp_replace(phone_number, '[^0-9+]', '', 'g') = ? LIMIT 1`,
-                  [client_id, contact.value]
-                );
-          allowed = (matchRows as any[]).length > 0;
-        }
-      }
-
-      if (!allowed) {
+      if ((relRows as any[]).length === 0) {
         return res.status(403).json({ success: false, message: "Cliente non rattachée à votre compte." });
       }
 

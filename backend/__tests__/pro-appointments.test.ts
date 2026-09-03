@@ -141,10 +141,10 @@ describe("POST /api/pro/appointments — M1 à M9", () => {
     expect(res.status).toBe(409);
   });
 
-  it("M8 — cliente hors périmètre (inconnue / autre pro / sans contact) : 403 générique, service jamais appelé", async () => {
+  it("M8 — cliente hors périmètre (inconnue / autre pro / non liée) : 403 générique, service jamais appelé", async () => {
     mockQuery.mockImplementation((sql: string) => {
       if (sql.includes("SELECT role, is_admin, pro_status")) return Promise.resolve([[{ role: "pro", is_admin: 0, pro_status: "active" }], []]);
-      return Promise.resolve([[], []]); // ni relation ni contact exact
+      return Promise.resolve([[], []]); // aucune relation confirmed/completed
     });
     const res = await request(app).post("/api/pro/appointments").set("Cookie", `access_token=${proToken()}`).send(validBody);
     expect(res.status).toBe(403);

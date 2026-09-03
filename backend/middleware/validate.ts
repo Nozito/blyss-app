@@ -169,10 +169,6 @@ export const proAppointmentSchema = z
     start_datetime: z.string().datetime("start_datetime doit être une date ISO valide"),
     end_datetime: z.string().datetime("end_datetime doit être une date ISO valide"),
     early_execution_requested: z.boolean().optional().default(false),
-    // Walk-in RGPD — email ou téléphone exact fourni par la pro pour rattacher
-    // une cliente sans réservation antérieure. La concordance avec client_id
-    // est vérifiée côté serveur (server.ts). Jamais un nom / fragment.
-    client_contact: z.string().max(255, "Contact trop long").optional(),
     // 3.4 — override d'ajout manuel pro (jamais accepté sur le flow client).
     // mode "outside_hours" : RDV hors horaires d'ouverture (avertissement simple).
     // mode "conflict" : RDV forcé malgré un chevauchement — note obligatoire.

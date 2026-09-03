@@ -1,13 +1,12 @@
 /**
  * Tests d'autorisation & non-divulgation — périmètre client de la pro.
  *
- *   GET  /api/pro/clients/search           — recherche par nom : clientes de la pro seulement
- *   GET  /api/pro/clients/search?exact=1   — walk-in : correspondance EXACTE email/téléphone
- *   POST /api/pro/appointments             — création bornée à la relation ou au contact exact
+ *   GET  /api/pro/clients/search   — recherche bornée aux clientes de la pro
+ *   POST /api/pro/appointments     — création bornée à une relation existante
  *
- * On mocke la DB : le but est de prouver que (a) pro_id vient du token,
- * (b) la requête SQL est bien filtrée, (c) une cliente hors périmètre
- * renvoie la même réponse générique qu'une cliente inexistante.
+ * Décision produit : une pro ne peut créer un RDV que pour une cliente avec
+ * qui elle a DÉJÀ une réservation status IN ('confirmed','completed').
+ * Il n'existe plus de flux "walk-in" / contact exact / client_contact.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -47,6 +46,9 @@ const proGate = (sql: string) =>
     ? Promise.resolve([[{ role: "pro", is_admin: false, pro_status: "active" }], []])
     : null;
 
+const relationRow = (sql: string) =>
+  sql.includes("FROM reservations") && sql.includes("status IN ('confirmed','completed')");
+
 const FAR = new Date(Date.now() + 30 * 24 * 3600 * 1000);
 const apptBody = {
   client_id: 42,
@@ -58,8 +60,8 @@ const apptBody = {
 beforeEach(() => vi.clearAllMocks());
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("GET /api/pro/clients/search — recherche par nom (mode relation)", () => {
-  it("filtre sur pro_id issu du token + statuts confirmed/completed", async () => {
+describe("GET /api/pro/clients/search — périmètre relationnel strict", () => {
+  it("filtre sur pro_id du token + statuts confirmed/completed", async () => {
     mockQuery.mockImplementation((sql: string, params: unknown[]) => {
       const gate = proGate(sql);
       if (gate) return gate;
@@ -80,21 +82,29 @@ describe("GET /api/pro/clients/search — recherche par nom (mode relation)", ()
     expect(res.body.data).toEqual([{ id: 99, first_name: "Léa", last_name: "Bloch" }]);
   });
 
-  it("pro B ne voit pas la cliente de pro A (résultat vide, aucun signal)", async () => {
-    mockQuery.mockImplementation((sql: string) => {
+  it("isolation Pro A / Pro B : Pro A ne voit jamais une cliente liée uniquement à Pro B", async () => {
+    // Le mock ne renvoie une ligne QUE si la requête porte le bon pro_id ET
+    // que la jointure reservations est bien filtrée sur confirmed/completed.
+    const CLIENT_OF_B = { id: 500, first_name: "Nadia", last_name: "K" };
+    mockQuery.mockImplementation((sql: string, params: unknown[]) => {
       const gate = proGate(sql);
       if (gate) return gate;
-      // La cliente existe mais pas de réservation avec CE pro → 0 ligne
+      if (sql.includes("FROM reservations r") && sql.includes("ILIKE")) {
+        const proId = params[0];
+        // Nadia n'a de réservation confirmed/completed qu'avec la pro 200 (B).
+        if (proId === 200) return Promise.resolve([[CLIENT_OF_B], []]);
+        return Promise.resolve([[], []]);
+      }
       return Promise.resolve([[], []]);
     });
 
-    const res = await request(app)
-      .get("/api/pro/clients/search?q=Martin")
-      .set("Cookie", `access_token=${proToken(8)}`);
+    const asA = await request(app).get("/api/pro/clients/search?q=Nadia").set("Cookie", `access_token=${proToken(100)}`);
+    const asB = await request(app).get("/api/pro/clients/search?q=Nadia").set("Cookie", `access_token=${proToken(200)}`);
 
-    expect(res.status).toBe(200);
-    expect(res.body.data).toEqual([]);
-    expect(JSON.stringify(res.body)).not.toMatch(/masqué|hidden|exists/i);
+    expect(asA.status).toBe(200);
+    expect(asA.body.data).toEqual([]); // Pro A : rien
+    expect(JSON.stringify(asA.body)).not.toMatch(/masqué|hidden|exists/i);
+    expect(asB.body.data).toEqual([CLIENT_OF_B]); // Pro B : sa cliente
   });
 
   it("q trop court → pas de requête, liste vide", async () => {
@@ -104,78 +114,28 @@ describe("GET /api/pro/clients/search — recherche par nom (mode relation)", ()
     expect(res.body.data).toEqual([]);
     expect(mockQuery.mock.calls.some(([s]) => String(s).includes("FROM reservations r"))).toBe(false);
   });
-});
 
-// ═══════════════════════════════════════════════════════════════════════════
-describe("GET /api/pro/clients/search?exact=1 — walk-in", () => {
-  it("email exact → résout même sans réservation antérieure", async () => {
-    mockQuery.mockImplementation((sql: string, params: unknown[]) => {
+  it("?exact=1 n'est plus un mode privilégié : recherche relationnelle normale, jamais de lookup users direct", async () => {
+    mockQuery.mockImplementation((sql: string) => {
       const gate = proGate(sql);
       if (gate) return gate;
-      if (sql.includes("LOWER(email) = ?")) {
-        expect(params).toContain("alice@example.com");
-        // Minimisation : la projection ne renvoie que l'identité.
-        expect(sql).toContain("SELECT id, first_name, last_name, profile_photo");
-        expect(sql).not.toMatch(/SELECT[^]*phone_number[^]*FROM users/);
-        return Promise.resolve([[{ id: 500, first_name: "Alice", last_name: "M" }], []]);
-      }
+      // aucune requête ne doit résoudre une cliente par email/téléphone exact
+      expect(sql).not.toMatch(/LOWER\(email\)\s*=\s*\?/);
+      expect(sql).not.toMatch(/regexp_replace\(phone_number/);
+      if (sql.includes("FROM reservations r")) return Promise.resolve([[], []]);
       return Promise.resolve([[], []]);
     });
-
     const res = await request(app)
-      .get("/api/pro/clients/search?exact=1&q=" + encodeURIComponent("Alice@Example.com"))
-      .set("Cookie", `access_token=${proToken(7)}`);
-
-    expect(res.status).toBe(200);
-    expect(res.body.data).toHaveLength(1);
-    expect(res.body.data[0].id).toBe(500);
-  });
-
-  it("téléphone exact → compare sans séparateurs", async () => {
-    mockQuery.mockImplementation((sql: string, params: unknown[]) => {
-      const gate = proGate(sql);
-      if (gate) return gate;
-      if (sql.toLowerCase().includes("regexp_replace")) {
-        expect(params).toContain("0612345678");
-        return Promise.resolve([[{ id: 501 }], []]);
-      }
-      return Promise.resolve([[], []]);
-    });
-
-    const res = await request(app)
-      .get("/api/pro/clients/search?exact=1&q=" + encodeURIComponent("06 12 34 56 78"))
-      .set("Cookie", `access_token=${proToken(7)}`);
-
-    expect(res.body.data).toEqual([{ id: 501 }]);
-  });
-
-  it("mode exact refuse un nom / fragment → aucune requête users, liste vide", async () => {
-    mockQuery.mockImplementation((sql: string) => proGate(sql) ?? Promise.resolve([[], []]));
-    const res = await request(app)
-      .get("/api/pro/clients/search?exact=1&q=Mart")
+      .get("/api/pro/clients/search?exact=1&q=" + encodeURIComponent("walkin@ex.com"))
       .set("Cookie", `access_token=${proToken(7)}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual([]);
-    expect(mockQuery.mock.calls.some(([s]) => /LOWER\(email\)|regexp_replace/i.test(String(s)))).toBe(false);
-  });
-
-  it("mode exact ne fait jamais de ILIKE", async () => {
-    mockQuery.mockImplementation((sql: string) => {
-      expect(sql).not.toContain("ILIKE");
-      return proGate(sql) ?? Promise.resolve([[], []]);
-    });
-    await request(app)
-      .get("/api/pro/clients/search?exact=1&q=" + encodeURIComponent("bob@test.com"))
-      .set("Cookie", `access_token=${proToken(7)}`);
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("POST /api/pro/appointments — création bornée", () => {
-  const relationRow = (sql: string) =>
-    sql.includes("FROM reservations") && sql.includes("status IN ('confirmed','completed')");
-
-  it("relation confirmed existante → autorisé", async () => {
+describe("POST /api/pro/appointments — relation existante obligatoire", () => {
+  it("relation confirmed/completed existante → autorisé", async () => {
     mockQuery.mockImplementation((sql: string) => {
       const gate = proGate(sql);
       if (gate) return gate;
@@ -186,7 +146,7 @@ describe("POST /api/pro/appointments — création bornée", () => {
     expect(res.status).toBe(200);
   });
 
-  it("cliente d'une autre pro, sans contact → 403 générique", async () => {
+  it("aucune relation → 403 générique, service jamais appelé", async () => {
     mockQuery.mockImplementation((sql: string) => proGate(sql) ?? Promise.resolve([[], []]));
     const res = await request(app).post("/api/pro/appointments").set("Cookie", `access_token=${proToken(7)}`).send(apptBody);
     expect(res.status).toBe(403);
@@ -203,46 +163,40 @@ describe("POST /api/pro/appointments — création bornée", () => {
     expect(res.body.message).toBe("Cliente non rattachée à votre compte.");
   });
 
-  it("contact exact concordant → autorisé (walk-in)", async () => {
-    mockQuery.mockImplementation((sql: string, params: unknown[]) => {
+  it("client_id d'une cliente d'une autre pro → 403 identique", async () => {
+    // relationRow renvoie vide pour cette pro → refus, sans révéler l'existence
+    mockQuery.mockImplementation((sql: string) => proGate(sql) ?? Promise.resolve([[], []]));
+    const res = await request(app)
+      .post("/api/pro/appointments")
+      .set("Cookie", `access_token=${proToken(7)}`)
+      .send({ ...apptBody, client_id: 500 });
+    expect(res.status).toBe(403);
+    expect(res.body.message).toBe("Cliente non rattachée à votre compte.");
+  });
+
+  it("client_contact dans le body est ignoré (plus de bypass walk-in)", async () => {
+    mockQuery.mockImplementation((sql: string) => {
       const gate = proGate(sql);
       if (gate) return gate;
-      if (relationRow(sql)) return Promise.resolve([[], []]);
-      if (sql.includes("LOWER(email) = ?")) {
-        expect(params).toContain(42); // vérifie que le contact correspond à CE client_id
-        expect(params).toContain("walkin@ex.com");
-        return Promise.resolve([[{ ok: 1 }], []]);
-      }
-      return Promise.resolve([[], []]);
+      // aucun lookup users par email/téléphone ne doit être déclenché
+      expect(sql).not.toMatch(/LOWER\(email\)\s*=\s*\?/);
+      expect(sql).not.toMatch(/regexp_replace\(phone_number/);
+      return Promise.resolve([[], []]); // pas de relation
     });
     const res = await request(app)
       .post("/api/pro/appointments")
       .set("Cookie", `access_token=${proToken(7)}`)
       .send({ ...apptBody, client_contact: "walkin@ex.com" });
-    expect(res.status).toBe(200);
-  });
-
-  it("contact exact NON concordant avec le client_id → 403", async () => {
-    mockQuery.mockImplementation((sql: string) => {
-      const gate = proGate(sql);
-      if (gate) return gate;
-      return Promise.resolve([[], []]); // ni relation ni contact ne matchent
-    });
-    const res = await request(app)
-      .post("/api/pro/appointments")
-      .set("Cookie", `access_token=${proToken(7)}`)
-      .send({ ...apptBody, client_contact: "someone-else@ex.com" });
     expect(res.status).toBe(403);
   });
 
-  it("contact = fragment de nom → ignoré, 403", async () => {
+  it("appel direct à l'API sans passer par la recherche → même contrôle", async () => {
+    // Simule un client HTTP qui devine un client_id sans jamais avoir listé.
     mockQuery.mockImplementation((sql: string) => proGate(sql) ?? Promise.resolve([[], []]));
     const res = await request(app)
       .post("/api/pro/appointments")
       .set("Cookie", `access_token=${proToken(7)}`)
-      .send({ ...apptBody, client_contact: "Mart" });
+      .send({ ...apptBody, client_id: 1 });
     expect(res.status).toBe(403);
-    // aucun lookup contact déclenché
-    expect(mockQuery.mock.calls.some(([s]) => /LOWER\(email\)|regexp_replace/i.test(String(s)))).toBe(false);
   });
 });
