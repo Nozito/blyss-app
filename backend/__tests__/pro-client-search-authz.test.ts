@@ -114,7 +114,10 @@ describe("GET /api/pro/clients/search?exact=1 — walk-in", () => {
       if (gate) return gate;
       if (sql.includes("LOWER(email) = ?")) {
         expect(params).toContain("alice@example.com");
-        return Promise.resolve([[{ id: 500, first_name: "Alice", last_name: "M", email: "alice@example.com" }], []]);
+        // Minimisation : la projection ne renvoie que l'identité.
+        expect(sql).toContain("SELECT id, first_name, last_name, profile_photo");
+        expect(sql).not.toMatch(/SELECT[^]*phone_number[^]*FROM users/);
+        return Promise.resolve([[{ id: 500, first_name: "Alice", last_name: "M" }], []]);
       }
       return Promise.resolve([[], []]);
     });

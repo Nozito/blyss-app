@@ -4111,17 +4111,20 @@ app.get(
         const contact = classifyContact(q);
         if (!contact) return res.json({ success: true, data: [] });
 
+        // Minimisation : la pro connaît déjà UN identifiant (celui qu'elle
+        // vient de taper). On ne renvoie que de quoi confirmer l'identité et
+        // rattacher le RDV — pas l'autre coordonnée, pas de données de fiche.
         const [rows] =
           contact.kind === "email"
             ? await db.query(
-                `SELECT id, first_name, last_name, phone_number, email, profile_photo
+                `SELECT id, first_name, last_name, profile_photo
                  FROM users
                  WHERE role = 'client' AND LOWER(email) = ?
                  LIMIT 1`,
                 [contact.value]
               )
             : await db.query(
-                `SELECT id, first_name, last_name, phone_number, email, profile_photo
+                `SELECT id, first_name, last_name, profile_photo
                  FROM users
                  WHERE role = 'client' AND regexp_replace(phone_number, '[^0-9+]', '', 'g') = ?
                  LIMIT 1`,
