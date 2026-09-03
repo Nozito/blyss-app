@@ -38,7 +38,7 @@ vi.mock("stripe", () => {
 import { app } from "../server";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
-const proToken = (id: number) => jwt.sign({ id, role: "pro" }, JWT_SECRET, { expiresIn: "15m" });
+const proToken = (id: number) => jwt.sign({ id, role: "pro" }, JWT_SECRET, { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" });
 
 /** Gate requireProAccess : toujours un pro actif. */
 const proGate = (sql: string) =>

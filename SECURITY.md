@@ -50,6 +50,8 @@ We do not currently offer a monetary bug bounty program, but we will acknowledge
 ## Security Measures
 
 - JWT tokens stored as HttpOnly cookies (SameSite: Strict)
+- JWT signés/vérifiés avec `algorithm` HS256, `issuer` et `audience` explicites
+  et constants (`backend/lib/tokens.ts`)
 - Passwords hashed with bcrypt (cost factor 12)
 - IBAN encrypted with AES-256-GCM (random IV per record)
 - Rate limiting on all auth endpoints

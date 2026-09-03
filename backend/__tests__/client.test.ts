@@ -52,11 +52,11 @@ import { app } from "../server";
 const JWT_SECRET = process.env.JWT_SECRET!;
 
 function makeClientToken(userId = 10) {
-  return jwt.sign({ id: userId, role: "client" }, JWT_SECRET, { expiresIn: "15m" });
+  return jwt.sign({ id: userId, role: "client" }, JWT_SECRET, { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" });
 }
 
 function makeProToken(userId = 5) {
-  return jwt.sign({ id: userId, role: "pro" }, JWT_SECRET, { expiresIn: "15m" });
+  return jwt.sign({ id: userId, role: "pro" }, JWT_SECRET, { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" });
 }
 
 function makeConnection() {

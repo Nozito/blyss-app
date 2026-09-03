@@ -67,7 +67,7 @@ import { app } from "../server";
 const JWT_SECRET = process.env.JWT_SECRET!;
 
 function makeClientToken(userId = 42) {
-  return jwt.sign({ id: userId, role: "client" }, JWT_SECRET, { expiresIn: "15m" });
+  return jwt.sign({ id: userId, role: "client" }, JWT_SECRET, { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" });
 }
 
 /** Corps valide de base pour les tests business-logic */
