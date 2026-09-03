@@ -55,7 +55,10 @@ beforeEach(() => {
     if (sql.includes("SELECT role, is_admin, pro_status")) {
       return Promise.resolve([[{ role: "pro", is_admin: 0, pro_status: "active" }], []]);
     }
-    if (sql.includes("role = 'client'")) return Promise.resolve([[{ id: 42 }], []]);
+    // Contrôle d'accès RGPD : relation confirmed/completed pro ↔ cliente.
+    if (sql.includes("FROM reservations") && sql.includes("status IN ('confirmed','completed')")) {
+      return Promise.resolve([[{ ok: 1 }], []]);
+    }
     return Promise.resolve([[], []]);
   });
 });
@@ -138,13 +141,14 @@ describe("POST /api/pro/appointments — M1 à M9", () => {
     expect(res.status).toBe(409);
   });
 
-  it("M8 — cliente inconnue : 404, service jamais appelé", async () => {
+  it("M8 — cliente hors périmètre (inconnue / autre pro / sans contact) : 403 générique, service jamais appelé", async () => {
     mockQuery.mockImplementation((sql: string) => {
       if (sql.includes("SELECT role, is_admin, pro_status")) return Promise.resolve([[{ role: "pro", is_admin: 0, pro_status: "active" }], []]);
-      return Promise.resolve([[], []]); // lookup cliente → vide
+      return Promise.resolve([[], []]); // ni relation ni contact exact
     });
     const res = await request(app).post("/api/pro/appointments").set("Cookie", `access_token=${proToken()}`).send(validBody);
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(403);
+    expect(res.body.message).toBe("Cliente non rattachée à votre compte.");
     expect(mockCreateReservation).not.toHaveBeenCalled();
   });
 
