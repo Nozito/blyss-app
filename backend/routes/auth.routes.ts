@@ -1,7 +1,7 @@
 import express, { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
-import { authMiddleware, authenticateToken } from "../middleware/auth";
+import { authenticateToken } from "../middleware/auth";
 import { authLoginLimiter, authLoginAccountLimiter, authSignupLimiter, authRefreshLimiter, passwordResetLimiter, passwordResetAccountLimiter, passwordResetConsumeLimiter } from "../middleware/rate-limits";
 import { validate } from "../middleware/validate";
 import { forgotPasswordSchema, resetPasswordSchema } from "../middleware/validate";
@@ -14,6 +14,8 @@ import {
   generateAndStoreRefreshToken,
   revokeRefreshToken,
   findRefreshToken,
+  jwtSignOpts,
+  jwtVerifyOpts,
 } from "../lib/tokens";
 import { decryptTotpSecret, verifyTotpToken, matchBackupCode } from "../lib/totp";
 import { twoFaLoginVerifySchema } from "../middleware/validate";
@@ -439,7 +441,7 @@ router.post(
         const challengeToken = jwt.sign(
           { id: user.id, purpose: "2fa_challenge" },
           process.env.JWT_SECRET!,
-          { expiresIn: "5m" }
+          { ...jwtSignOpts, expiresIn: "5m" }
         );
         return res.json({ success: true, data: { requires_2fa: true, challenge_token: challengeToken } });
       }
@@ -476,7 +478,7 @@ router.post(
 
       let payload: { id: number; purpose: string };
       try {
-        payload = jwt.verify(challenge_token, process.env.JWT_SECRET!) as any;
+        payload = jwt.verify(challenge_token, process.env.JWT_SECRET!, jwtVerifyOpts) as any;
       } catch {
         return res.status(401).json({ success: false, error: "invalid_challenge" });
       }

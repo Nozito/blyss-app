@@ -31,6 +31,7 @@
  */
 import path from "path";
 import fs from "fs";
+import { safeJoin } from "./lib/safe-path";
 
 import type { getDb } from "./lib/db";
 
@@ -133,7 +134,7 @@ export async function runCleanup(db: Db, opts: CleanupOptions = {}): Promise<Cle
       }
 
       fs.writeFileSync(
-        path.join(snapshotDir, `${stamp}-cleanup-pro-${pro.id}.json`),
+        safeJoin(snapshotDir, `${stamp}-cleanup-pro-${pro.id}.json`),
         JSON.stringify(
           {
             pro_id: pro.id,

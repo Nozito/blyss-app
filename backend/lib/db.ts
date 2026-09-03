@@ -17,6 +17,11 @@ const MGMT_QUERY_TIMEOUT_MS = 30000;
 // (le pooler Supabase présente un certificat AWS intermédiaire absent du trust
 // store Node). DATABASE_SSL=disable coupe complètement TLS — nécessaire face à
 // un Postgres local/CI (service container GitHub Actions) qui n'expose pas SSL.
+//
+// Semgrep `bypass-tls-verification` : acknowledged. Le chiffrement en transit
+// reste actif ; seule la chaîne CA n'est pas validée. Suivi possible (#14) :
+// embarquer le bundle CA AWS RDS/Supabase et passer `ca:` + rejectUnauthorized:true.
+// nosemgrep: javascript.postgres.security.postgres-ssl-disabled.postgres-ssl-disabled
 const PG_SSL: false | { rejectUnauthorized: boolean } =
   process.env.DATABASE_SSL === "disable" ? false : { rejectUnauthorized: false };
 

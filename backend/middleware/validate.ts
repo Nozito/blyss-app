@@ -472,3 +472,21 @@ export const twoFaLoginVerifySchema = z.object({
   challenge_token: z.string().min(1, "challenge_token requis"),
   code: z.string().min(6, "Code invalide").max(20, "Code invalide"),
 });
+
+// PUT /api/pro/working-hours — garantit la STRUCTURE (types, format HH:MM,
+// weekday 0-6) avant que le service ne trie/valide la sémantique
+// (chevauchements, fin > début). Sans ce garde-fou, un `start_time` non-string
+// faisait planter le comparateur de tri → 500 au lieu de 400.
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Heure invalide (attendu HH:MM)");
+export const workingHoursSchema = z.object({
+  days: z
+    .array(
+      z.object({
+        weekday: z.number().int().min(0, "weekday 0-6").max(6, "weekday 0-6"),
+        ranges: z
+          .array(z.object({ start_time: hhmm, end_time: hhmm }))
+          .default([]),
+      })
+    )
+    .default([]),
+});

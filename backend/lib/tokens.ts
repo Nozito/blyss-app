@@ -2,8 +2,19 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { getDb } from "./db";
 
+// Algorithme explicite, partagé par TOUS les jwt.sign / jwt.verify du backend
+// (middleware/auth, server WS, routes/auth). Sans `algorithms` au verify, un
+// token forgé en `alg: none` ou via confusion RS256/HS256 serait accepté.
+// (issuer/audience : amélioration possible plus tard — impose de mettre à jour
+//  tous les helpers de test qui signent des tokens à la main.)
+export const JWT_ALGO = "HS256" as const;
+
+export const jwtSignOpts: jwt.SignOptions = { algorithm: JWT_ALGO };
+
+export const jwtVerifyOpts: jwt.VerifyOptions = { algorithms: [JWT_ALGO] };
+
 export function generateAccessToken(userId: number): string {
-  return jwt.sign({ id: userId }, process.env.JWT_SECRET!, { expiresIn: "15m" });
+  return jwt.sign({ id: userId }, process.env.JWT_SECRET!, { ...jwtSignOpts, expiresIn: "15m" });
 }
 
 function hashToken(token: string): string {

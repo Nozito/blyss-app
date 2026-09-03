@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import { generateSecret, generateURI, verify } from "otplib";
 
 const ALGORITHM = "aes-256-gcm";
+const AUTH_TAG_LEN = 16; // octets — explicite pour createCipheriv/Decipheriv (règle gcm-no-tag-length)
 
 function getKey(): Buffer {
   const hex = process.env.TOTP_ENC_KEY;
@@ -15,7 +16,7 @@ function getKey(): Buffer {
 /** Chiffre un secret TOTP en clair. Retourne {ciphertext, iv} — l'IV+authTag sont stockés à part (jamais réutilisés). */
 export function encryptTotpSecret(plainSecret: string): { ciphertext: string; iv: string } {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv(ALGORITHM, getKey(), iv);
+  const cipher = crypto.createCipheriv(ALGORITHM, getKey(), iv, { authTagLength: AUTH_TAG_LEN });
   const encrypted = Buffer.concat([cipher.update(plainSecret, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
   // ciphertext = données chiffrées + authTag concaténés (16 derniers octets = authTag)
@@ -27,9 +28,9 @@ export function encryptTotpSecret(plainSecret: string): { ciphertext: string; iv
 
 export function decryptTotpSecret(ciphertextHex: string, ivHex: string): string {
   const raw = Buffer.from(ciphertextHex, "hex");
-  const authTag = raw.subarray(raw.length - 16);
-  const encrypted = raw.subarray(0, raw.length - 16);
-  const decipher = crypto.createDecipheriv(ALGORITHM, getKey(), Buffer.from(ivHex, "hex"));
+  const authTag = raw.subarray(raw.length - AUTH_TAG_LEN);
+  const encrypted = raw.subarray(0, raw.length - AUTH_TAG_LEN);
+  const decipher = crypto.createDecipheriv(ALGORITHM, getKey(), Buffer.from(ivHex, "hex"), { authTagLength: AUTH_TAG_LEN });
   decipher.setAuthTag(authTag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
 }

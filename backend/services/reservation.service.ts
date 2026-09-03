@@ -388,7 +388,7 @@ export async function createReservation(input: CreateReservationInput): Promise<
     price,
     startDatetime: input.startDatetime,
     overrideApplied,
-  }).catch((err) => log.warn("[RESERVATION_CREATE]", "notification failed (non-fatal)", { reservationId }));
+  }).catch(() => log.warn("[RESERVATION_CREATE]", "notification failed (non-fatal)", { reservationId }));
 
   return { reservationId, price, depositPercentage, depositAmount, overrideApplied };
 }

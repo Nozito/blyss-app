@@ -324,7 +324,6 @@ function computeFreeBlocks(params: {
 
   for (let day = firstDay; day <= lastDay; day = day.plus({ days: 1 })) {
     const weekday = day.weekday % 7; // luxon: 1=lundi..7=dimanche → 0=dimanche..6=samedi
-    const isoDate = day.toISODate()!;
 
     const dayWindows = workingHours.filter((w) => w.weekday === weekday);
     for (const w of dayWindows) {
@@ -802,12 +801,17 @@ export function validateWorkingHoursPayload(days: WorkingHoursDay[]): void {
     seenWeekdays.add(day.weekday);
 
     const ranges = Array.isArray(day.ranges) ? day.ranges : [];
+    // Valider le FORMAT avant de trier : `toMinutes` dans le comparateur
+    // planterait (→ 500) sur un start_time absent ou non-string.
+    for (const r of ranges) {
+      if (typeof r?.start_time !== "string" || typeof r?.end_time !== "string" ||
+          !HHMM_RE.test(r.start_time) || !HHMM_RE.test(r.end_time)) {
+        throw new AvailabilityError(422, "Heure invalide (attendu HH:MM)", "INVALID_INPUT");
+      }
+    }
     const sorted = [...ranges].sort((a, b) => toMinutes(a.start_time) - toMinutes(b.start_time));
     for (let i = 0; i < sorted.length; i++) {
       const r = sorted[i];
-      if (!HHMM_RE.test(r.start_time) || !HHMM_RE.test(r.end_time)) {
-        throw new AvailabilityError(422, "Heure invalide (attendu HH:MM)", "INVALID_INPUT");
-      }
       if (toMinutes(r.end_time) <= toMinutes(r.start_time)) {
         throw new AvailabilityError(422, "Une plage doit finir après son début", "INVALID_RANGE");
       }
