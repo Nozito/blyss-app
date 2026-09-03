@@ -54,6 +54,7 @@ import { startRescheduleSweepCron } from "./cron/reschedule-sweep";
 import { startSubscriptionExpiryCron } from "./cron/subscription-expiry";
 import { startFinanceReportsCron } from "./cron/finance-reports";
 import { initiateRefundsForReservation } from "./lib/refunds";
+import { classifyContact } from "./lib/contact-match";
 import { getActiveEntitlement } from "./lib/revenuecat";
 import { startRecallCron } from "./cron/recall";
 import { startDailyRecapCron } from "./cron/daily-recap";
@@ -4087,29 +4088,65 @@ app.get(
   }
 );
 
-/* PRO CLIENT SEARCH — search across ALL app clients (not just those who
- * already have a reservation with this pro), for picking a client when
- * manually creating an appointment (walk-in, phone booking). */
+/* PRO CLIENT SEARCH — RGPD : minimisation appliquée ICI, pas seulement dans l'app.
+ *
+ *  - défaut (mode relation) : recherche par nom/email/téléphone bornée aux
+ *    clientes ayant déjà une réservation confirmed/completed avec CETTE pro
+ *    (pro_id issu du token, jamais du client).
+ *  - ?exact=1 (walk-in) : résout une cliente sans historique UNIQUEMENT sur
+ *    correspondance exacte d'un email ou d'un téléphone que la pro connaît
+ *    déjà. Aucun match par nom / fragment → pas d'énumération de l'annuaire.
+ */
 app.get(
   "/api/pro/clients/search",
   authMiddleware,
   nailTechWriteLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
+      const proId = getProId(req);
       const q = String(req.query.q ?? "").trim();
-      if (!q) return res.json({ success: true, data: [] });
+      const exact = req.query.exact === "1" || req.query.exact === "true";
+
+      if (exact) {
+        const contact = classifyContact(q);
+        if (!contact) return res.json({ success: true, data: [] });
+
+        const [rows] =
+          contact.kind === "email"
+            ? await db.query(
+                `SELECT id, first_name, last_name, phone_number, email, profile_photo
+                 FROM users
+                 WHERE role = 'client' AND LOWER(email) = ?
+                 LIMIT 1`,
+                [contact.value]
+              )
+            : await db.query(
+                `SELECT id, first_name, last_name, phone_number, email, profile_photo
+                 FROM users
+                 WHERE role = 'client' AND regexp_replace(phone_number, '[^0-9+]', '', 'g') = ?
+                 LIMIT 1`,
+                [contact.value]
+              );
+
+        return res.json({ success: true, data: rows });
+      }
+
+      // Mode relation — nom/fragment autorisé, mais périmètre = clientes de la pro.
+      if (q.length < 2) return res.json({ success: true, data: [] });
 
       const like = `%${q}%`;
       const [rows] = await db.query(
         `
-        SELECT id, first_name, last_name, phone_number, email, profile_photo
-        FROM users
-        WHERE role = 'client'
-          AND (first_name ILIKE ? OR last_name ILIKE ? OR email ILIKE ? OR phone_number ILIKE ?)
-        ORDER BY first_name ASC, last_name ASC
+        SELECT DISTINCT u.id, u.first_name, u.last_name, u.phone_number, u.email, u.profile_photo
+        FROM reservations r
+        JOIN users u ON u.id = r.client_id
+        WHERE r.pro_id = ?
+          AND r.status IN ('confirmed','completed')
+          AND (u.first_name ILIKE ? OR u.last_name ILIKE ? OR u.email ILIKE ? OR u.phone_number ILIKE ?)
+        ORDER BY u.first_name ASC, u.last_name ASC
         LIMIT 30
         `,
-        [like, like, like, like]
+        [proId, like, like, like, like]
       );
 
       res.json({ success: true, data: rows });
@@ -5091,17 +5128,44 @@ app.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const proId = getProId(req);
-      const { client_id, prestation_id, start_datetime, early_execution_requested, manual_override } = req.body;
+      const { client_id, prestation_id, start_datetime, early_execution_requested, manual_override, client_contact } = req.body;
 
-      // Contrôle d'accès : la cliente doit exister ET être une cliente. Le
-      // client_id vient du body ici (la pro choisit), mais reste borné à un
-      // rôle 'client' — jamais une autre pro / un admin.
-      const [clientRows] = await db.query(
-        `SELECT id FROM users WHERE id = ? AND role = 'client'`,
-        [client_id]
+      // Contrôle d'accès RGPD — le client_id vient du body (la pro choisit),
+      // donc on ne s'y fie pas : autorisé seulement si
+      //   (a) il existe une réservation confirmed/completed entre CETTE pro
+      //       (pro_id du token) et ce client_id ; OU
+      //   (b) la pro fournit un client_contact (email/téléphone) qui correspond
+      //       EXACTEMENT à ce client_id (walk-in — elle connaît déjà la cliente).
+      // Sinon : réponse générique, sans révéler si le compte existe.
+      const [relRows] = await db.query(
+        `SELECT 1 FROM reservations
+         WHERE pro_id = ? AND client_id = ? AND status IN ('confirmed','completed')
+         LIMIT 1`,
+        [proId, client_id]
       );
-      if ((clientRows as any[]).length === 0) {
-        return res.status(404).json({ success: false, message: "Cliente introuvable" });
+
+      let allowed = (relRows as any[]).length > 0;
+
+      if (!allowed) {
+        const contact = classifyContact(client_contact);
+        if (contact) {
+          const [matchRows] =
+            contact.kind === "email"
+              ? await db.query(
+                  `SELECT 1 FROM users WHERE id = ? AND role = 'client' AND LOWER(email) = ? LIMIT 1`,
+                  [client_id, contact.value]
+                )
+              : await db.query(
+                  `SELECT 1 FROM users WHERE id = ? AND role = 'client'
+                     AND regexp_replace(phone_number, '[^0-9+]', '', 'g') = ? LIMIT 1`,
+                  [client_id, contact.value]
+                );
+          allowed = (matchRows as any[]).length > 0;
+        }
+      }
+
+      if (!allowed) {
+        return res.status(403).json({ success: false, message: "Cliente non rattachée à votre compte." });
       }
 
       const result = await createReservation({
