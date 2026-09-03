@@ -89,7 +89,8 @@ router.get("/threads", authMiddleware, async (req: AuthenticatedRequest, res: Re
          u.id AS other_id,
          COALESCE(NULLIF(TRIM(u.activity_name), ''), u.first_name || ' ' || u.last_name) AS other_name,
          u.profile_photo AS other_photo,
-         r.status AS reservation_status
+         r.status AS reservation_status,
+         r.start_datetime AS reservation_start
        FROM message_threads t
        JOIN users u ON u.id = ${isClient ? "t.pro_id" : "t.client_id"}
        LEFT JOIN reservations r ON r.id = t.last_reservation_id
@@ -198,7 +199,8 @@ router.get("/threads/:id", authMiddleware, async (req: AuthenticatedRequest, res
          cu.first_name AS client_first_name, cu.last_name AS client_last_name, cu.profile_photo AS client_photo,
          COALESCE(NULLIF(TRIM(pu.activity_name), ''), pu.first_name || ' ' || pu.last_name) AS pro_name,
          pu.profile_photo AS pro_photo,
-         r.status AS reservation_status
+         r.status AS reservation_status,
+         r.start_datetime AS reservation_start
        FROM message_threads t
        JOIN users cu ON cu.id = t.client_id
        JOIN users pu ON pu.id = t.pro_id
@@ -236,6 +238,7 @@ router.get("/threads/:id", authMiddleware, async (req: AuthenticatedRequest, res
         otherPhoto: isClient ? thread.pro_photo : thread.client_photo,
         lastReservationId: thread.last_reservation_id,
         reservationStatus: thread.reservation_status,
+        reservationStart: thread.reservation_start,
         isLocked: thread.is_locked,
         messages,
       },
