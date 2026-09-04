@@ -473,11 +473,15 @@ export const twoFaLoginVerifySchema = z.object({
   code: z.string().min(6, "Code invalide").max(20, "Code invalide"),
 });
 
-// #34 — onboarding client. Doit rester aligné sur l'ENUM nail_style
-// (migration 20260906000001).
-export const NAIL_STYLES = ["nail_art", "french", "couleurs_vives", "gel", "resine", "autre"] as const;
+// #34 — taxonomie nails, partagée client (préférence) et pro (spécialités).
+// Doit rester alignée sur l'ENUM nail_style (migrations 20260906000001 +
+// 20260907000001).
+export const NAIL_STYLES = ["nail_art", "french_nude", "couleurs_vives", "vernis_gel", "pose_resine", "autre"] as const;
 export const onboardingPreferencesSchema = z.object({
   style_nails: z.enum(NAIL_STYLES),
+});
+export const proNailStyleSchema = z.object({
+  style: z.enum(NAIL_STYLES),
 });
 
 // PUT /api/pro/working-hours — garantit la STRUCTURE (types, format HH:MM,

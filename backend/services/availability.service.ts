@@ -915,3 +915,71 @@ export async function setWorkingHours(
 
   return { migrated, reverted };
 }
+
+/**
+ * #34 — compteur de créneaux ouverts pour un indicateur de rareté (onboarding
+ * client). Réutilise EXACTEMENT le calcul de disponibilité (working_hours −
+ * unavailabilities − réservations bloquantes), avec un pas nominal (durée
+ * moyenne d'une prestation nails). Approximatif par design : c'est un signal
+ * d'affichage, pas une réservation.
+ *
+ * Retourne le nombre de créneaux de `stepMinutes` disponibles :
+ *   - today       : aujourd'hui (à partir de maintenant)
+ *   - next_7_days : sur la fenêtre complète
+ *   - weekend     : samedi + dimanche de la fenêtre
+ */
+export interface OpenSlotCounts {
+  today: number;
+  next_7_days: number;
+  weekend: number;
+}
+
+export async function countOpenSlotsForPro(
+  proId: number,
+  opts: { now?: Date; days?: number; stepMinutes?: number } = {}
+): Promise<OpenSlotCounts> {
+  const empty: OpenSlotCounts = { today: 0, next_7_days: 0, weekend: 0 };
+  const now = opts.now ?? new Date();
+  const days = Math.max(1, Math.min(opts.days ?? 7, 31));
+  const step = opts.stepMinutes ?? 45;
+
+  const [proRows] = await db.query("SELECT timezone FROM users WHERE id = ?", [proId]);
+  const tz = (proRows as Array<{ timezone?: string }>)[0]?.timezone || DEFAULT_TIMEZONE;
+
+  const [whRows] = await db.query(
+    `SELECT weekday, TO_CHAR(start_time, 'HH24:MI:SS') AS start_time,
+            TO_CHAR(end_time, 'HH24:MI:SS') AS end_time
+     FROM working_hours WHERE pro_id = ?`,
+    [proId]
+  );
+  const workingHours = whRows as WorkingHourRow[];
+  if (workingHours.length === 0) return empty;
+
+  const start = DateTime.fromJSDate(now, { zone: tz });
+  const fromDate = start.toISODate();
+  const toDate = start.plus({ days: days - 1 }).toISODate();
+  if (!fromDate || !toDate) return empty;
+
+  const { unavailabilities, blockedReservations } = await loadBlockingInputs(proId, tz, fromDate, toDate);
+  const free = computeFreeBlocks({ timezone: tz, fromDate, toDate, workingHours, unavailabilities, blockedReservations });
+
+  const windowEnd = start.plus({ days });
+  const todayEnd = start.endOf("day");
+
+  const counts = { ...empty };
+  for (const itv of free) {
+    if (!itv.start || !itv.end) continue;
+    const s = itv.start < start ? start : itv.start;
+    const e = itv.end > windowEnd ? windowEnd : itv.end;
+    if (e <= s) continue;
+    const n = Math.floor(e.diff(s, "minutes").minutes / step);
+    if (n <= 0) continue;
+    counts.next_7_days += n;
+    if (s < todayEnd) {
+      const eToday = e > todayEnd ? todayEnd : e;
+      counts.today += Math.max(0, Math.floor(eToday.diff(s, "minutes").minutes / step));
+    }
+    if (s.weekday >= 6) counts.weekend += n; // luxon : 6 = samedi, 7 = dimanche
+  }
+  return counts;
+}
