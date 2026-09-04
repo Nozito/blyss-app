@@ -83,6 +83,7 @@ import {
   adminLimiter,
   pushLimiter,
   nailTechWriteLimiter,
+  onboardingLimiter,
 } from "./middleware/rate-limits";
 import { validate, userUpdateSchema, financeObjectiveSchema, prestationSchema, prestationPatchSchema, slotCreateSchema, reservationSchema, reviewSchema, depositSchema, paymentIntentSchema, favoriteSchema, unavailabilitySchema, reservationStatusSchema, liveActivityTokenSchema, liveActivitySettingsSchema, proAppointmentSchema, proAppointmentUpdateSchema } from "./middleware/validate";
 import { sendLiveActivityEnd, sendLiveActivityUpdate } from "./lib/apns";
@@ -533,7 +534,7 @@ app.use("/api", rescheduleRouter);
 app.use("/api", workingHoursRouter);
 app.use("/api", nailTechRouter);
 app.use("/api/messages", messagesRouter);
-app.use("/api/client/onboarding", authMiddleware, clientOnboardingRouter);
+app.use("/api/client/onboarding", onboardingLimiter, authMiddleware, clientOnboardingRouter);
 
 // ── Health check (no auth) ──────────────────────────────────────────────────
 app.get("/api/health", async (_req: Request, res: Response) => {

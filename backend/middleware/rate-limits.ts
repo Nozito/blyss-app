@@ -156,6 +156,22 @@ export const adminLimiter = rateLimit({
   },
 });
 
+// Onboarding client (#34) — flux court et ponctuel : 60 req / 15 min / IP,
+// large pour le polling de /status + retries, sans exposer la reco (requête
+// d'agrégation) à du flood.
+export const onboardingLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  skip: loadtestBypass,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de requêtes, réessayez dans 15 minutes.",
+  },
+});
+
 // 15 souscriptions push par heure par IP (anti-spam)
 export const pushLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
