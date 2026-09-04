@@ -26,10 +26,12 @@ import {
   KeyRound,
   Users as UsersIcon,
   Flag,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import AdminAccessDialog from "@/components/admin/AdminAccessDialog";
+import ClientOnboardingDialog from "@/components/admin/ClientOnboardingDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -87,6 +89,7 @@ const AdminUsers = () => {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
+  const [onboardingClient, setOnboardingClient] = useState<User | null>(null);
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
@@ -550,6 +553,20 @@ const AdminUsers = () => {
 
               {/* Actions buttons */}
               <div className="flex gap-1.5">
+                {user.role === 'client' && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOnboardingClient(user);
+                    }}
+                    className="w-8 h-8 rounded-lg bg-muted hover:bg-accent border border-border flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    title="Voir l'onboarding"
+                    aria-label={`Voir l'onboarding de ${user.first_name} ${user.last_name}`}
+                  >
+                    <Sparkles size={13} className="text-foreground/70" strokeWidth={2.5} aria-hidden="true" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={(e) => {
@@ -870,6 +887,13 @@ const AdminUsers = () => {
       </AlertDialog>
 
       <AdminAccessDialog open={accessDialogOpen} onOpenChange={setAccessDialogOpen} />
+
+      <ClientOnboardingDialog
+        clientId={onboardingClient?.id ?? null}
+        clientName={onboardingClient ? `${onboardingClient.first_name} ${onboardingClient.last_name}`.trim() : undefined}
+        open={!!onboardingClient}
+        onOpenChange={(v) => { if (!v) setOnboardingClient(null); }}
+      />
     </div>
   );
 };

@@ -479,6 +479,7 @@ export const twoFaLoginVerifySchema = z.object({
 export const NAIL_STYLES = ["nail_art", "french_nude", "couleurs_vives", "vernis_gel", "pose_resine", "autre"] as const;
 export const onboardingPreferencesSchema = z.object({
   style_nails: z.enum(NAIL_STYLES),
+  city: z.string().trim().min(1).max(120).optional(),
 });
 export const proNailStyleSchema = z.object({
   style: z.enum(NAIL_STYLES),

@@ -147,6 +147,45 @@ Dans le profil pro (blyss-mobile — pas de web pro, cf. front web = admin only)
 
 ---
 
+## Interface admin (web `/admin/users`)
+
+Bouton **« Voir l'onboarding »** (icône ✨) sur chaque fiche **client** de
+`/admin/users`, à côté de Modifier / Désactiver / Supprimer. N'apparaît pas pour
+les pros.
+
+Ouvre une modale (`ClientOnboardingDialog`) qui lit
+`GET /api/admin/client-onboarding/:client_id` :
+
+| Donnée | Source |
+|---|---|
+| Statut (Complété / Passé / En cours / Pas commencé) | `completed_at` / `skipped_at` / présence de la ligne |
+| Étape actuelle + libellé | `current_step` (0 Pas commencé … 5 Carousel) |
+| Style nails | `client_preferences.style_nails` |
+| Localisation | `client_preferences.city` (ville ou CP saisis à l'écran 2) |
+| Recommandations vues | `client_onboarding.recommendations_viewed` (incrémenté par `GET /recommendations`) |
+| Taps « Prendre RDV » | `client_onboarding.cta_tapped` (incrémenté par `POST /cta`) |
+| Démarré / complété le | `started_at` / `completed_at` |
+| Relances envoyées | `nudge_d1/d3/d7_sent` |
+| 1ᵉʳ RDV réservé | `min(reservations.start_datetime)` hors annulé |
+
+### Rejouer l'onboarding
+
+Bouton **« Rejouer l'onboarding »** dans la modale (désactivé si `not_started`) →
+`POST /api/admin/client-onboarding/:client_id/replay` :
+
+- `current_step → 0`, `completed_at → NULL`, `skipped_at → NULL`,
+  `recommendations_viewed / cta_tapped → 0`
+- **conservés** : `client_preferences` (pré-remplissent l'écran 2), historique
+  des nudges (`nudge_dN_sent` — pas de re-spam)
+- tracé dans `admin_audit_log` (`action = replay_client_onboarding`)
+
+L'app mobile ré-affiche l'onboarding au prochain `GET /status` (car
+`current_step = 0 && !completed && !skipped`).
+
+Accès : `requireAdminMiddleware` (les deux routes sont sous `/api/admin`).
+
+---
+
 ## Dépendances
 
 - Aucun blocage avec #23, #26.
