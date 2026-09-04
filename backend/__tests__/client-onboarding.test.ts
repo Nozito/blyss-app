@@ -110,8 +110,9 @@ describe("GET /api/client/onboarding/recommendations", () => {
   // countOpenSlotsForPro (timezone + working_hours) par pro.
   function mockReco(opts: { style?: string | null; styleMatchCount?: number; pros?: Array<Record<string, unknown>> }) {
     const { style = null, styleMatchCount = 0, pros = [] } = opts;
+    mockExecute.mockResolvedValue([[]]); // compteur recommendations_viewed (best-effort)
     mockQuery.mockImplementation(async (sql: string) => {
-      if (sql.includes("FROM client_preferences")) return [style ? [{ style_nails: style }] : [], []];
+      if (sql.includes("FROM client_preferences")) return [style ? [{ style_nails: style, city: null }] : [], []];
       if (sql.includes("JOIN pro_nail_styles pns ON pns.pro_id = u.id AND")) return [[{ n: styleMatchCount }], []];
       if (sql.includes("FROM users u") && sql.includes("LIMIT 3")) return [pros, []];
       if (sql.includes("FROM working_hours WHERE pro_id")) return [[], []];  // 0 plage → scarcity vide

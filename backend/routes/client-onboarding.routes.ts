@@ -1,10 +1,12 @@
 /**
  * #34 — Onboarding client nails.
  *
- *   GET  /api/client/onboarding/status           → { current_step, completed, style_nails }
- *   POST /api/client/onboarding/preferences      { style_nails } → enregistre le style
- *   GET  /api/client/onboarding/recommendations  ?city= ?lat= ?lng= → 3 pros nails
+ *   GET  /api/client/onboarding/status           → { current_step, completed, skipped, style_nails }
+ *   POST /api/client/onboarding/preferences      { style_nails, city? } → enregistre style + localisation
+ *   GET  /api/client/onboarding/recommendations  ?city= → 3 pros nails (+ compteur admin)
+ *   POST /api/client/onboarding/cta              → tap « Prendre RDV » (compteur admin)
  *   POST /api/client/onboarding/complete         → fige completed_at
+ *   POST /api/client/onboarding/skip             → fige skipped_at (reprenable)
  *
  * Gate : authMiddleware appliqué en amont (server.ts). L'identité client vient
  * TOUJOURS du token (req.user.id), jamais du body.
@@ -77,14 +79,18 @@ router.post("/preferences", validate(onboardingPreferencesSchema), async (req: A
     if (!(await assertClient(clientId))) {
       return res.status(403).json({ success: false, error: "client_required" });
     }
-    const { style_nails } = req.body as { style_nails: string };
+    const { style_nails, city } = req.body as { style_nails: string; city?: string };
+    const cityVal = city?.trim() || null;
     const db = getDb();
 
     await db.execute(
-      `INSERT INTO client_preferences (client_id, style_nails)
-       VALUES (?, ?)
-       ON CONFLICT (client_id) DO UPDATE SET style_nails = EXCLUDED.style_nails, updated_at = NOW()`,
-      [clientId, style_nails]
+      `INSERT INTO client_preferences (client_id, style_nails, city)
+       VALUES (?, ?, ?)
+       ON CONFLICT (client_id) DO UPDATE
+         SET style_nails = EXCLUDED.style_nails,
+             city = COALESCE(EXCLUDED.city, client_preferences.city),
+             updated_at = NOW()`,
+      [clientId, style_nails, cityVal]
     );
     await db.execute(
       `INSERT INTO client_onboarding (client_id, current_step)
@@ -104,14 +110,28 @@ router.post("/preferences", validate(onboardingPreferencesSchema), async (req: A
 router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user!.id;
-    const city = typeof req.query.city === "string" ? req.query.city.trim() : "";
 
     const db = getDb();
     const [prefRows] = (await db.query(
-      "SELECT style_nails FROM client_preferences WHERE client_id = ?",
+      "SELECT style_nails, city FROM client_preferences WHERE client_id = ?",
       [clientId]
-    )) as [Array<{ style_nails: string }>, unknown];
+    )) as [Array<{ style_nails: string; city: string | null }>, unknown];
     const style = prefRows[0]?.style_nails ?? null;
+    const city =
+      (typeof req.query.city === "string" && req.query.city.trim()) ||
+      prefRows[0]?.city?.trim() ||
+      "";
+
+    // Compteur pour l'inspection admin (#34). Best-effort, ne bloque pas la reco.
+    await db
+      .execute(
+        `INSERT INTO client_onboarding (client_id, recommendations_viewed)
+         VALUES (?, 1)
+         ON CONFLICT (client_id) DO UPDATE
+           SET recommendations_viewed = client_onboarding.recommendations_viewed + 1`,
+        [clientId]
+      )
+      .catch(() => {});
 
     // Filtre dur par style SI le client a une préférence ET qu'au moins une
     // pro (dans le périmètre géo) l'a déclarée — sinon on retombe sur toutes
@@ -224,6 +244,24 @@ router.post("/complete", async (req: AuthenticatedRequest, res: Response) => {
     res.json({ success: true });
   } catch (err) {
     fail(res, "/api/client/onboarding/complete", err);
+  }
+});
+
+/* POST /cta — le client a tapé « Prendre RDV » depuis l'onboarding. Compteur admin. */
+router.post("/cta", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const clientId = req.user!.id;
+    await getDb().execute(
+      `INSERT INTO client_onboarding (client_id, cta_tapped, current_step)
+       VALUES (?, 1, ?)
+       ON CONFLICT (client_id) DO UPDATE
+         SET cta_tapped = client_onboarding.cta_tapped + 1,
+             current_step = GREATEST(client_onboarding.current_step, EXCLUDED.current_step)`,
+      [clientId, 4]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    fail(res, "/api/client/onboarding/cta", err);
   }
 });
 

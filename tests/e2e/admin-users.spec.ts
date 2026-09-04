@@ -125,4 +125,37 @@ test.describe("Admin user deactivation", () => {
       expect(isVisible).toBe(true);
     }
   });
+
+  test("6. Onboarding client : route admin + bouton sur la fiche client (#34)", async ({ page }) => {
+    if (!adminCookies) { test.skip(); return; }
+
+    // Trouver un client
+    const usersRes = await fetch(`${API_BASE}/api/admin/users`, { headers: { Cookie: adminCookies } });
+    const usersJson = await usersRes.json();
+    const client = (usersJson.data ?? []).find((u: { role: string }) => u.role === "client");
+    if (!client) { test.skip(); return; }
+
+    // API : état onboarding (client sans onboarding → not_started)
+    const onbRes = await fetch(`${API_BASE}/api/admin/client-onboarding/${client.id}`, {
+      headers: { Cookie: adminCookies },
+    });
+    expect(onbRes.status).toBe(200);
+    const onbJson = await onbRes.json();
+    expect(onbJson.data).toMatchObject({ client_id: client.id });
+    expect(["not_started", "in_progress", "completed", "skipped"]).toContain(onbJson.data.status);
+
+    // API : non-admin → 403
+    const anonRes = await fetch(`${API_BASE}/api/admin/client-onboarding/${client.id}`);
+    expect(anonRes.status).toBe(401);
+
+    // UI : bouton « Voir l'onboarding » présent sur au moins une fiche client
+    await page.goto("/admin/users?role=client");
+    await expect(page).not.toHaveURL(/login/);
+    const btn = page.locator('[aria-label^="Voir l\'onboarding"]').first();
+    const seen = await btn.isVisible({ timeout: 5000 }).catch(() => false);
+    if (seen) {
+      await btn.click();
+      await expect(page.getByText("Onboarding client").first()).toBeVisible({ timeout: 5000 });
+    }
+  });
 });

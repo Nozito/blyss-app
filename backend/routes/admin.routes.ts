@@ -1110,6 +1110,131 @@ router.post(
   }
 );
 
+// ── Onboarding client (#34) — inspection / rejeu par un admin ──────────────
+
+/* GET /client-onboarding/:client_id — état complet de l'onboarding d'un client. */
+router.get(
+  "/client-onboarding/:client_id",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const clientId = parseParamToInt(req.params.client_id);
+      const db = getDb();
+
+      const [userRows] = (await db.query(
+        "SELECT id, role, first_name, last_name, email FROM users WHERE id = ?",
+        [clientId]
+      )) as [Array<{ id: number; role: string; first_name: string | null; last_name: string | null; email: string }>, unknown];
+      const user = userRows[0];
+      if (!user) {
+        return res.status(404).json({ success: false, error: "client_not_found" });
+      }
+      if (user.role !== "client") {
+        return res.status(400).json({ success: false, error: "not_a_client" });
+      }
+
+      const [onbRows] = (await db.query(
+        `SELECT current_step, started_at, completed_at, skipped_at,
+                recommendations_viewed, cta_tapped,
+                nudge_d1_sent, nudge_d3_sent, nudge_d7_sent
+         FROM client_onboarding WHERE client_id = ?`,
+        [clientId]
+      )) as [Array<Record<string, unknown>>, unknown];
+      const onb = onbRows[0] ?? null;
+
+      const [prefRows] = (await db.query(
+        "SELECT style_nails, city, updated_at FROM client_preferences WHERE client_id = ?",
+        [clientId]
+      )) as [Array<{ style_nails: string; city: string | null; updated_at: string }>, unknown];
+      const pref = prefRows[0] ?? null;
+
+      const [firstResaRows] = (await db.query(
+        `SELECT MIN(created_at) AS first_at,
+                MIN(start_datetime) FILTER (WHERE status NOT IN ('cancelled')) AS first_appt_at
+         FROM reservations WHERE client_id = ?`,
+        [clientId]
+      )) as [Array<{ first_at: string | null; first_appt_at: string | null }>, unknown];
+      const firstResa = firstResaRows[0] ?? { first_at: null, first_appt_at: null };
+
+      const status = onb?.completed_at
+        ? "completed"
+        : onb?.skipped_at
+          ? "skipped"
+          : onb
+            ? "in_progress"
+            : "not_started";
+
+      res.json({
+        success: true,
+        data: {
+          client_id: user.id,
+          client_name: `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim() || user.email,
+          onboarding_step: Number(onb?.current_step ?? 0),
+          status,
+          started_at: onb?.started_at ?? null,
+          onboarding_completed_at: onb?.completed_at ?? null,
+          onboarding_skipped: !!onb?.skipped_at && !onb?.completed_at,
+          preferences: pref
+            ? { style_nails: pref.style_nails, updated_at: pref.updated_at }
+            : null,
+          location: pref?.city ?? null,
+          recommendations_viewed: Number(onb?.recommendations_viewed ?? 0),
+          cta_tapped: Number(onb?.cta_tapped ?? 0),
+          nudges_sent: {
+            d1: onb?.nudge_d1_sent ?? null,
+            d3: onb?.nudge_d3_sent ?? null,
+            d7: onb?.nudge_d7_sent ?? null,
+          },
+          first_reservation_at: firstResa.first_at,
+          first_appointment_booked_at: firstResa.first_appt_at,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* POST /client-onboarding/:client_id/replay — remet l'onboarding à zéro. */
+router.post(
+  "/client-onboarding/:client_id/replay",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const clientId = parseParamToInt(req.params.client_id);
+      const adminId = req.user!.id;
+      const db = getDb();
+
+      const [userRows] = (await db.query(
+        "SELECT role FROM users WHERE id = ?",
+        [clientId]
+      )) as [Array<{ role: string }>, unknown];
+      if (!userRows[0]) {
+        return res.status(404).json({ success: false, error: "client_not_found" });
+      }
+      if (userRows[0].role !== "client") {
+        return res.status(400).json({ success: false, error: "not_a_client" });
+      }
+
+      // Repart de zéro : l'app ré-affichera l'onboarding au prochain
+      // GET /status. On garde les préférences (elles pré-remplissent l'écran 2)
+      // et l'historique des nudges (ne pas re-spammer).
+      await db.execute(
+        `INSERT INTO client_onboarding (client_id, current_step, completed_at, skipped_at,
+                                        recommendations_viewed, cta_tapped)
+         VALUES (?, 0, NULL, NULL, 0, 0)
+         ON CONFLICT (client_id) DO UPDATE
+           SET current_step = 0, completed_at = NULL, skipped_at = NULL,
+               recommendations_viewed = 0, cta_tapped = 0`,
+        [clientId]
+      );
+      await logAdminAction(req, adminId, "replay_client_onboarding", "user", clientId);
+
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 /* GET /audit-log — dernières actions admin sensibles. ?date=today|week|month|all (défaut: all). */
 router.get(
   "/audit-log",
