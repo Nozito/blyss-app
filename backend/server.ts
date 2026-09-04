@@ -55,6 +55,7 @@ import { initiateRefundsForReservation } from "./lib/refunds";
 import { getActiveEntitlement } from "./lib/revenuecat";
 import { startRecallCron } from "./cron/recall";
 import { startDailyRecapCron } from "./cron/daily-recap";
+import { startOnboardingNudgeCron } from "./cron/onboarding-nudge";
 import nailTechRouter, { notifyWaitingList } from "./routes/nail-tech.routes";
 import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
@@ -82,6 +83,7 @@ import {
   adminLimiter,
   pushLimiter,
   nailTechWriteLimiter,
+  onboardingLimiter,
 } from "./middleware/rate-limits";
 import { validate, userUpdateSchema, financeObjectiveSchema, prestationSchema, prestationPatchSchema, slotCreateSchema, reservationSchema, reviewSchema, depositSchema, paymentIntentSchema, favoriteSchema, unavailabilitySchema, reservationStatusSchema, liveActivityTokenSchema, liveActivitySettingsSchema, proAppointmentSchema, proAppointmentUpdateSchema } from "./middleware/validate";
 import { sendLiveActivityEnd, sendLiveActivityUpdate } from "./lib/apns";
@@ -91,6 +93,7 @@ import adminRouter from "./routes/admin.routes";
 import cancellationRouter from "./routes/cancellation.routes";
 import rescheduleRouter from "./routes/reschedule.routes";
 import workingHoursRouter from "./routes/working-hours.routes";
+import clientOnboardingRouter from "./routes/client-onboarding.routes";
 import { createRescheduleRequest, RescheduleServiceError } from "./services/reschedule.service";
 import { createReservation, ReservationServiceError } from "./services/reservation.service";
 import { getAvailability, AvailabilityError } from "./services/availability.service";
@@ -531,6 +534,7 @@ app.use("/api", rescheduleRouter);
 app.use("/api", workingHoursRouter);
 app.use("/api", nailTechRouter);
 app.use("/api/messages", messagesRouter);
+app.use("/api/client/onboarding", onboardingLimiter, authMiddleware, clientOnboardingRouter);
 
 // ── Health check (no auth) ──────────────────────────────────────────────────
 app.get("/api/health", async (_req: Request, res: Response) => {
@@ -6965,6 +6969,7 @@ if (process.env.NODE_ENV !== "test") {
     startSubscriptionExpiryCron();
     startFinanceReportsCron();
     startDailyRecapCron();
+    startOnboardingNudgeCron();
   });
 }
 
