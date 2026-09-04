@@ -34,6 +34,8 @@ Issue : blyss-app #26
 Depuis la racine `blyss-app`, avec l'environnement prod chargé :
 
 ```bash
+export MIGRATE_ENV_FILE=.env.prod   # sinon .env.dev par défaut
+
 # 3.1 — DRY-RUN (obligatoire, n'écrit rien)
 node_modules/.bin/ts-node backend/migrate-16-pros.ts --dry-run --clear-open-slots
 

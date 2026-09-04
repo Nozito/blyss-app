@@ -241,8 +241,15 @@ export async function runMigrate16(db: Db, opts: Migrate16Options = {}): Promise
 
 // ── CLI ───────────────────────────────────────────────────────────────────
 if (require.main === module) {
+  // Prod : lancer avec MIGRATE_ENV_FILE=.env.prod (ou --env <fichier>).
+  const envArgIdx = process.argv.indexOf("--env");
+  const envFile =
+    (envArgIdx >= 0 ? process.argv[envArgIdx + 1] : undefined) ||
+    process.env.MIGRATE_ENV_FILE ||
+    ".env.dev";
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  require("dotenv").config({ path: path.resolve(__dirname, "..", ".env.dev") });
+  require("dotenv").config({ path: path.resolve(__dirname, "..", envFile) });
+  console.log(`[migrate-16-pros] env: ${envFile}`);
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { getDb: getDbRuntime } = require("./lib/db") as { getDb: typeof getDb };
 
