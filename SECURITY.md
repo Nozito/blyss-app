@@ -52,6 +52,11 @@ We do not currently offer a monetary bug bounty program, but we will acknowledge
 - JWT tokens stored as HttpOnly cookies (SameSite: Strict)
 - JWT signés/vérifiés avec `algorithm` HS256, `issuer` et `audience` explicites
   et constants (`backend/lib/tokens.ts`)
+- 2FA TOTP pour les comptes admin (secret AES-256-GCM, codes de secours bcrypt
+  à usage unique). Obligation contrôlée par `ADMIN_2FA_REQUIRED` : quand `true`,
+  `/api/admin/*` exige `totp_enabled` + un token d'accès `amr:["mfa"]` (hors
+  routes d'enrôlement). Rollout progressif (staging → prod, période
+  d'enrôlement) et procédure de récupération : `docs/2FA-admin.md`.
 - Passwords hashed with bcrypt (cost factor 12)
 - IBAN encrypted with AES-256-GCM (random IV per record)
 - Rate limiting on all auth endpoints
