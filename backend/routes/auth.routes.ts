@@ -12,6 +12,7 @@ import jwt from "jsonwebtoken";
 import {
   generateAccessToken,
   generateAndStoreRefreshToken,
+  AMR_MFA,
   revokeRefreshToken,
   findRefreshToken,
   jwtSignOpts,
@@ -516,9 +517,11 @@ router.post(
 
       await db.execute("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
 
+      // Second facteur validé → session « MFA » : amr:["mfa"] sur le token
+      // d'accès, marqueur mfa sur le refresh token (propagé à chaque rotation).
       const { password_hash, totp_secret_encrypted, totp_secret_iv, totp_backup_codes, ...userWithoutPassword } = user;
-      const accessToken = generateAccessToken(user.id);
-      const refreshToken = await generateAndStoreRefreshToken(user.id);
+      const accessToken = generateAccessToken(user.id, { amr: AMR_MFA });
+      const refreshToken = await generateAndStoreRefreshToken(user.id, { mfa: true });
 
       setAuthCookies(res, accessToken, refreshToken);
 
@@ -562,8 +565,10 @@ router.post(
         return res.status(401).json({ success: false, message: "Refresh token expired" });
       }
 
-      const newAccessToken = generateAccessToken(record.user_id);
-      const newRefreshToken = await generateAndStoreRefreshToken(record.user_id);
+      // Propage le marqueur MFA : une session dont le 2ᵉ facteur a été vérifié
+      // le reste sur toute sa durée de vie, sans re-challenge à chaque rotation.
+      const newAccessToken = generateAccessToken(record.user_id, record.mfa ? { amr: AMR_MFA } : {});
+      const newRefreshToken = await generateAndStoreRefreshToken(record.user_id, { mfa: record.mfa });
       await revokeRefreshToken(refreshToken);
 
       setAuthCookies(res, newAccessToken, newRefreshToken);

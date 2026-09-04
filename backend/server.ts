@@ -150,7 +150,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 // 3. INTERFACES
 // ==========================================
 interface AuthenticatedRequest extends Request {
-  user?: { id: number };
+  user?: { id: number; amr?: string[] };
   file?: Express.Multer.File;
 }
 

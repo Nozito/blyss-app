@@ -28,8 +28,21 @@ export const jwtVerifyOpts: jwt.VerifyOptions = {
   audience: JWT_AUDIENCE,
 };
 
-export function generateAccessToken(userId: number): string {
-  return jwt.sign({ id: userId }, process.env.JWT_SECRET!, { ...jwtSignOpts, expiresIn: "15m" });
+/**
+ * Authentication Methods References (RFC 8176). `mfa` marque une session dont
+ * le second facteur (TOTP admin) a été vérifié. requireAdminMiddleware l'exige
+ * sur /api/admin/* quand ADMIN_2FA_REQUIRED = true.
+ */
+export const AMR_MFA = ["mfa"] as const;
+
+/**
+ * @param opts.amr claims `amr` à embarquer (ex. AMR_MFA après /2fa/verify).
+ *        Un token de login simple n'en porte aucun.
+ */
+export function generateAccessToken(userId: number, opts: { amr?: readonly string[] } = {}): string {
+  const payload: Record<string, unknown> = { id: userId };
+  if (opts.amr && opts.amr.length > 0) payload.amr = [...opts.amr];
+  return jwt.sign(payload, process.env.JWT_SECRET!, { ...jwtSignOpts, expiresIn: "15m" });
 }
 
 function hashToken(token: string): string {
@@ -41,14 +54,17 @@ function hashToken(token: string): string {
  * value — matching the password_reset_tokens pattern), and returns the raw
  * token to send to the client.
  */
-export async function generateAndStoreRefreshToken(userId: number): Promise<string> {
+export async function generateAndStoreRefreshToken(
+  userId: number,
+  opts: { mfa?: boolean } = {}
+): Promise<string> {
   const refreshToken = crypto.randomBytes(64).toString("hex");
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 30);
 
   await getDb().execute(
-    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, revoked) VALUES (?, ?, ?, false)`,
-    [userId, hashToken(refreshToken), expiresAt]
+    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, revoked, mfa) VALUES (?, ?, ?, false, ?)`,
+    [userId, hashToken(refreshToken), expiresAt, opts.mfa === true]
   );
 
   return refreshToken;
@@ -58,12 +74,14 @@ export interface RefreshTokenRecord {
   user_id: number;
   expires_at: string;
   revoked: boolean;
+  /** Session dont le second facteur a été vérifié (cf. migration 20260905000001). */
+  mfa: boolean;
 }
 
 /** Looks up a raw refresh token by hashing it and matching against token_hash. */
 export async function findRefreshToken(rawToken: string): Promise<RefreshTokenRecord | null> {
   const [rows] = await getDb().execute(
-    `SELECT user_id, expires_at, revoked FROM refresh_tokens WHERE token_hash = ? LIMIT 1`,
+    `SELECT user_id, expires_at, revoked, mfa FROM refresh_tokens WHERE token_hash = ? LIMIT 1`,
     [hashToken(rawToken)]
   );
   return (rows as RefreshTokenRecord[])[0] ?? null;
