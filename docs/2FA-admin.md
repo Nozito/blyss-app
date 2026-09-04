@@ -78,8 +78,25 @@ et `mfa_required` → renvoi vers le login.
 
 ## 6. Rollout recommandé
 
-1. **Staging** : déployer le code, `ADMIN_2FA_REQUIRED = true`. Vérifier :
-   un admin sans TOTP est bloqué / s'enrôle / se reconnecte / accède à l'admin.
+1. **Staging** : déployer le code, `ADMIN_2FA_REQUIRED = true`, créer un compte
+   admin de test (`is_admin = TRUE`, `totp_enabled = FALSE`), puis lancer la
+   validation automatisée :
+   ```bash
+   API_URL=https://<staging> \
+   ADMIN_EMAIL=admin-test@blyssapp.fr ADMIN_PASSWORD='…' \
+   node backend/scripts/validate-2fa-staging.mjs
+   ```
+   Le script enchaîne blocage sans TOTP → enrôlement → login TOTP → `amr:["mfa"]`
+   → rotation refresh → code de secours + non-réutilisation, et sort en code 0
+   si tout est vert. Vérifier ensuite **à la main** la bascule du flag
+   (`false` → admin sans TOTP passe ; `true` → bloqué).
+
+   > Faute d'environnement staging déployé, la logique est déjà couverte par
+   > `backend/__tests__/admin-2fa.test.ts` + `totp-e2e.test.ts` (app Express
+   > réelle, otplib/AES/bcrypt réels) et le job **E2E Playwright** (Postgres 16
+   > réel — applique la migration `20260905000001`). Le script ci-dessus reste
+   > à passer contre une instance déployée avant l'activation prod.
+
 2. **Prod** : déployer avec `ADMIN_2FA_REQUIRED = false`.
 3. **Communication aux admins** (avant activation) :
    - « La 2FA devient obligatoire le <date>. »

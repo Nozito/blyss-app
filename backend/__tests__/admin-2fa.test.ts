@@ -58,6 +58,7 @@ vi.mock("stripe", () => {
 
 import { app } from "../server";
 import { encryptTotpSecret, generateBackupCodes } from "../lib/totp";
+import bcrypt from "bcrypt";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 const signOpts = { expiresIn: "15m" as const, issuer: "blyss-api", audience: "blyss-app" };
@@ -186,6 +187,73 @@ describe("POST /api/auth/2fa/verify", () => {
       .post("/api/auth/2fa/verify")
       .send({ challenge_token: challengeToken(1), code: "999999" });
     expect(res.status).toBe(401);
+  });
+
+  it("un code de secours déjà consommé est rejeté (401) à la réutilisation", async () => {
+    const { plain, hashed } = await generateBackupCodes();
+    // 1ʳᵉ utilisation OK
+    mockExecute.mockResolvedValueOnce([[
+      { id: 1, is_admin: true, totp_enabled: true, totp_secret_encrypted: ENC.ciphertext, totp_secret_iv: ENC.iv, totp_backup_codes: hashed },
+    ]]);
+    mockExecute.mockResolvedValue([[]]);
+    const first = await request(app)
+      .post("/api/auth/2fa/verify")
+      .send({ challenge_token: challengeToken(1), code: plain[0] });
+    expect(first.status).toBe(200);
+
+    // 2ᵉ utilisation : la DB renvoie la liste SANS le code consommé
+    const remaining = hashed.slice(1);
+    mockExecute.mockResolvedValueOnce([[
+      { id: 1, is_admin: true, totp_enabled: true, totp_secret_encrypted: ENC.ciphertext, totp_secret_iv: ENC.iv, totp_backup_codes: remaining },
+    ]]);
+    const reuse = await request(app)
+      .post("/api/auth/2fa/verify")
+      .send({ challenge_token: challengeToken(1), code: plain[0] });
+    expect(reuse.status).toBe(401);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// POST /api/auth/login — le challenge 2FA est indépendant de ADMIN_2FA_REQUIRED
+// ═══════════════════════════════════════════════════════════════════════════
+describe("POST /api/auth/login — challenge 2FA", () => {
+  const PW = "Sup3rSecret!";
+  let hash: string;
+  beforeEach(async () => {
+    hash = await bcrypt.hash(PW, 4);
+  });
+
+  it("admin avec totp_enabled=TRUE → requires_2fa même si ADMIN_2FA_REQUIRED absent", async () => {
+    delete process.env.ADMIN_2FA_REQUIRED;
+    mockExecute.mockResolvedValueOnce([[
+      { id: 1, email: "admin@blyss.fr", password_hash: hash, is_admin: true, totp_enabled: true },
+    ]]);
+
+    const res = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "admin@blyss.fr", password: PW });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.requires_2fa).toBe(true);
+    expect(typeof res.body.data.challenge_token).toBe("string");
+    // pas de cookies d'accès posés à ce stade
+    expect(res.body.data.accessToken).toBeUndefined();
+  });
+
+  it("admin avec totp_enabled=FALSE → login direct (pas de challenge)", async () => {
+    delete process.env.ADMIN_2FA_REQUIRED;
+    mockExecute.mockResolvedValueOnce([[
+      { id: 1, email: "admin@blyss.fr", password_hash: hash, is_admin: true, totp_enabled: false },
+    ]]);
+    mockExecute.mockResolvedValue([[]]);
+
+    const res = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "admin@blyss.fr", password: PW });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.requires_2fa).toBeUndefined();
+    expect(typeof res.body.data.accessToken).toBe("string");
   });
 });
 
