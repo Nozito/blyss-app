@@ -94,6 +94,7 @@ import cancellationRouter from "./routes/cancellation.routes";
 import rescheduleRouter from "./routes/reschedule.routes";
 import workingHoursRouter from "./routes/working-hours.routes";
 import clientOnboardingRouter from "./routes/client-onboarding.routes";
+import proNailStylesRouter from "./routes/pro-nail-styles.routes";
 import { createRescheduleRequest, RescheduleServiceError } from "./services/reschedule.service";
 import { createReservation, ReservationServiceError } from "./services/reservation.service";
 import { getAvailability, AvailabilityError } from "./services/availability.service";
@@ -529,6 +530,7 @@ async function requireProAccess(req: AuthenticatedRequest, res: Response, next: 
 app.use("/api/pro", authMiddleware, requireProAccess);
 
 app.use("/api/pro", router);
+app.use("/api", proNailStylesRouter);
 app.use("/api", cancellationRouter);
 app.use("/api", rescheduleRouter);
 app.use("/api", workingHoursRouter);

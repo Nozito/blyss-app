@@ -19,6 +19,7 @@
 import express, { Response } from "express";
 import { getDb } from "../lib/db";
 import { validate, onboardingPreferencesSchema } from "../middleware/validate";
+import { countOpenSlotsForPro } from "../services/availability.service";
 import { log } from "../lib/logger";
 import type { AuthenticatedRequest } from "../lib/types";
 
@@ -46,12 +47,12 @@ router.get("/status", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user!.id;
     const [rows] = (await getDb().query(
-      `SELECT o.current_step, o.completed_at, p.style_nails
+      `SELECT o.current_step, o.completed_at, o.skipped_at, p.style_nails
        FROM client_onboarding o
        LEFT JOIN client_preferences p ON p.client_id = o.client_id
        WHERE o.client_id = ?`,
       [clientId]
-    )) as [Array<{ current_step: number; completed_at: string | null; style_nails: string | null }>, unknown];
+    )) as [Array<{ current_step: number; completed_at: string | null; skipped_at: string | null; style_nails: string | null }>, unknown];
 
     const row = rows[0];
     res.json({
@@ -60,6 +61,7 @@ router.get("/status", async (req: AuthenticatedRequest, res: Response) => {
         current_step: row?.current_step ?? 0,
         completed: !!row?.completed_at,
         completed_at: row?.completed_at ?? null,
+        skipped: !!row?.skipped_at && !row?.completed_at,
         style_nails: row?.style_nails ?? null,
       },
     });
@@ -111,10 +113,32 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
     )) as [Array<{ style_nails: string }>, unknown];
     const style = prefRows[0]?.style_nails ?? null;
 
+    // Filtre dur par style SI le client a une préférence ET qu'au moins une
+    // pro (dans le périmètre géo) l'a déclarée — sinon on retombe sur toutes
+    // les pros pour ne jamais renvoyer une liste vide.
+    let styleFilterActive = false;
+    if (style) {
+      const styleParams: unknown[] = [style];
+      let styleCity = "";
+      if (city) { styleCity = "AND u.city ILIKE ?"; styleParams.push(`%${city}%`); }
+      const [cnt] = (await db.query(
+        `SELECT COUNT(DISTINCT u.id)::int AS n
+         FROM users u JOIN pro_nail_styles pns ON pns.pro_id = u.id AND pns.style_nails::text = ?
+         WHERE u.role = 'pro' AND u.pro_status = 'active' AND u.is_active = TRUE
+           AND u.profile_visibility = 'public' ${styleCity}`,
+        styleParams
+      )) as [Array<{ n: number }>, unknown];
+      styleFilterActive = (cnt[0]?.n ?? 0) > 0;
+    }
+
     const params: unknown[] = [style];
-    let cityClause = "";
+    let filters = "";
+    if (styleFilterActive) {
+      filters += " AND EXISTS (SELECT 1 FROM pro_nail_styles p2 WHERE p2.pro_id = u.id AND p2.style_nails::text = ?)";
+      params.push(style);
+    }
     if (city) {
-      cityClause = "AND u.city ILIKE ?";
+      filters += " AND u.city ILIKE ?";
       params.push(`%${city}%`);
     }
 
@@ -130,9 +154,6 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
          COUNT(DISTINCT rez.id) FILTER (
            WHERE rez.status = 'completed' AND rez.start_datetime > NOW() - INTERVAL '90 days'
          )::int AS bookings_90d,
-         COUNT(DISTINCT rez.id) FILTER (
-           WHERE rez.status IN ('confirmed','pending') AND rez.start_datetime BETWEEN NOW() AND NOW() + INTERVAL '14 days'
-         )::int AS upcoming_14d,
          EXISTS (SELECT 1 FROM working_hours wh WHERE wh.pro_id = u.id) AS has_hours,
          COALESCE(bool_or(pns.style_nails::text = ?), false) AS matches_style
        FROM users u
@@ -141,7 +162,7 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
        LEFT JOIN pro_nail_styles pns ON pns.pro_id = u.id
        WHERE u.role = 'pro' AND u.pro_status = 'active' AND u.is_active = TRUE
          AND u.profile_visibility = 'public'
-         ${cityClause}
+         ${filters}
        GROUP BY u.id
        ORDER BY
          matches_style DESC,
@@ -152,12 +173,17 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
       params
     )) as [Array<Record<string, unknown>>, unknown];
 
+    // Compteur de créneaux (rareté) — moteur de dispo, 7 jours, top 3 seulement.
+    const scarcity = await Promise.all(
+      rows.map((r) => countOpenSlotsForPro(Number(r.id), { days: 7 }).catch(() => ({ today: 0, next_7_days: 0, weekend: 0 })))
+    );
+
     res.json({
       success: true,
       data: {
         style_nails: style,
-        style_matching_active: rows.some((r) => r.matches_style === true),
-        recommendations: rows.map((r) => ({
+        style_filter_active: styleFilterActive,
+        recommendations: rows.map((r, i) => ({
           pro_id: r.id,
           name: r.name,
           city: r.city,
@@ -166,9 +192,13 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
           rating: r.rating,
           reviews_count: r.reviews_count,
           bookings_90d: r.bookings_90d,
-          upcoming_14d: r.upcoming_14d,
           has_availability: r.has_hours === true,
           matches_style: r.matches_style === true,
+          open_slots: {
+            today: scarcity[i].today,
+            this_week: scarcity[i].next_7_days,
+            this_weekend: scarcity[i].weekend,
+          },
         })),
       },
     });
@@ -188,12 +218,31 @@ router.post("/complete", async (req: AuthenticatedRequest, res: Response) => {
       `INSERT INTO client_onboarding (client_id, current_step, completed_at)
        VALUES (?, ?, NOW())
        ON CONFLICT (client_id) DO UPDATE
-         SET current_step = ?, completed_at = COALESCE(client_onboarding.completed_at, NOW())`,
+         SET current_step = ?, completed_at = COALESCE(client_onboarding.completed_at, NOW()), skipped_at = NULL`,
       [clientId, STEP_DONE, STEP_DONE]
     );
     res.json({ success: true });
   } catch (err) {
     fail(res, "/api/client/onboarding/complete", err);
+  }
+});
+
+/* POST /skip — #34 décision 6 : passer l'onboarding (jamais bloquant), reprenable. */
+router.post("/skip", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const clientId = req.user!.id;
+    if (!(await assertClient(clientId))) {
+      return res.status(403).json({ success: false, error: "client_required" });
+    }
+    await getDb().execute(
+      `INSERT INTO client_onboarding (client_id, skipped_at)
+       VALUES (?, NOW())
+       ON CONFLICT (client_id) DO UPDATE SET skipped_at = NOW()`,
+      [clientId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    fail(res, "/api/client/onboarding/skip", err);
   }
 });
 
