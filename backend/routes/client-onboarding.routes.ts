@@ -1,66 +1,57 @@
 /**
  * #34 — Onboarding client nails.
  *
- *   GET  /api/client/onboarding/status           → { current_step, completed, skipped, style_nails, styles, acquisition_source }
- *   POST /api/client/onboarding/preferences      { styles[], city? } → styles (multi) + localisation
- *   GET  /api/client/onboarding/recommendations  ?city= → 3 pros nails (+ compteur admin)
- *   POST /api/client/onboarding/cta              → tap « Réserver » (compteur admin)
- *   POST /api/client/onboarding/attribution      { source } → « comment tu as connu Blyss » (#34 passe 3b)
- *   POST /api/client/onboarding/complete         → fige completed_at
- *   POST /api/client/onboarding/skip             → fige skipped_at (reprenable)
+ *   GET  /api/client/onboarding/status           → progression + préférences pour la reprise
+ *   POST /api/client/onboarding/preferences      { styles[], city? }
+ *   GET  /api/client/onboarding/recommendations  ?city= &lat= &lng= → 3 pros
+ *   POST /api/client/onboarding/cta              tap « Réserver » (compteur admin)
+ *   POST /api/client/onboarding/attribution      { source } — « comment tu as connu Blyss »
+ *   POST /api/client/onboarding/complete
+ *   POST /api/client/onboarding/skip             (reprenable)
  *
- * Le ♥ « favori » de l'écran recos réutilise POST /api/favorites (table
- * favorites existante) — pas de route ici.
- *
- * Gate : authMiddleware appliqué en amont (server.ts). L'identité client vient
- * TOUJOURS du token (req.user.id), jamais du body.
- *
- * Reco v1 : preuve sociale (note, avis, RDV réalisés 90j) + rareté (RDV à venir
- * 14j) + présence d'horaires. Le style n'est PAS encore un filtre dur — la
- * table pro_nail_styles est vide tant que l'éditeur pro n'existe pas
- * (cf. docs/DESIGN_34_client-onboarding.md). Il est stocké et ré-affiché, et
- * remonte les pros correspondants dès que des lignes existent.
+ * authMiddleware est appliqué en amont (server.ts). L'identité client vient
+ * toujours du token (req.user.id), jamais du body. Le ♥ favori de l'écran recos
+ * réutilise POST /api/favorites — pas de route ici.
  */
 
 import express, { Response } from "express";
 import { getDb } from "../lib/db";
-import {
-  validate,
-  onboardingPreferencesSchema,
-  onboardingAttributionSchema,
-} from "../middleware/validate";
+import { validate, onboardingPreferencesSchema, onboardingAttributionSchema } from "../middleware/validate";
 import { countOpenSlotsForPro } from "../services/availability.service";
 import { log } from "../lib/logger";
 import type { AuthenticatedRequest } from "../lib/types";
 
 const router = express.Router();
 
-// #34 passe 3b — onboarding à 7 écrans, CTA en dernier (cf. app/client-onboarding.tsx).
 const STEP_PREFERENCES = 3;
 const STEP_CTA = 6;
 const STEP_DONE = 7;
+const REGION_KM = 40;
 
 async function assertClient(userId: number): Promise<boolean> {
-  const [rows] = (await getDb().query(
-    "SELECT role FROM users WHERE id = ? AND is_active = TRUE",
-    [userId]
-  )) as [Array<{ role?: string }>, unknown];
+  const [rows] = (await getDb().query("SELECT role FROM users WHERE id = ? AND is_active = TRUE", [userId])) as [
+    Array<{ role?: string }>,
+    unknown,
+  ];
   return rows[0]?.role === "client";
 }
 
 function fail(res: Response, route: string, err: unknown): void {
-  const msg = err instanceof Error ? err.message : String(err);
-  log.error(route, msg, err instanceof Error ? err.stack : undefined);
+  log.error(route, err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : undefined);
   res.status(500).json({ success: false, message: "Erreur serveur" });
 }
 
-/* GET /status */
+function toStyles(styles: string[] | null | undefined, styleNails: string | null | undefined): string[] {
+  if (styles?.length) return styles;
+  return styleNails ? [styleNails] : [];
+}
+
 router.get("/status", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user!.id;
     const [rows] = (await getDb().query(
       `SELECT o.current_step, o.completed_at, o.skipped_at, o.acquisition_source,
-              p.style_nails, p.styles
+              p.style_nails, p.styles, p.city
        FROM client_onboarding o
        LEFT JOIN client_preferences p ON p.client_id = o.client_id
        WHERE o.client_id = ?`,
@@ -73,12 +64,12 @@ router.get("/status", async (req: AuthenticatedRequest, res: Response) => {
         acquisition_source: string | null;
         style_nails: string | null;
         styles: string[] | null;
+        city: string | null;
       }>,
       unknown,
     ];
 
     const row = rows[0];
-    const styles = row?.styles?.length ? row.styles : row?.style_nails ? [row.style_nails] : [];
     res.json({
       success: true,
       data: {
@@ -87,7 +78,8 @@ router.get("/status", async (req: AuthenticatedRequest, res: Response) => {
         completed_at: row?.completed_at ?? null,
         skipped: !!row?.skipped_at && !row?.completed_at,
         style_nails: row?.style_nails ?? null,
-        styles,
+        styles: toStyles(row?.styles, row?.style_nails),
+        city: row?.city ?? null,
         acquisition_source: row?.acquisition_source ?? null,
       },
     });
@@ -96,7 +88,6 @@ router.get("/status", async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-/* POST /preferences { styles[], city? } — #34 passe 3b : style multi-choix. */
 router.post("/preferences", validate(onboardingPreferencesSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user!.id;
@@ -104,11 +95,9 @@ router.post("/preferences", validate(onboardingPreferencesSchema), async (req: A
       return res.status(403).json({ success: false, error: "client_required" });
     }
     const body = req.body as { styles?: string[]; style_nails?: string; city?: string };
-    const styles = (body.styles && body.styles.length ? body.styles : body.style_nails ? [body.style_nails] : []).filter(
-      (v, i, a) => a.indexOf(v) === i
-    );
-    const primary = styles[0]; // « style principal » = styles[0] (reco + admin)
-    const cityVal = body.city?.trim() || null;
+    const styles = [...new Set(toStyles(body.styles, body.style_nails))];
+    const primary = styles[0];
+    const city = body.city?.trim() || null;
     const db = getDb();
 
     await db.execute(
@@ -119,7 +108,7 @@ router.post("/preferences", validate(onboardingPreferencesSchema), async (req: A
              styles = EXCLUDED.styles,
              city = COALESCE(EXCLUDED.city, client_preferences.city),
              updated_at = NOW()`,
-      [clientId, primary, styles, cityVal]
+      [clientId, primary, styles, city]
     );
     await db.execute(
       `INSERT INTO client_onboarding (client_id, current_step)
@@ -135,28 +124,29 @@ router.post("/preferences", validate(onboardingPreferencesSchema), async (req: A
   }
 });
 
-/* GET /recommendations ?city= ?lat= ?lng= */
+/**
+ * Reco : classement par paliers, jamais de liste vide.
+ *   1. style + région   2. région   3. style   4. mieux notées
+ * « Région » = ville saisie qui matche OU pro à moins de REGION_KM du point
+ * géocodé (distance calculée sur le point public/approché, jamais l'adresse exacte).
+ */
 router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user!.id;
-
     const db = getDb();
-    const [prefRows] = (await db.query(
-      "SELECT style_nails, styles, city FROM client_preferences WHERE client_id = ?",
-      [clientId]
-    )) as [Array<{ style_nails: string | null; styles: string[] | null; city: string | null }>, unknown];
-    const styles: string[] = prefRows[0]?.styles?.length
-      ? prefRows[0].styles
-      : prefRows[0]?.style_nails
-        ? [prefRows[0].style_nails]
-        : [];
-    const style = styles[0] ?? null; // « style principal » — pour la réponse
-    const city =
-      (typeof req.query.city === "string" && req.query.city.trim()) ||
-      prefRows[0]?.city?.trim() ||
-      "";
 
-    // Compteur pour l'inspection admin (#34). Best-effort, ne bloque pas la reco.
+    const [prefRows] = (await db.query("SELECT style_nails, styles, city FROM client_preferences WHERE client_id = ?", [
+      clientId,
+    ])) as [Array<{ style_nails: string | null; styles: string[] | null; city: string | null }>, unknown];
+
+    const styles = toStyles(prefRows[0]?.styles, prefRows[0]?.style_nails);
+    const city =
+      (typeof req.query.city === "string" && req.query.city.trim()) || prefRows[0]?.city?.trim() || "";
+    const lat = Number.parseFloat(String(req.query.lat));
+    const lng = Number.parseFloat(String(req.query.lng));
+    const hasGeo = Number.isFinite(lat) && Number.isFinite(lng);
+    const cityLike = city ? `%${city}%` : null;
+
     await db
       .execute(
         `INSERT INTO client_onboarding (client_id, recommendations_viewed)
@@ -167,77 +157,65 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
       )
       .catch(() => {});
 
-    // Filtre dur par style SI le client a une préférence ET qu'au moins une
-    // pro (dans le périmètre géo) l'a déclarée — sinon on retombe sur toutes
-    // les pros pour ne jamais renvoyer une liste vide.
-    let styleFilterActive = false;
-    if (styles.length) {
-      const styleParams: unknown[] = [styles];
-      let styleCity = "";
-      if (city) { styleCity = "AND u.city ILIKE ?"; styleParams.push(`%${city}%`); }
-      const [cnt] = (await db.query(
-        `SELECT COUNT(DISTINCT u.id)::int AS n
-         FROM users u JOIN pro_nail_styles pns ON pns.pro_id = u.id AND pns.style_nails::text = ANY(?::text[])
-         WHERE u.role = 'pro' AND u.pro_status = 'active' AND u.is_active = TRUE
-           AND u.profile_visibility = 'public' ${styleCity}`,
-        styleParams
-      )) as [Array<{ n: number }>, unknown];
-      styleFilterActive = (cnt[0]?.n ?? 0) > 0;
-    }
-
-    const params: unknown[] = [styles];
-    let filters = "";
-    if (styleFilterActive) {
-      filters += " AND EXISTS (SELECT 1 FROM pro_nail_styles p2 WHERE p2.pro_id = u.id AND p2.style_nails::text = ANY(?::text[]))";
-      params.push(styles);
-    }
-    if (city) {
-      filters += " AND u.city ILIKE ?";
-      params.push(`%${city}%`);
-    }
-
     const [rows] = (await db.query(
-      `SELECT
-         u.id,
-         COALESCE(NULLIF(TRIM(u.activity_name), ''), TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,''))) AS name,
-         u.city,
-         u.profile_photo,
-         u.banner_photo,
-         ROUND(COALESCE(AVG(rv.rating), 0), 1)::float AS rating,
-         COUNT(DISTINCT rv.id)::int AS reviews_count,
-         COUNT(DISTINCT rez.id) FILTER (
-           WHERE rez.status = 'completed' AND rez.start_datetime > NOW() - INTERVAL '90 days'
-         )::int AS bookings_90d,
-         EXISTS (SELECT 1 FROM working_hours wh WHERE wh.pro_id = u.id) AS has_hours,
-         COALESCE(bool_or(pns.style_nails::text = ANY(?::text[])), false) AS matches_style
-       FROM users u
-       LEFT JOIN reviews rv        ON rv.pro_id = u.id AND rv.deleted_at IS NULL
-       LEFT JOIN reservations rez  ON rez.pro_id = u.id
-       LEFT JOIN pro_nail_styles pns ON pns.pro_id = u.id
-       WHERE u.role = 'pro' AND u.pro_status = 'active' AND u.is_active = TRUE
-         AND u.profile_visibility = 'public'
-         ${filters}
-       GROUP BY u.id
+      `WITH g AS (SELECT ?::float8 AS lat, ?::float8 AS lng),
+       base AS (
+         SELECT
+           u.id,
+           COALESCE(NULLIF(TRIM(u.activity_name), ''), TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, ''))) AS name,
+           u.city, u.profile_photo, u.banner_photo,
+           EXISTS (SELECT 1 FROM working_hours wh WHERE wh.pro_id = u.id) AS has_hours,
+           (? IS NOT NULL AND u.city ILIKE ?) AS city_match,
+           CASE WHEN g.lat IS NOT NULL AND u.latitude IS NOT NULL THEN
+             6371 * acos(LEAST(1, GREATEST(-1,
+               cos(radians(g.lat)) * cos(radians(COALESCE(u.public_latitude, u.latitude))) *
+               cos(radians(COALESCE(u.public_longitude, u.longitude)) - radians(g.lng)) +
+               sin(radians(g.lat)) * sin(radians(COALESCE(u.public_latitude, u.latitude))))))
+           END AS distance_km
+         FROM users u CROSS JOIN g
+         WHERE u.role = 'pro' AND u.pro_status = 'active' AND u.is_active = TRUE AND u.profile_visibility = 'public'
+       ),
+       agg AS (
+         SELECT
+           b.id, b.name, b.city, b.profile_photo, b.banner_photo, b.has_hours, b.city_match, b.distance_km,
+           ROUND(COALESCE(AVG(rv.rating), 0), 1)::float AS rating,
+           COUNT(DISTINCT rv.id)::int AS reviews_count,
+           COUNT(DISTINCT rez.id) FILTER (
+             WHERE rez.status = 'completed' AND rez.start_datetime > NOW() - INTERVAL '90 days'
+           )::int AS bookings_90d,
+           COALESCE(bool_or(pns.style_nails::text = ANY(?::text[])), false) AS matches_style
+         FROM base b
+         LEFT JOIN reviews rv       ON rv.pro_id = b.id AND rv.deleted_at IS NULL
+         LEFT JOIN reservations rez ON rez.pro_id = b.id
+         LEFT JOIN pro_nail_styles pns ON pns.pro_id = b.id
+         GROUP BY b.id, b.name, b.city, b.profile_photo, b.banner_photo, b.has_hours, b.city_match, b.distance_km
+       )
+       SELECT *, (city_match OR (distance_km IS NOT NULL AND distance_km <= ${REGION_KM})) AS in_region
+       FROM agg
        ORDER BY
+         (matches_style AND (city_match OR (distance_km IS NOT NULL AND distance_km <= ${REGION_KM}))) DESC,
+         (city_match OR (distance_km IS NOT NULL AND distance_km <= ${REGION_KM})) DESC,
          matches_style DESC,
          has_hours DESC,
-         (COALESCE(AVG(rv.rating), 0) * LN(COUNT(DISTINCT rv.id) + 1)) DESC,
-         bookings_90d DESC
+         (rating * LN(reviews_count + 1)) DESC,
+         bookings_90d DESC,
+         distance_km ASC NULLS LAST
        LIMIT 3`,
-      params
+      [hasGeo ? lat : null, hasGeo ? lng : null, cityLike, cityLike, styles]
     )) as [Array<Record<string, unknown>>, unknown];
 
-    // Compteur de créneaux (rareté) — moteur de dispo, 7 jours, top 3 seulement.
     const scarcity = await Promise.all(
-      rows.map((r) => countOpenSlotsForPro(Number(r.id), { days: 7 }).catch(() => ({ today: 0, next_7_days: 0, weekend: 0 })))
+      rows.map((r) =>
+        countOpenSlotsForPro(Number(r.id), { days: 7 }).catch(() => ({ today: 0, next_7_days: 0, weekend: 0 }))
+      )
     );
 
     res.json({
       success: true,
       data: {
-        style_nails: style,
+        style_nails: styles[0] ?? null,
         styles,
-        style_filter_active: styleFilterActive,
+        style_filter_active: rows.some((r) => r.matches_style === true),
         recommendations: rows.map((r, i) => ({
           pro_id: r.id,
           name: r.name,
@@ -249,6 +227,8 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
           bookings_90d: r.bookings_90d,
           has_availability: r.has_hours === true,
           matches_style: r.matches_style === true,
+          in_region: r.in_region === true,
+          distance_km: r.distance_km == null ? null : Math.round(Number(r.distance_km)),
           open_slots: {
             today: scarcity[i].today,
             this_week: scarcity[i].next_7_days,
@@ -262,7 +242,6 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
   }
 });
 
-/* POST /complete */
 router.post("/complete", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user!.id;
@@ -282,7 +261,6 @@ router.post("/complete", async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-/* POST /cta — le client a tapé « Prendre RDV » depuis l'onboarding. Compteur admin. */
 router.post("/cta", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user!.id;
@@ -300,7 +278,6 @@ router.post("/cta", async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-/* POST /skip — #34 décision 6 : passer l'onboarding (jamais bloquant), reprenable. */
 router.post("/skip", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user!.id;
@@ -319,7 +296,6 @@ router.post("/skip", async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-/* POST /attribution { source } — #34 passe 3b : « comment tu as connu Blyss ». */
 router.post("/attribution", validate(onboardingAttributionSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user!.id;

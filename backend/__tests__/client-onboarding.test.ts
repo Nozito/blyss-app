@@ -159,16 +159,14 @@ describe("POST /api/client/onboarding/attribution", () => {
 
 // ═══════════════ /recommendations ═══════════════
 describe("GET /api/client/onboarding/recommendations", () => {
-  // Mock par contenu SQL — la reco enchaîne pref → (count style) → pros →
-  // countOpenSlotsForPro (timezone + working_hours) par pro.
-  function mockReco(opts: { style?: string | null; styleMatchCount?: number; pros?: Array<Record<string, unknown>> }) {
-    const { style = null, styleMatchCount = 0, pros = [] } = opts;
-    mockExecute.mockResolvedValue([[]]); // compteur recommendations_viewed (best-effort)
+  // Mock par contenu SQL : pref → pros (CTE, LIMIT 3) → countOpenSlotsForPro.
+  function mockReco(opts: { style?: string | null; pros?: Array<Record<string, unknown>> }) {
+    const { style = null, pros = [] } = opts;
+    mockExecute.mockResolvedValue([[]]);
     mockQuery.mockImplementation(async (sql: string) => {
       if (sql.includes("FROM client_preferences")) return [style ? [{ style_nails: style, city: null }] : [], []];
-      if (sql.includes("JOIN pro_nail_styles pns ON pns.pro_id = u.id AND")) return [[{ n: styleMatchCount }], []];
       if (sql.includes("FROM users u") && sql.includes("LIMIT 3")) return [pros, []];
-      if (sql.includes("FROM working_hours WHERE pro_id")) return [[], []];  // 0 plage → scarcity vide
+      if (sql.includes("FROM working_hours WHERE pro_id")) return [[], []];
       if (sql.includes("SELECT timezone FROM users")) return [[{ timezone: "Europe/Paris" }], []];
       return [[], []];
     });
@@ -197,12 +195,24 @@ describe("GET /api/client/onboarding/recommendations", () => {
     expect(res.body.data.recommendations[0].open_slots).toEqual({ today: 0, this_week: 0, this_weekend: 0 });
   });
 
-  it("style_filter_active = true quand au moins une pro a déclaré le style", async () => {
-    mockReco({ style: "nail_art", styleMatchCount: 3, pros: [
-      { id: 5, name: "X", city: null, profile_photo: null, banner_photo: null, rating: 5, reviews_count: 3, bookings_90d: 1, has_hours: true, matches_style: true },
+  it("style_filter_active = true quand au moins une pro reco a déclaré le style", async () => {
+    mockReco({ style: "nail_art", pros: [
+      { id: 5, name: "X", city: null, profile_photo: null, banner_photo: null, rating: 5, reviews_count: 3, bookings_90d: 1, has_hours: true, matches_style: true, in_region: true },
     ]});
     const res = await request(app).get("/api/client/onboarding/recommendations").set("Authorization", `Bearer ${tok(7)}`);
     expect(res.body.data.style_filter_active).toBe(true);
+  });
+
+  it("in_region / distance_km mappés + lat/lng passés à la requête (#34 passe 3b)", async () => {
+    mockReco({ style: "nail_art", pros: [
+      { id: 8, name: "Y", city: "Lyon", profile_photo: null, banner_photo: null, rating: 4, reviews_count: 5, bookings_90d: 2, has_hours: true, matches_style: false, in_region: true, distance_km: 12.6 },
+    ]});
+    const res = await request(app)
+      .get("/api/client/onboarding/recommendations?lat=45.75&lng=4.85")
+      .set("Authorization", `Bearer ${tok(7)}`);
+    expect(res.body.data.recommendations[0]).toMatchObject({ in_region: true, distance_km: 13 });
+    const recoCall = mockQuery.mock.calls.find((c) => String(c[0]).includes("LIMIT 3"));
+    expect(recoCall?.[1]?.slice(0, 2)).toEqual([45.75, 4.85]);
   });
 
   it("aucun pro → liste vide, style_filter_active false", async () => {
