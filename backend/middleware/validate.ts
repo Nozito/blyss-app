@@ -478,30 +478,22 @@ export const twoFaLoginVerifySchema = z.object({
 // 20260907000001).
 export const NAIL_STYLES = ["nail_art", "french_nude", "couleurs_vives", "vernis_gel", "pose_resine", "autre"] as const;
 
-// #34 passe 3b — axe « prestation » (services[]), distinct du style. Stocké dans
-// client_preferences.services (TEXT[], migration 20260909000001).
-export const NAIL_SERVICES = [
-  "nouvelle_pose",
-  "remplissage",
-  "depose",
-  "semi_permanent",
-  "capsules",
-  "soin_pieds",
-] as const;
-
 // #34 passe 3b — écran « comment tu as connu Blyss » (client_onboarding.acquisition_source).
 export const ACQUISITION_SOURCES = ["instagram", "tiktok", "amie", "prothesiste", "google", "pub", "autre"] as const;
 
-export const onboardingPreferencesSchema = z.object({
-  style_nails: z.enum(NAIL_STYLES),
-  city: z.string().trim().min(1).max(120).optional(),
-  services: z.array(z.enum(NAIL_SERVICES)).max(NAIL_SERVICES.length).optional(),
-});
+// #34 passe 3b — le style devient multi-choix. `style_nails` (rétro-compat, =
+// styles[0]) reste accepté ; `styles` est la liste complète.
+export const onboardingPreferencesSchema = z
+  .object({
+    styles: z.array(z.enum(NAIL_STYLES)).min(1).max(NAIL_STYLES.length).optional(),
+    style_nails: z.enum(NAIL_STYLES).optional(),
+    city: z.string().trim().min(1).max(120).optional(),
+  })
+  .refine((v) => (v.styles && v.styles.length > 0) || !!v.style_nails, {
+    message: "styles ou style_nails requis",
+  });
 export const proNailStyleSchema = z.object({
   style: z.enum(NAIL_STYLES),
-});
-export const onboardingFollowSchema = z.object({
-  pro_id: z.number().int().positive(),
 });
 export const onboardingAttributionSchema = z.object({
   source: z.enum(ACQUISITION_SOURCES),

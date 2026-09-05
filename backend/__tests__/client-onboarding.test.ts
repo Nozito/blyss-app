@@ -72,7 +72,7 @@ describe("GET /api/client/onboarding/status", () => {
 
 // ═══════════════ /preferences ═══════════════
 describe("POST /api/client/onboarding/preferences", () => {
-  it("style valide → upsert préférence + progression, renvoie style", async () => {
+  it("style_nails seul (rétro-compat) → styles = [style_nails]", async () => {
     mockQuery.mockResolvedValueOnce([[{ role: "client" }]]); // assertClient
     mockExecute.mockResolvedValue([[]]);
     const res = await request(app)
@@ -80,36 +80,36 @@ describe("POST /api/client/onboarding/preferences", () => {
       .set("Authorization", `Bearer ${tok(7)}`)
       .send({ style_nails: "vernis_gel" });
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ style_nails: "vernis_gel" });
-    expect(mockExecute.mock.calls.some((c) => String(c[0]).includes("INSERT INTO client_preferences"))).toBe(true);
+    expect(res.body.data).toEqual({ styles: ["vernis_gel"], style_nails: "vernis_gel" });
     expect(mockExecute.mock.calls.some((c) => String(c[0]).includes("INSERT INTO client_onboarding"))).toBe(true);
+  });
+
+  it("styles[] multi → upsert styles + style_nails = styles[0] (#34 passe 3b)", async () => {
+    mockQuery.mockResolvedValueOnce([[{ role: "client" }]]);
+    mockExecute.mockResolvedValue([[]]);
+    const res = await request(app)
+      .post("/api/client/onboarding/preferences")
+      .set("Authorization", `Bearer ${tok(7)}`)
+      .send({ styles: ["nail_art", "couleurs_vives"], city: "Lyon" });
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ styles: ["nail_art", "couleurs_vives"], style_nails: "nail_art" });
+    const prefCall = mockExecute.mock.calls.find((c) => String(c[0]).includes("INSERT INTO client_preferences"));
+    expect(prefCall?.[1]).toEqual([7, "nail_art", ["nail_art", "couleurs_vives"], "Lyon"]);
   });
 
   it("style inconnu → 400", async () => {
     const res = await request(app)
       .post("/api/client/onboarding/preferences")
       .set("Authorization", `Bearer ${tok(7)}`)
-      .send({ style_nails: "chrome" });
+      .send({ styles: ["chrome"] });
     expect(res.status).toBe(400);
   });
 
-  it("services[] valides → transmis à l'upsert client_preferences (#34 passe 3b)", async () => {
-    mockQuery.mockResolvedValueOnce([[{ role: "client" }]]);
-    mockExecute.mockResolvedValue([[]]);
+  it("styles vide / absent → 400", async () => {
     const res = await request(app)
       .post("/api/client/onboarding/preferences")
       .set("Authorization", `Bearer ${tok(7)}`)
-      .send({ style_nails: "nail_art", services: ["nouvelle_pose", "depose"] });
-    expect(res.status).toBe(200);
-    const prefCall = mockExecute.mock.calls.find((c) => String(c[0]).includes("INSERT INTO client_preferences"));
-    expect(prefCall?.[1]).toEqual([7, "nail_art", null, ["nouvelle_pose", "depose"]]);
-  });
-
-  it("service inconnu → 400", async () => {
-    const res = await request(app)
-      .post("/api/client/onboarding/preferences")
-      .set("Authorization", `Bearer ${tok(7)}`)
-      .send({ style_nails: "nail_art", services: ["gel"] });
+      .send({ city: "Lyon" });
     expect(res.status).toBe(400);
   });
 
@@ -121,44 +121,6 @@ describe("POST /api/client/onboarding/preferences", () => {
       .send({ style_nails: "french_nude" });
     expect(res.status).toBe(403);
     expect(res.body.error).toBe("client_required");
-  });
-});
-
-// ═══════════════ /follow ═══════════════
-describe("POST /api/client/onboarding/follow", () => {
-  it("pro valide → upsert favori + compteur", async () => {
-    mockQuery
-      .mockResolvedValueOnce([[{ role: "client" }]]) // assertClient
-      .mockResolvedValueOnce([[{ "?column?": 1 }]]); // pro existe
-    mockExecute
-      .mockResolvedValueOnce([{ rowCount: 1 }]) // insert favori
-      .mockResolvedValueOnce([[]]); // bump compteur
-    const res = await request(app)
-      .post("/api/client/onboarding/follow")
-      .set("Authorization", `Bearer ${tok(7)}`)
-      .send({ pro_id: 42 });
-    expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ following: true });
-    expect(mockExecute.mock.calls.some((c) => String(c[0]).includes("client_followed_pros"))).toBe(true);
-  });
-
-  it("pro inexistante → 404", async () => {
-    mockQuery
-      .mockResolvedValueOnce([[{ role: "client" }]])
-      .mockResolvedValueOnce([[]]);
-    const res = await request(app)
-      .post("/api/client/onboarding/follow")
-      .set("Authorization", `Bearer ${tok(7)}`)
-      .send({ pro_id: 999 });
-    expect(res.status).toBe(404);
-  });
-
-  it("pro_id invalide → 400", async () => {
-    const res = await request(app)
-      .post("/api/client/onboarding/follow")
-      .set("Authorization", `Bearer ${tok(7)}`)
-      .send({ pro_id: -1 });
-    expect(res.status).toBe(400);
   });
 });
 

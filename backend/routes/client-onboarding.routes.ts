@@ -1,14 +1,16 @@
 /**
  * #34 — Onboarding client nails.
  *
- *   GET  /api/client/onboarding/status           → { current_step, completed, skipped, style_nails, services, acquisition_source }
- *   POST /api/client/onboarding/preferences      { style_nails, city?, services? } → style + localisation + prestations
+ *   GET  /api/client/onboarding/status           → { current_step, completed, skipped, style_nails, styles, acquisition_source }
+ *   POST /api/client/onboarding/preferences      { styles[], city? } → styles (multi) + localisation
  *   GET  /api/client/onboarding/recommendations  ?city= → 3 pros nails (+ compteur admin)
- *   POST /api/client/onboarding/follow           { pro_id } → suivre une pro (écran recos, #34 passe 3b)
- *   POST /api/client/onboarding/cta              → tap « Prendre RDV » (compteur admin)
+ *   POST /api/client/onboarding/cta              → tap « Réserver » (compteur admin)
  *   POST /api/client/onboarding/attribution      { source } → « comment tu as connu Blyss » (#34 passe 3b)
  *   POST /api/client/onboarding/complete         → fige completed_at
  *   POST /api/client/onboarding/skip             → fige skipped_at (reprenable)
+ *
+ * Le ♥ « favori » de l'écran recos réutilise POST /api/favorites (table
+ * favorites existante) — pas de route ici.
  *
  * Gate : authMiddleware appliqué en amont (server.ts). L'identité client vient
  * TOUJOURS du token (req.user.id), jamais du body.
@@ -25,7 +27,6 @@ import { getDb } from "../lib/db";
 import {
   validate,
   onboardingPreferencesSchema,
-  onboardingFollowSchema,
   onboardingAttributionSchema,
 } from "../middleware/validate";
 import { countOpenSlotsForPro } from "../services/availability.service";
@@ -34,9 +35,9 @@ import type { AuthenticatedRequest } from "../lib/types";
 
 const router = express.Router();
 
-// #34 passe 3b — onboarding à 7 écrans (cf. app/client-onboarding.tsx mobile).
+// #34 passe 3b — onboarding à 7 écrans, CTA en dernier (cf. app/client-onboarding.tsx).
 const STEP_PREFERENCES = 3;
-const STEP_CTA = 5;
+const STEP_CTA = 6;
 const STEP_DONE = 7;
 
 async function assertClient(userId: number): Promise<boolean> {
@@ -59,7 +60,7 @@ router.get("/status", async (req: AuthenticatedRequest, res: Response) => {
     const clientId = req.user!.id;
     const [rows] = (await getDb().query(
       `SELECT o.current_step, o.completed_at, o.skipped_at, o.acquisition_source,
-              p.style_nails, p.services
+              p.style_nails, p.styles
        FROM client_onboarding o
        LEFT JOIN client_preferences p ON p.client_id = o.client_id
        WHERE o.client_id = ?`,
@@ -71,12 +72,13 @@ router.get("/status", async (req: AuthenticatedRequest, res: Response) => {
         skipped_at: string | null;
         acquisition_source: string | null;
         style_nails: string | null;
-        services: string[] | null;
+        styles: string[] | null;
       }>,
       unknown,
     ];
 
     const row = rows[0];
+    const styles = row?.styles?.length ? row.styles : row?.style_nails ? [row.style_nails] : [];
     res.json({
       success: true,
       data: {
@@ -85,7 +87,7 @@ router.get("/status", async (req: AuthenticatedRequest, res: Response) => {
         completed_at: row?.completed_at ?? null,
         skipped: !!row?.skipped_at && !row?.completed_at,
         style_nails: row?.style_nails ?? null,
-        services: row?.services ?? [],
+        styles,
         acquisition_source: row?.acquisition_source ?? null,
       },
     });
@@ -94,31 +96,30 @@ router.get("/status", async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-/* POST /preferences { style_nails } */
+/* POST /preferences { styles[], city? } — #34 passe 3b : style multi-choix. */
 router.post("/preferences", validate(onboardingPreferencesSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user!.id;
     if (!(await assertClient(clientId))) {
       return res.status(403).json({ success: false, error: "client_required" });
     }
-    const { style_nails, city, services } = req.body as {
-      style_nails: string;
-      city?: string;
-      services?: string[];
-    };
-    const cityVal = city?.trim() || null;
-    const servicesVal = Array.isArray(services) ? services : [];
+    const body = req.body as { styles?: string[]; style_nails?: string; city?: string };
+    const styles = (body.styles && body.styles.length ? body.styles : body.style_nails ? [body.style_nails] : []).filter(
+      (v, i, a) => a.indexOf(v) === i
+    );
+    const primary = styles[0]; // « style principal » = styles[0] (reco + admin)
+    const cityVal = body.city?.trim() || null;
     const db = getDb();
 
     await db.execute(
-      `INSERT INTO client_preferences (client_id, style_nails, city, services)
+      `INSERT INTO client_preferences (client_id, style_nails, styles, city)
        VALUES (?, ?, ?, ?)
        ON CONFLICT (client_id) DO UPDATE
          SET style_nails = EXCLUDED.style_nails,
+             styles = EXCLUDED.styles,
              city = COALESCE(EXCLUDED.city, client_preferences.city),
-             services = EXCLUDED.services,
              updated_at = NOW()`,
-      [clientId, style_nails, cityVal, servicesVal]
+      [clientId, primary, styles, cityVal]
     );
     await db.execute(
       `INSERT INTO client_onboarding (client_id, current_step)
@@ -128,7 +129,7 @@ router.post("/preferences", validate(onboardingPreferencesSchema), async (req: A
       [clientId, STEP_PREFERENCES]
     );
 
-    res.json({ success: true, data: { style_nails } });
+    res.json({ success: true, data: { styles, style_nails: primary } });
   } catch (err) {
     fail(res, "/api/client/onboarding/preferences", err);
   }
@@ -141,10 +142,15 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
 
     const db = getDb();
     const [prefRows] = (await db.query(
-      "SELECT style_nails, city FROM client_preferences WHERE client_id = ?",
+      "SELECT style_nails, styles, city FROM client_preferences WHERE client_id = ?",
       [clientId]
-    )) as [Array<{ style_nails: string; city: string | null }>, unknown];
-    const style = prefRows[0]?.style_nails ?? null;
+    )) as [Array<{ style_nails: string | null; styles: string[] | null; city: string | null }>, unknown];
+    const styles: string[] = prefRows[0]?.styles?.length
+      ? prefRows[0].styles
+      : prefRows[0]?.style_nails
+        ? [prefRows[0].style_nails]
+        : [];
+    const style = styles[0] ?? null; // « style principal » — pour la réponse
     const city =
       (typeof req.query.city === "string" && req.query.city.trim()) ||
       prefRows[0]?.city?.trim() ||
@@ -165,13 +171,13 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
     // pro (dans le périmètre géo) l'a déclarée — sinon on retombe sur toutes
     // les pros pour ne jamais renvoyer une liste vide.
     let styleFilterActive = false;
-    if (style) {
-      const styleParams: unknown[] = [style];
+    if (styles.length) {
+      const styleParams: unknown[] = [styles];
       let styleCity = "";
       if (city) { styleCity = "AND u.city ILIKE ?"; styleParams.push(`%${city}%`); }
       const [cnt] = (await db.query(
         `SELECT COUNT(DISTINCT u.id)::int AS n
-         FROM users u JOIN pro_nail_styles pns ON pns.pro_id = u.id AND pns.style_nails::text = ?
+         FROM users u JOIN pro_nail_styles pns ON pns.pro_id = u.id AND pns.style_nails::text = ANY(?::text[])
          WHERE u.role = 'pro' AND u.pro_status = 'active' AND u.is_active = TRUE
            AND u.profile_visibility = 'public' ${styleCity}`,
         styleParams
@@ -179,11 +185,11 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
       styleFilterActive = (cnt[0]?.n ?? 0) > 0;
     }
 
-    const params: unknown[] = [style];
+    const params: unknown[] = [styles];
     let filters = "";
     if (styleFilterActive) {
-      filters += " AND EXISTS (SELECT 1 FROM pro_nail_styles p2 WHERE p2.pro_id = u.id AND p2.style_nails::text = ?)";
-      params.push(style);
+      filters += " AND EXISTS (SELECT 1 FROM pro_nail_styles p2 WHERE p2.pro_id = u.id AND p2.style_nails::text = ANY(?::text[]))";
+      params.push(styles);
     }
     if (city) {
       filters += " AND u.city ILIKE ?";
@@ -203,7 +209,7 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
            WHERE rez.status = 'completed' AND rez.start_datetime > NOW() - INTERVAL '90 days'
          )::int AS bookings_90d,
          EXISTS (SELECT 1 FROM working_hours wh WHERE wh.pro_id = u.id) AS has_hours,
-         COALESCE(bool_or(pns.style_nails::text = ?), false) AS matches_style
+         COALESCE(bool_or(pns.style_nails::text = ANY(?::text[])), false) AS matches_style
        FROM users u
        LEFT JOIN reviews rv        ON rv.pro_id = u.id AND rv.deleted_at IS NULL
        LEFT JOIN reservations rez  ON rez.pro_id = u.id
@@ -230,6 +236,7 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
       success: true,
       data: {
         style_nails: style,
+        styles,
         style_filter_active: styleFilterActive,
         recommendations: rows.map((r, i) => ({
           pro_id: r.id,
@@ -309,53 +316,6 @@ router.post("/skip", async (req: AuthenticatedRequest, res: Response) => {
     res.json({ success: true });
   } catch (err) {
     fail(res, "/api/client/onboarding/skip", err);
-  }
-});
-
-/* POST /follow { pro_id } — #34 passe 3b : suivre une pro depuis l'écran recos. */
-router.post("/follow", validate(onboardingFollowSchema), async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const clientId = req.user!.id;
-    if (!(await assertClient(clientId))) {
-      return res.status(403).json({ success: false, error: "client_required" });
-    }
-    const { pro_id } = req.body as { pro_id: number };
-    if (pro_id === clientId) {
-      return res.status(400).json({ success: false, error: "cannot_follow_self" });
-    }
-    const db = getDb();
-
-    const [proRows] = (await db.query(
-      "SELECT 1 FROM users WHERE id = ? AND role = 'pro' AND is_active = TRUE",
-      [pro_id]
-    )) as [Array<Record<string, unknown>>, unknown];
-    if (proRows.length === 0) {
-      return res.status(404).json({ success: false, error: "pro_not_found" });
-    }
-
-    const [ins] = (await db.execute(
-      `INSERT INTO client_followed_pros (client_id, pro_id)
-       VALUES (?, ?)
-       ON CONFLICT (client_id, pro_id) DO NOTHING`,
-      [clientId, pro_id]
-    )) as [unknown, unknown];
-    // rowCount > 0 ⇒ nouveau favori : on incrémente le compteur admin.
-    const added = (ins as { rowCount?: number } | undefined)?.rowCount ?? 0;
-    if (added > 0) {
-      await db
-        .execute(
-          `INSERT INTO client_onboarding (client_id, pros_followed)
-           VALUES (?, 1)
-           ON CONFLICT (client_id) DO UPDATE
-             SET pros_followed = client_onboarding.pros_followed + 1`,
-          [clientId]
-        )
-        .catch(() => {});
-    }
-
-    res.json({ success: true, data: { following: true } });
-  } catch (err) {
-    fail(res, "/api/client/onboarding/follow", err);
   }
 });
 
