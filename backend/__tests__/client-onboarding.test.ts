@@ -93,12 +93,103 @@ describe("POST /api/client/onboarding/preferences", () => {
     expect(res.status).toBe(400);
   });
 
+  it("services[] valides → transmis à l'upsert client_preferences (#34 passe 3b)", async () => {
+    mockQuery.mockResolvedValueOnce([[{ role: "client" }]]);
+    mockExecute.mockResolvedValue([[]]);
+    const res = await request(app)
+      .post("/api/client/onboarding/preferences")
+      .set("Authorization", `Bearer ${tok(7)}`)
+      .send({ style_nails: "nail_art", services: ["nouvelle_pose", "depose"] });
+    expect(res.status).toBe(200);
+    const prefCall = mockExecute.mock.calls.find((c) => String(c[0]).includes("INSERT INTO client_preferences"));
+    expect(prefCall?.[1]).toEqual([7, "nail_art", null, ["nouvelle_pose", "depose"]]);
+  });
+
+  it("service inconnu → 400", async () => {
+    const res = await request(app)
+      .post("/api/client/onboarding/preferences")
+      .set("Authorization", `Bearer ${tok(7)}`)
+      .send({ style_nails: "nail_art", services: ["gel"] });
+    expect(res.status).toBe(400);
+  });
+
   it("utilisateur non-client → 403", async () => {
     mockQuery.mockResolvedValueOnce([[{ role: "pro" }]]);
     const res = await request(app)
       .post("/api/client/onboarding/preferences")
       .set("Authorization", `Bearer ${tok(9)}`)
       .send({ style_nails: "french_nude" });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("client_required");
+  });
+});
+
+// ═══════════════ /follow ═══════════════
+describe("POST /api/client/onboarding/follow", () => {
+  it("pro valide → upsert favori + compteur", async () => {
+    mockQuery
+      .mockResolvedValueOnce([[{ role: "client" }]]) // assertClient
+      .mockResolvedValueOnce([[{ "?column?": 1 }]]); // pro existe
+    mockExecute
+      .mockResolvedValueOnce([{ rowCount: 1 }]) // insert favori
+      .mockResolvedValueOnce([[]]); // bump compteur
+    const res = await request(app)
+      .post("/api/client/onboarding/follow")
+      .set("Authorization", `Bearer ${tok(7)}`)
+      .send({ pro_id: 42 });
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ following: true });
+    expect(mockExecute.mock.calls.some((c) => String(c[0]).includes("client_followed_pros"))).toBe(true);
+  });
+
+  it("pro inexistante → 404", async () => {
+    mockQuery
+      .mockResolvedValueOnce([[{ role: "client" }]])
+      .mockResolvedValueOnce([[]]);
+    const res = await request(app)
+      .post("/api/client/onboarding/follow")
+      .set("Authorization", `Bearer ${tok(7)}`)
+      .send({ pro_id: 999 });
+    expect(res.status).toBe(404);
+  });
+
+  it("pro_id invalide → 400", async () => {
+    const res = await request(app)
+      .post("/api/client/onboarding/follow")
+      .set("Authorization", `Bearer ${tok(7)}`)
+      .send({ pro_id: -1 });
+    expect(res.status).toBe(400);
+  });
+});
+
+// ═══════════════ /attribution ═══════════════
+describe("POST /api/client/onboarding/attribution", () => {
+  it("source valide → upsert acquisition_source", async () => {
+    mockQuery.mockResolvedValueOnce([[{ role: "client" }]]);
+    mockExecute.mockResolvedValue([[]]);
+    const res = await request(app)
+      .post("/api/client/onboarding/attribution")
+      .set("Authorization", `Bearer ${tok(7)}`)
+      .send({ source: "instagram" });
+    expect(res.status).toBe(200);
+    const call = mockExecute.mock.calls.find((c) => String(c[0]).includes("acquisition_source"));
+    expect(call?.[1]).toEqual([7, "instagram"]);
+  });
+
+  it("source inconnue → 400", async () => {
+    const res = await request(app)
+      .post("/api/client/onboarding/attribution")
+      .set("Authorization", `Bearer ${tok(7)}`)
+      .send({ source: "carrier_pigeon" });
+    expect(res.status).toBe(400);
+  });
+
+  it("utilisateur non-client → 403", async () => {
+    mockQuery.mockResolvedValueOnce([[{ role: "pro" }]]);
+    const res = await request(app)
+      .post("/api/client/onboarding/attribution")
+      .set("Authorization", `Bearer ${tok(9)}`)
+      .send({ source: "instagram" });
     expect(res.status).toBe(403);
     expect(res.body.error).toBe("client_required");
   });

@@ -1,10 +1,12 @@
 /**
  * #34 — Onboarding client nails.
  *
- *   GET  /api/client/onboarding/status           → { current_step, completed, skipped, style_nails }
- *   POST /api/client/onboarding/preferences      { style_nails, city? } → enregistre style + localisation
+ *   GET  /api/client/onboarding/status           → { current_step, completed, skipped, style_nails, services, acquisition_source }
+ *   POST /api/client/onboarding/preferences      { style_nails, city?, services? } → style + localisation + prestations
  *   GET  /api/client/onboarding/recommendations  ?city= → 3 pros nails (+ compteur admin)
+ *   POST /api/client/onboarding/follow           { pro_id } → suivre une pro (écran recos, #34 passe 3b)
  *   POST /api/client/onboarding/cta              → tap « Prendre RDV » (compteur admin)
+ *   POST /api/client/onboarding/attribution      { source } → « comment tu as connu Blyss » (#34 passe 3b)
  *   POST /api/client/onboarding/complete         → fige completed_at
  *   POST /api/client/onboarding/skip             → fige skipped_at (reprenable)
  *
@@ -20,15 +22,22 @@
 
 import express, { Response } from "express";
 import { getDb } from "../lib/db";
-import { validate, onboardingPreferencesSchema } from "../middleware/validate";
+import {
+  validate,
+  onboardingPreferencesSchema,
+  onboardingFollowSchema,
+  onboardingAttributionSchema,
+} from "../middleware/validate";
 import { countOpenSlotsForPro } from "../services/availability.service";
 import { log } from "../lib/logger";
 import type { AuthenticatedRequest } from "../lib/types";
 
 const router = express.Router();
 
-const STEP_PREFERENCES = 2;
-const STEP_DONE = 5;
+// #34 passe 3b — onboarding à 7 écrans (cf. app/client-onboarding.tsx mobile).
+const STEP_PREFERENCES = 3;
+const STEP_CTA = 5;
+const STEP_DONE = 7;
 
 async function assertClient(userId: number): Promise<boolean> {
   const [rows] = (await getDb().query(
@@ -49,12 +58,23 @@ router.get("/status", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user!.id;
     const [rows] = (await getDb().query(
-      `SELECT o.current_step, o.completed_at, o.skipped_at, p.style_nails
+      `SELECT o.current_step, o.completed_at, o.skipped_at, o.acquisition_source,
+              p.style_nails, p.services
        FROM client_onboarding o
        LEFT JOIN client_preferences p ON p.client_id = o.client_id
        WHERE o.client_id = ?`,
       [clientId]
-    )) as [Array<{ current_step: number; completed_at: string | null; skipped_at: string | null; style_nails: string | null }>, unknown];
+    )) as [
+      Array<{
+        current_step: number;
+        completed_at: string | null;
+        skipped_at: string | null;
+        acquisition_source: string | null;
+        style_nails: string | null;
+        services: string[] | null;
+      }>,
+      unknown,
+    ];
 
     const row = rows[0];
     res.json({
@@ -65,6 +85,8 @@ router.get("/status", async (req: AuthenticatedRequest, res: Response) => {
         completed_at: row?.completed_at ?? null,
         skipped: !!row?.skipped_at && !row?.completed_at,
         style_nails: row?.style_nails ?? null,
+        services: row?.services ?? [],
+        acquisition_source: row?.acquisition_source ?? null,
       },
     });
   } catch (err) {
@@ -79,18 +101,24 @@ router.post("/preferences", validate(onboardingPreferencesSchema), async (req: A
     if (!(await assertClient(clientId))) {
       return res.status(403).json({ success: false, error: "client_required" });
     }
-    const { style_nails, city } = req.body as { style_nails: string; city?: string };
+    const { style_nails, city, services } = req.body as {
+      style_nails: string;
+      city?: string;
+      services?: string[];
+    };
     const cityVal = city?.trim() || null;
+    const servicesVal = Array.isArray(services) ? services : [];
     const db = getDb();
 
     await db.execute(
-      `INSERT INTO client_preferences (client_id, style_nails, city)
-       VALUES (?, ?, ?)
+      `INSERT INTO client_preferences (client_id, style_nails, city, services)
+       VALUES (?, ?, ?, ?)
        ON CONFLICT (client_id) DO UPDATE
          SET style_nails = EXCLUDED.style_nails,
              city = COALESCE(EXCLUDED.city, client_preferences.city),
+             services = EXCLUDED.services,
              updated_at = NOW()`,
-      [clientId, style_nails, cityVal]
+      [clientId, style_nails, cityVal, servicesVal]
     );
     await db.execute(
       `INSERT INTO client_onboarding (client_id, current_step)
@@ -257,7 +285,7 @@ router.post("/cta", async (req: AuthenticatedRequest, res: Response) => {
        ON CONFLICT (client_id) DO UPDATE
          SET cta_tapped = client_onboarding.cta_tapped + 1,
              current_step = GREATEST(client_onboarding.current_step, EXCLUDED.current_step)`,
-      [clientId, 4]
+      [clientId, STEP_CTA]
     );
     res.json({ success: true });
   } catch (err) {
@@ -281,6 +309,73 @@ router.post("/skip", async (req: AuthenticatedRequest, res: Response) => {
     res.json({ success: true });
   } catch (err) {
     fail(res, "/api/client/onboarding/skip", err);
+  }
+});
+
+/* POST /follow { pro_id } — #34 passe 3b : suivre une pro depuis l'écran recos. */
+router.post("/follow", validate(onboardingFollowSchema), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const clientId = req.user!.id;
+    if (!(await assertClient(clientId))) {
+      return res.status(403).json({ success: false, error: "client_required" });
+    }
+    const { pro_id } = req.body as { pro_id: number };
+    if (pro_id === clientId) {
+      return res.status(400).json({ success: false, error: "cannot_follow_self" });
+    }
+    const db = getDb();
+
+    const [proRows] = (await db.query(
+      "SELECT 1 FROM users WHERE id = ? AND role = 'pro' AND is_active = TRUE",
+      [pro_id]
+    )) as [Array<Record<string, unknown>>, unknown];
+    if (proRows.length === 0) {
+      return res.status(404).json({ success: false, error: "pro_not_found" });
+    }
+
+    const [ins] = (await db.execute(
+      `INSERT INTO client_followed_pros (client_id, pro_id)
+       VALUES (?, ?)
+       ON CONFLICT (client_id, pro_id) DO NOTHING`,
+      [clientId, pro_id]
+    )) as [unknown, unknown];
+    // rowCount > 0 ⇒ nouveau favori : on incrémente le compteur admin.
+    const added = (ins as { rowCount?: number } | undefined)?.rowCount ?? 0;
+    if (added > 0) {
+      await db
+        .execute(
+          `INSERT INTO client_onboarding (client_id, pros_followed)
+           VALUES (?, 1)
+           ON CONFLICT (client_id) DO UPDATE
+             SET pros_followed = client_onboarding.pros_followed + 1`,
+          [clientId]
+        )
+        .catch(() => {});
+    }
+
+    res.json({ success: true, data: { following: true } });
+  } catch (err) {
+    fail(res, "/api/client/onboarding/follow", err);
+  }
+});
+
+/* POST /attribution { source } — #34 passe 3b : « comment tu as connu Blyss ». */
+router.post("/attribution", validate(onboardingAttributionSchema), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const clientId = req.user!.id;
+    if (!(await assertClient(clientId))) {
+      return res.status(403).json({ success: false, error: "client_required" });
+    }
+    const { source } = req.body as { source: string };
+    await getDb().execute(
+      `INSERT INTO client_onboarding (client_id, acquisition_source)
+       VALUES (?, ?)
+       ON CONFLICT (client_id) DO UPDATE SET acquisition_source = EXCLUDED.acquisition_source`,
+      [clientId, source]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    fail(res, "/api/client/onboarding/attribution", err);
   }
 });
 
