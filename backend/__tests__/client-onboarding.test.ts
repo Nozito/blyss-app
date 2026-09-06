@@ -54,9 +54,9 @@ describe("GET /api/client/onboarding/status", () => {
   });
 
   it("ligne existante → renvoie step, complété, style", async () => {
-    mockQuery.mockResolvedValueOnce([[{ current_step: 3, completed_at: "2026-09-06T10:00:00Z", skipped_at: null, style_nails: "french_nude" }]]);
+    mockQuery.mockResolvedValueOnce([[{ current_step: 3, completed_at: "2026-09-06T10:00:00Z", skipped_at: null, style_nails: "french" }]]);
     const res = await request(app).get("/api/client/onboarding/status").set("Authorization", `Bearer ${tok(7)}`);
-    expect(res.body.data).toMatchObject({ current_step: 3, completed: true, skipped: false, style_nails: "french_nude" });
+    expect(res.body.data).toMatchObject({ current_step: 3, completed: true, skipped: false, style_nails: "french" });
   });
 
   it("skipped_at sans completed_at → skipped: true", async () => {
@@ -78,9 +78,9 @@ describe("POST /api/client/onboarding/preferences", () => {
     const res = await request(app)
       .post("/api/client/onboarding/preferences")
       .set("Authorization", `Bearer ${tok(7)}`)
-      .send({ style_nails: "vernis_gel" });
+      .send({ style_nails: "semi_permanent" });
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ styles: ["vernis_gel"], style_nails: "vernis_gel" });
+    expect(res.body.data).toEqual({ styles: ["semi_permanent"], style_nails: "semi_permanent" });
     expect(mockExecute.mock.calls.some((c) => String(c[0]).includes("INSERT INTO client_onboarding"))).toBe(true);
   });
 
@@ -90,11 +90,11 @@ describe("POST /api/client/onboarding/preferences", () => {
     const res = await request(app)
       .post("/api/client/onboarding/preferences")
       .set("Authorization", `Bearer ${tok(7)}`)
-      .send({ styles: ["nail_art", "couleurs_vives"], city: "Lyon" });
+      .send({ styles: ["nail_art", "baby_boomer_ombre"], city: "Lyon" });
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ styles: ["nail_art", "couleurs_vives"], style_nails: "nail_art" });
+    expect(res.body.data).toEqual({ styles: ["nail_art", "baby_boomer_ombre"], style_nails: "nail_art" });
     const prefCall = mockExecute.mock.calls.find((c) => String(c[0]).includes("INSERT INTO client_preferences"));
-    expect(prefCall?.[1]).toEqual([7, "nail_art", ["nail_art", "couleurs_vives"], "Lyon"]);
+    expect(prefCall?.[1]).toEqual([7, "nail_art", ["nail_art", "baby_boomer_ombre"], "Lyon"]);
   });
 
   it("style inconnu → 400", async () => {
@@ -118,7 +118,7 @@ describe("POST /api/client/onboarding/preferences", () => {
     const res = await request(app)
       .post("/api/client/onboarding/preferences")
       .set("Authorization", `Bearer ${tok(9)}`)
-      .send({ style_nails: "french_nude" });
+      .send({ style_nails: "french" });
     expect(res.status).toBe(403);
     expect(res.body.error).toBe("client_required");
   });
@@ -174,7 +174,7 @@ describe("GET /api/client/onboarding/recommendations", () => {
 
   it("renvoie ≤ 3 pros mappés + style écho + open_slots", async () => {
     mockReco({
-      style: "french_nude",
+      style: "french",
       pros: [
         { id: 2, name: "Camille Beauty", city: "Lyon", profile_photo: "p.jpg", banner_photo: null,
           rating: 4.8, reviews_count: 42, bookings_90d: 30, has_hours: true, matches_style: true },
@@ -186,7 +186,7 @@ describe("GET /api/client/onboarding/recommendations", () => {
       .get("/api/client/onboarding/recommendations?city=Lyon")
       .set("Authorization", `Bearer ${tok(7)}`);
     expect(res.status).toBe(200);
-    expect(res.body.data.style_nails).toBe("french_nude");
+    expect(res.body.data.style_nails).toBe("french");
     expect(res.body.data.recommendations).toHaveLength(2);
     expect(res.body.data.recommendations[0]).toMatchObject({
       pro_id: 2, name: "Camille Beauty", rating: 4.8, reviews_count: 42,

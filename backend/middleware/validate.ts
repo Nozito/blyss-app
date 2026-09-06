@@ -481,10 +481,25 @@ export const twoFaLoginVerifySchema = z.object({
   code: z.string().min(6, "Code invalide").max(20, "Code invalide"),
 });
 
-// #34 — taxonomie nails, partagée client (préférence) et pro (spécialités).
-// Doit rester alignée sur l'ENUM nail_style (migrations 20260906000001 +
-// 20260907000001).
-export const NAIL_STYLES = ["nail_art", "french_nude", "couleurs_vives", "vernis_gel", "pose_resine", "autre"] as const;
+// #34 — taxonomie nails (v2), partagée client (préférence) et pro (spécialités).
+// Doit rester alignée sur l'ENUM nail_style (migration 20260910000001).
+// L'onboarding client n'affiche qu'un sous-ensemble (semi_permanent, french,
+// baby_boomer_ombre, nail_art, effets_finitions, formes_sculptees) mais le
+// schéma reste permissif : les 12 familles sont acceptées des deux côtés.
+export const NAIL_STYLES = [
+  "manucure_soin",
+  "renforcement_ongle",
+  "pose_gel",
+  "resine_acrylique",
+  "acrygel_polygel",
+  "capsules_gelx",
+  "semi_permanent",
+  "french",
+  "baby_boomer_ombre",
+  "nail_art",
+  "effets_finitions",
+  "formes_sculptees",
+] as const;
 
 // #34 passe 3b — écran « comment tu as connu Blyss » (client_onboarding.acquisition_source).
 export const ACQUISITION_SOURCES = ["instagram", "tiktok", "amie", "prothesiste", "google", "pub", "autre"] as const;

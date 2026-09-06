@@ -49,10 +49,10 @@ beforeEach(() => {
 describe("GET /api/pro/nail-styles", () => {
   it("renvoie la liste des styles de la pro", async () => {
     asPro();
-    mockQuery.mockResolvedValueOnce([[{ style_nails: "nail_art" }, { style_nails: "french_nude" }]]);
+    mockQuery.mockResolvedValueOnce([[{ style_nails: "nail_art" }, { style_nails: "french" }]]);
     const res = await request(app).get("/api/pro/nail-styles").set("Authorization", `Bearer ${tok(1)}`);
     expect(res.status).toBe(200);
-    expect(res.body.data.styles).toEqual(["nail_art", "french_nude"]);
+    expect(res.body.data.styles).toEqual(["nail_art", "french"]);
   });
 
   it("401 sans token", async () => {
@@ -68,9 +68,9 @@ describe("PUT /api/pro/nail-styles", () => {
     const res = await request(app)
       .put("/api/pro/nail-styles")
       .set("Authorization", `Bearer ${tok(1)}`)
-      .send({ styles: ["vernis_gel", "nail_art", "vernis_gel"] });
+      .send({ styles: ["semi_permanent", "nail_art", "semi_permanent"] });
     expect(res.status).toBe(200);
-    expect(res.body.data.styles).toEqual(["nail_art", "vernis_gel"]);
+    expect(res.body.data.styles).toEqual(["nail_art", "semi_permanent"]);
     expect(cx.beginTransaction).toHaveBeenCalledTimes(1);
     expect(cx.commit).toHaveBeenCalledTimes(1);
     expect(mockExecute.mock.calls.some((c) => String(c[0]).startsWith("DELETE FROM pro_nail_styles"))).toBe(true);
@@ -124,9 +124,9 @@ describe("DELETE /api/pro/nail-styles/:style", () => {
     asPro();
     mockExecute.mockResolvedValue([[]]);
     mockQuery.mockResolvedValueOnce([[]]);
-    const res = await request(app).delete("/api/pro/nail-styles/pose_resine").set("Authorization", `Bearer ${tok(1)}`);
+    const res = await request(app).delete("/api/pro/nail-styles/resine_acrylique").set("Authorization", `Bearer ${tok(1)}`);
     expect(res.status).toBe(200);
-    expect(mockExecute.mock.calls[0][1]).toEqual([1, "pose_resine"]);
+    expect(mockExecute.mock.calls[0][1]).toEqual([1, "resine_acrylique"]);
   });
 
   it("style invalide dans l'URL → 400", async () => {
