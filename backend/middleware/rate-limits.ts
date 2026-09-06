@@ -67,6 +67,22 @@ export const authSignupLimiter = rateLimit({
   },
 });
 
+// Vérification de disponibilité email/téléphone pendant la saisie du signup.
+// Assez large pour un parcours normal (email + tel + quelques corrections),
+// assez serré face à l'énumération (l'info est déjà accessible via /signup).
+export const authCheckLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+  skip: loadtestBypass,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de vérifications, réessayez dans quelques minutes.",
+  },
+});
+
 export const authRefreshLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
