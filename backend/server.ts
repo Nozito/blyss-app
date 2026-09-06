@@ -2950,6 +2950,7 @@ app.put(
       const {
         first_name,
         last_name,
+        email,
         activity_name,
         city,
         instagram_account,
@@ -2996,6 +2997,33 @@ app.put(
           });
         }
         passwordHash = await bcrypt.hash(newPassword, 12);
+      }
+
+      // Changement d'email — l'email est l'identifiant de connexion : mot de
+      // passe actuel obligatoire, et unicité vérifiée (les emails sont stockés
+      // en minuscules, cf. /signup).
+      let updatedEmail = user.email;
+      const normalizedNewEmail =
+        typeof email === "string" ? email.trim().toLowerCase() : "";
+      if (normalizedNewEmail && normalizedNewEmail !== user.email.toLowerCase()) {
+        if (!currentPassword) {
+          return res.status(400).json({
+            success: false,
+            message: "Ton mot de passe actuel est requis pour changer d'email.",
+          });
+        }
+        const pwValid = await bcrypt.compare(currentPassword, user.password_hash);
+        if (!pwValid) {
+          return res.status(401).json({ success: false, message: "Mot de passe actuel incorrect." });
+        }
+        const [dupeRows] = await db.query(
+          "SELECT id FROM users WHERE LOWER(email) = ? AND id != ?",
+          [normalizedNewEmail, req.user!.id]
+        );
+        if ((dupeRows as any[]).length > 0) {
+          return res.status(409).json({ success: false, message: "Cet email est déjà utilisé." });
+        }
+        updatedEmail = normalizedNewEmail;
       }
 
       const updatedFirstName =
@@ -3132,12 +3160,13 @@ app.put(
 
       await db.execute(
         `UPDATE users
-         SET first_name = ?, last_name = ?, activity_name = ?, city = ?, instagram_account = ?, bio = ?, acceptance_conditions = ?::jsonb, password_hash = ?, latitude = ?, longitude = ?,
+         SET first_name = ?, last_name = ?, email = ?, activity_name = ?, city = ?, instagram_account = ?, bio = ?, acceptance_conditions = ?::jsonb, password_hash = ?, latitude = ?, longitude = ?,
              geo_precision = ?, address_line = ?, postal_code = ?, public_latitude = ?, public_longitude = ?, service_radius_km = ?, service_area_label = ?, profile_visibility = ?
          WHERE id = ?`,
         [
           updatedFirstName,
           updatedLastName,
+          updatedEmail,
           updatedActivityName,
           updatedCity,
           updatedInstagramAccount,
@@ -5835,6 +5864,32 @@ app.get("/api/pro/reviews", authenticateToken, async (req: AuthenticatedRequest,
     res.json({ success: true, data: rows });
   } catch (error) {
     console.error("Erreur récupération avis pro:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// GET - Avis émis par la cliente connectée (pour « Mes avis » côté profil client)
+app.get("/api/client/reviews", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const clientId = req.user?.id;
+
+    const [rows] = await db.query(
+      `SELECT
+         r.id, r.rating, r.comment, r.created_at,
+         r.pro_id,
+         CONCAT(p.first_name, ' ', p.last_name) AS pro_name,
+         p.activity_name AS pro_activity_name,
+         p.profile_photo AS pro_profile_photo
+       FROM reviews r
+       JOIN users p ON p.id = r.pro_id
+       WHERE r.client_id = ? AND r.deleted_at IS NULL
+       ORDER BY r.created_at DESC`,
+      [clientId]
+    );
+
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error("Erreur récupération avis client:", error);
     res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });

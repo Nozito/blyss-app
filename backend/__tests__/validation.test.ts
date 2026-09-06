@@ -260,6 +260,34 @@ describe("PUT /api/users/update — validation Zod", () => {
     expectValidationError(res.body, "newPassword");
   });
 
+  it("400 si email n'est pas une adresse valide", async () => {
+    const res = await request(app)
+      .put("/api/users/update")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ email: "pas-un-email" });
+
+    expect(res.status).toBe(400);
+    expectValidationError(res.body, "email");
+  });
+
+  it("400 si changement d'email sans mot de passe actuel", async () => {
+    mockExecute.mockResolvedValueOnce([[{
+      id: 42, role: "pro", password_hash: "hash", email: "ancien@blyss.dev",
+      first_name: "Iara", last_name: "D", activity_name: "Nails", city: "Nantes",
+      instagram_account: null, bio: null, acceptance_conditions: null,
+      geo_precision: "city", address_line: null, postal_code: null,
+      service_radius_km: 5, service_area_label: null, profile_visibility: "public",
+    }]]);
+
+    const res = await request(app)
+      .put("/api/users/update")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ email: "nouveau@blyss.dev" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
   it("400 si service_radius_km hors bornes (0)", async () => {
     const res = await request(app)
       .put("/api/users/update")
