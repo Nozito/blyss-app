@@ -482,7 +482,7 @@ export const twoFaLoginVerifySchema = z.object({
 });
 
 // #34 — taxonomie nails (v2), partagée client (préférence) et pro (spécialités).
-// Doit rester alignée sur l'ENUM nail_style (migration 20260910000001).
+// Doit rester alignée sur l'ENUM nail_style (migration 20260911000001).
 // L'onboarding client n'affiche qu'un sous-ensemble (semi_permanent, french,
 // baby_boomer_ombre, nail_art, effets_finitions, formes_sculptees) mais le
 // schéma reste permissif : les 12 familles sont acceptées des deux côtés.
