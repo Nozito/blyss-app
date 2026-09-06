@@ -53,6 +53,13 @@ export const slotCreateSchema = z
 export const userUpdateSchema = z.object({
   first_name: z.string().min(1, "Prénom trop court").max(50, "Prénom trop long").optional(),
   last_name: z.string().min(1, "Nom trop court").max(50, "Nom trop long").optional(),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email("Adresse email invalide")
+    .max(255, "Adresse email trop longue")
+    .optional(),
   activity_name: z.string().max(100, "Nom d'activité trop long").optional(),
   city: z.string().max(100, "Ville trop longue").optional(),
   instagram_account: z.string().max(50, "Compte Instagram trop long").optional(),
