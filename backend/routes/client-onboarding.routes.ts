@@ -204,10 +204,18 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
       [hasGeo ? lat : null, hasGeo ? lng : null, cityLike, cityLike, styles]
     )) as [Array<Record<string, unknown>>, unknown];
 
+    // Le calcul de rareté ne doit jamais faire échouer la reco : au pire on
+    // renvoie les pros sans compteur de créneaux. L'arrow async capture aussi
+    // une éventuelle exception synchrone, que `.catch` seul ne verrait pas.
     const scarcity = await Promise.all(
-      rows.map((r) =>
-        countOpenSlotsForPro(Number(r.id), { days: 7 }).catch(() => ({ today: 0, next_7_days: 0, weekend: 0 }))
-      )
+      rows.map(async (r) => {
+        try {
+          return await countOpenSlotsForPro(Number(r.id), { days: 7 });
+        } catch (err) {
+          log.error("/api/client/onboarding/recommendations:scarcity", err instanceof Error ? err.message : String(err));
+          return { today: 0, next_7_days: 0, weekend: 0 };
+        }
+      })
     );
 
     res.json({
