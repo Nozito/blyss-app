@@ -132,6 +132,44 @@ describe("POST /api/auth/login", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// POST /api/auth/signup — unicité email / téléphone
+// ═══════════════════════════════════════════════════════════════════════════
+describe("POST /api/auth/signup — doublons", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const body = (over: Record<string, unknown> = {}) => ({
+    first_name: "Léa",
+    last_name: "Test",
+    email: "lea@blyss.fr",
+    password: "Abcd1234!",
+    phone_number: "0612345678",
+    birth_date: "2000-01-01",
+    role: "client",
+    ...over,
+  });
+
+  it("409 phone_exists quand seul le téléphone existe déjà", async () => {
+    mockQuery.mockResolvedValueOnce([[{ email: "autre@blyss.fr", phone_number: "0612345678" }]]);
+    const res = await request(app).post("/api/auth/signup").send(body());
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("phone_exists");
+  });
+
+  it("409 email_exists quand l'email existe déjà", async () => {
+    mockQuery.mockResolvedValueOnce([[{ email: "lea@blyss.fr", phone_number: null }]]);
+    const res = await request(app).post("/api/auth/signup").send(body({ phone_number: "0699999999" }));
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("email_exists");
+  });
+
+  it("email prioritaire si email ET téléphone collisionnent", async () => {
+    mockQuery.mockResolvedValueOnce([[{ email: "lea@blyss.fr", phone_number: "0612345678" }]]);
+    const res = await request(app).post("/api/auth/signup").send(body());
+    expect(res.body.error).toBe("email_exists");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // POST /api/auth/refresh
 // ═══════════════════════════════════════════════════════════════════════════
 describe("POST /api/auth/refresh", () => {
