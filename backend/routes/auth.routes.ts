@@ -151,15 +151,13 @@ router.post(
         }
       }
 
-      if (phone_number) {
-        const cleanPhone = phone_number.replace(/\s/g, "");
-        if (!/^[0-9]{10}$/.test(cleanPhone)) {
-          return res.status(400).json({
-            success: false,
-            message: "Invalid phone number format",
-            error: "invalid_phone",
-          });
-        }
+      const cleanPhone = phone_number ? phone_number.replace(/\s/g, "") : "";
+      if (cleanPhone && !/^[0-9]{10}$/.test(cleanPhone)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid phone number format",
+          error: "invalid_phone",
+        });
       }
 
       // Hashé AVANT d'acquérir la connexion DB, et borné par bcryptSemaphore
@@ -182,16 +180,18 @@ router.post(
 
       try {
         const [existing] = (await connection.query(
-          "SELECT id FROM users WHERE email = ?",
-          [trimmedEmail]
-        )) as [any[], any];
+          `SELECT email, phone_number FROM users
+           WHERE email = ? OR (phone_number IS NOT NULL AND phone_number = ?)`,
+          [trimmedEmail, cleanPhone || null]
+        )) as [Array<{ email: string; phone_number: string | null }>, unknown];
 
         if (existing.length > 0) {
           await connection.rollback();
+          const emailTaken = existing.some((r) => r.email === trimmedEmail);
           return res.status(409).json({
             success: false,
-            message: "Email already exists",
-            error: "email_exists",
+            message: emailTaken ? "Email already exists" : "Phone number already exists",
+            error: emailTaken ? "email_exists" : "phone_exists",
           });
         }
 
@@ -203,7 +203,7 @@ router.post(
             first_name?.trim() || null,
             last_name?.trim() || null,
             trimmedEmail,
-            phone_number?.replace(/\s/g, "") || null,
+            cleanPhone || null,
             birth_date || null,
             passwordHash,
             role === "pro" ? "pro" : "client",
@@ -234,11 +234,14 @@ router.post(
       const [msg, stack] = errInfo(err);
       log.error("/api/auth/signup", msg, stack);
 
-      if (err.code === "ER_DUP_ENTRY") {
+      // 23505 = unique_violation (pg). Le nom de la contrainte distingue
+      // email (users_email_key) du téléphone (uq_users_phone_number).
+      if (err.code === "23505" || err.code === "ER_DUP_ENTRY") {
+        const phoneHit = typeof err.constraint === "string" && err.constraint.includes("phone");
         return res.status(409).json({
           success: false,
-          message: "Email already exists",
-          error: "email_exists",
+          message: phoneHit ? "Phone number already exists" : "Email already exists",
+          error: phoneHit ? "phone_exists" : "email_exists",
         });
       }
 
