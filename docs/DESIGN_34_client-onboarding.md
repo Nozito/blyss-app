@@ -25,13 +25,13 @@ micro-engagement, personnalisation).
 
 ### Taxonomie retenue (`nail_style`)
 
-**v2 (`20260910000001`)** — 12 familles, partagées client + pro :
+**v2 (`20260911000001`)** — 12 familles, partagées client + pro :
 
 `manucure_soin | renforcement_ongle | pose_gel | resine_acrylique | acrygel_polygel | capsules_gelx | semi_permanent | french | baby_boomer_ombre | nail_art | effets_finitions | formes_sculptees`
 
 L'onboarding client n'en affiche que 6 (`semi_permanent, french, baby_boomer_ombre, nail_art, effets_finitions, formes_sculptees`) ; l'écran pro « Mes spécialités » les affiche toutes. Mapping depuis la v1 (`nail_art / french_nude / couleurs_vives / vernis_gel / pose_resine / autre`) dans la migration : `french_nude→french`, `pose_resine→resine_acrylique`, `couleurs_vives`+`vernis_gel→semi_permanent`, `autre` supprimé.
 
-(PR 1 avait `french / gel / resine` ; `20260907000001` renommait vers la v1. `20260910000001` recrée le type pour la v2.)
+(PR 1 avait `french / gel / resine` ; `20260907000001` renommait vers la v1. `20260911000001` recrée le type pour la v2.)
 
 ---
 
@@ -45,7 +45,7 @@ timestamp, pas une table → fusionné.
 - **`client_preferences`** (`client_id` PK, `style_nails` enum, timestamps) — 1 style / client, modifiable.
 - **`client_onboarding`** (`client_id` PK, `current_step` 0–5, `started_at`, `completed_at`, `skipped_at` *(PR 3)*, `nudge_d1/d3/d7_sent`).
 - **`pro_nail_styles`** (`pro_id`, `style_nails`, PK composite) — vide en PR 1, alimentée via les routes pro de la PR 3.
-- enum `nail_style` — 12 familles après `20260910000001` (cf. « Taxonomie retenue » ci-dessus). Aligné avec `NAIL_STYLES` dans `middleware/validate.ts`.
+- enum `nail_style` — 12 familles après `20260911000001` (cf. « Taxonomie retenue » ci-dessus). Aligné avec `NAIL_STYLES` dans `middleware/validate.ts`.
 
 RLS activée + `REVOKE ... FROM anon, authenticated` (le backend passe en `service_role`, autorisation applicative — cf. `20260807000002`).
 
