@@ -170,6 +170,32 @@ describe("POST /api/auth/signup — doublons", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// POST /api/auth/check-availability
+// ═══════════════════════════════════════════════════════════════════════════
+describe("POST /api/auth/check-availability", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("400 si ni email ni téléphone", async () => {
+    const res = await request(app).post("/api/auth/check-availability").send({});
+    expect(res.status).toBe(400);
+  });
+
+  it("email_taken=true quand l'email existe, requête normalisée en minuscules", async () => {
+    mockQuery.mockResolvedValueOnce([[{ "?column?": 1 }]]);
+    const res = await request(app).post("/api/auth/check-availability").send({ email: "  LEA@Blyss.FR " });
+    expect(res.body.data).toEqual({ email_taken: true });
+    expect(mockQuery.mock.calls[0][1]).toEqual(["lea@blyss.fr"]);
+  });
+
+  it("phone_taken=false quand le numéro est libre", async () => {
+    mockQuery.mockResolvedValueOnce([[]]);
+    const res = await request(app).post("/api/auth/check-availability").send({ phone_number: "06 12 34 56 78" });
+    expect(res.body.data).toEqual({ phone_taken: false });
+    expect(mockQuery.mock.calls[0][1]).toEqual(["0612345678"]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // POST /api/auth/refresh
 // ═══════════════════════════════════════════════════════════════════════════
 describe("POST /api/auth/refresh", () => {

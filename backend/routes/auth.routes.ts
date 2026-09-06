@@ -2,7 +2,7 @@ import express, { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { authenticateToken } from "../middleware/auth";
-import { authLoginLimiter, authLoginAccountLimiter, authSignupLimiter, authRefreshLimiter, passwordResetLimiter, passwordResetAccountLimiter, passwordResetConsumeLimiter } from "../middleware/rate-limits";
+import { authLoginLimiter, authLoginAccountLimiter, authSignupLimiter, authCheckLimiter, authRefreshLimiter, passwordResetLimiter, passwordResetAccountLimiter, passwordResetConsumeLimiter } from "../middleware/rate-limits";
 import { validate } from "../middleware/validate";
 import { forgotPasswordSchema, resetPasswordSchema } from "../middleware/validate";
 import { getDb } from "../lib/db";
@@ -59,6 +59,43 @@ function clearAuthCookies(res: Response) {
   res.clearCookie("access_token", BASE_COOKIE);
   res.clearCookie("refresh_token", BASE_COOKIE);
 }
+
+/* POST /check-availability — disponibilité email / téléphone pendant la saisie.
+   Ne renvoie que des booléens. La contrainte réelle reste posée par /signup. */
+router.post("/check-availability", authCheckLimiter, async (req: Request, res: Response) => {
+  try {
+    const { email, phone_number } = req.body as { email?: unknown; phone_number?: unknown };
+    const trimmedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+    const cleanPhone = typeof phone_number === "string" ? phone_number.replace(/\s/g, "") : "";
+
+    if (!trimmedEmail && !cleanPhone) {
+      return res.status(400).json({ success: false, error: "missing_fields", message: "Aucun champ à vérifier" });
+    }
+
+    const db = getDb();
+    const data: { email_taken?: boolean; phone_taken?: boolean } = {};
+
+    if (trimmedEmail) {
+      const [rows] = (await db.query("SELECT 1 FROM users WHERE email = ? LIMIT 1", [trimmedEmail])) as [
+        unknown[],
+        unknown,
+      ];
+      data.email_taken = rows.length > 0;
+    }
+    if (cleanPhone) {
+      const [rows] = (await db.query(
+        "SELECT 1 FROM users WHERE phone_number IS NOT NULL AND phone_number = ? LIMIT 1",
+        [cleanPhone]
+      )) as [unknown[], unknown];
+      data.phone_taken = rows.length > 0;
+    }
+
+    res.json({ success: true, data });
+  } catch (err) {
+    log.error("/api/auth/check-availability", err instanceof Error ? err.message : String(err));
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
 
 /* POST /signup */
 router.post(
