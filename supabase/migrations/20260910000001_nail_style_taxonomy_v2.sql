@@ -83,29 +83,34 @@ ALTER TABLE client_preferences
 
 -- 4b. client_preferences.styles (nail_style[], NOT NULL DEFAULT '{}')
 --     remappe chaque élément, retire les 'autre', dédoublonne.
+--     Postgres interdit une sous-requête dans l'expression USING d'un
+--     ALTER COLUMN TYPE → on passe par une fonction jetable.
+CREATE FUNCTION _mig_remap_nail_styles_v2(src text[]) RETURNS nail_style[]
+  LANGUAGE sql IMMUTABLE AS $fn$
+    SELECT COALESCE(array_agg(DISTINCT m ORDER BY m), '{}')::nail_style[]
+      FROM (
+        SELECT CASE e
+                 WHEN 'nail_art'       THEN 'nail_art'
+                 WHEN 'french_nude'    THEN 'french'
+                 WHEN 'pose_resine'    THEN 'resine_acrylique'
+                 WHEN 'couleurs_vives' THEN 'semi_permanent'
+                 WHEN 'vernis_gel'     THEN 'semi_permanent'
+                 ELSE NULL
+               END AS m
+          FROM unnest(src) AS e
+      ) t
+     WHERE m IS NOT NULL
+  $fn$;
+
 ALTER TABLE client_preferences ALTER COLUMN styles DROP DEFAULT;
 
 ALTER TABLE client_preferences
   ALTER COLUMN styles TYPE nail_style[]
-  USING (
-    COALESCE((
-      SELECT array_agg(DISTINCT m ORDER BY m)
-        FROM unnest(styles) AS s(old)
-        CROSS JOIN LATERAL (
-          SELECT CASE s.old::text
-                   WHEN 'nail_art'       THEN 'nail_art'
-                   WHEN 'french_nude'    THEN 'french'
-                   WHEN 'pose_resine'    THEN 'resine_acrylique'
-                   WHEN 'couleurs_vives' THEN 'semi_permanent'
-                   WHEN 'vernis_gel'     THEN 'semi_permanent'
-                   ELSE NULL
-                 END
-        ) AS x(m)
-       WHERE m IS NOT NULL
-    ), '{}')::nail_style[]
-  );
+  USING _mig_remap_nail_styles_v2(styles::text[]);
 
 ALTER TABLE client_preferences ALTER COLUMN styles SET DEFAULT '{}';
+
+DROP FUNCTION _mig_remap_nail_styles_v2(text[]);
 
 -- 4c. pro_nail_styles.style_nails (fait partie de la PK — dédup déjà faite)
 ALTER TABLE pro_nail_styles
