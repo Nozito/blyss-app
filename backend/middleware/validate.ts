@@ -12,6 +12,7 @@ export function validate<T>(schema: ZodSchema<T>) {
       res.status(400).json({
         success: false,
         error: "validation_error",
+        message: "Certaines informations sont invalides. Vérifie et réessaie.",
         details: result.error.issues.map((issue) => ({
           field: issue.path.join("."),
           message: issue.message,
