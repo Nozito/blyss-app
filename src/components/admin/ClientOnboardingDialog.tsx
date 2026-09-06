@@ -25,12 +25,18 @@ const STEP_LABELS: Record<number, string> = {
 };
 
 const STYLE_LABELS: Record<string, string> = {
+  manucure_soin: "Manucure & soin de l'ongle naturel",
+  renforcement_ongle: "Renforcement de l'ongle naturel",
+  pose_gel: "Pose gel",
+  resine_acrylique: "Résine / acrylique",
+  acrygel_polygel: "Acrygel / polygel",
+  capsules_gelx: "Gel X / capsules",
+  semi_permanent: "Vernis semi-permanent",
+  french: "French",
+  baby_boomer_ombre: "Baby boomer / ombré",
   nail_art: "Nail art",
-  french_nude: "French / nude",
-  couleurs_vives: "Couleurs vives",
-  vernis_gel: "Vernis gel",
-  pose_resine: "Pose résine",
-  autre: "Autre",
+  effets_finitions: "Effets & finitions",
+  formes_sculptees: "Formes sculptées",
 };
 
 interface OnboardingData {
