@@ -165,7 +165,9 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
            COALESCE(NULLIF(TRIM(u.activity_name), ''), TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, ''))) AS name,
            u.city, u.profile_photo, u.banner_photo,
            EXISTS (SELECT 1 FROM working_hours wh WHERE wh.pro_id = u.id) AS has_hours,
-           (? IS NOT NULL AND u.city ILIKE ?) AS city_match,
+           -- ?::text : ce param n'apparaît que dans « IS NOT NULL », Postgres ne
+           -- peut pas déduire son type sans le cast (Parse échoue sinon).
+           (?::text IS NOT NULL AND u.city ILIKE ?) AS city_match,
            CASE WHEN g.lat IS NOT NULL AND u.latitude IS NOT NULL THEN
              6371 * acos(LEAST(1, GREATEST(-1,
                cos(radians(g.lat)) * cos(radians(COALESCE(u.public_latitude, u.latitude))) *
