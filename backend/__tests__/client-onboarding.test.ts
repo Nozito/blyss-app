@@ -193,6 +193,11 @@ describe("GET /api/client/onboarding/recommendations", () => {
       bookings_90d: 30, has_availability: true, matches_style: true,
     });
     expect(res.body.data.recommendations[0].open_slots).toEqual({ today: 0, this_week: 0, this_weekend: 0 });
+
+    // Le param ville testé par « IS NOT NULL » doit être casté, sinon Postgres
+    // échoue au Parse (« could not determine data type of parameter »).
+    const recoSql = String(mockQuery.mock.calls.find((c) => String(c[0]).includes("LIMIT 3"))?.[0] ?? "");
+    expect(recoSql).toMatch(/\?::text IS NOT NULL/);
   });
 
   it("style_filter_active = true quand au moins une pro reco a déclaré le style", async () => {
