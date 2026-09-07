@@ -1,104 +1,105 @@
 # Réservation web publique (blyssapp.fr) — checklist backend / ops
 
-La page profil pro publique + le tunnel de réservation web sont développés dans le
-repo **Blyss-web** (branche `feat/public-pro-booking`), servis sur `blyssapp.fr`.
-Ils consomment l'API backend **sans nouvel endpoint** : profil/prestations/galerie/
-avis/disponibilités (routes publiques existantes), et auth + `/api/reservations` +
-`/api/payments/create-intent` (routes authentifiées existantes).
+La page profil pro publique + le tunnel de réservation web sont dans le repo
+**Blyss_Website** (Next.js, `github.com/Nozito/Blyss_website`, branche
+`feat/public-pro-booking`), servi sur `blyssapp.fr` (Next SSR sur le VPS, derrière
+nginx). Ils consomment l'API backend **sans nouvel endpoint** :
 
-Rien à coder côté backend. En revanche 4 points d'infra bloquent la mise en prod.
+- lecture (profil / prestations / galerie / avis / disponibilités) — routes
+  publiques existantes, appelées **côté serveur** par la page `/s/[id]` (pas de
+  CORS pour cette page) ;
+- auth + `/api/reservations` + `/api/payments/create-intent` — routes
+  authentifiées existantes, appelées **côté client** dans le tunnel `/booking/[id]`
+  (CORS requis).
+
+Rien à coder côté backend. 3 points d'infra bloquent la mise en prod.
 
 ---
 
-## 1. CORS — ajouter blyssapp.fr aux origines autorisées  ⚠️ BLOQUANT
+## 1. CORS — autoriser blyssapp.fr  ⚠️ BLOQUANT (pour le tunnel de résa)
 
-`backend/server.ts` (~l.175) : `allowedOrigins` vient de la variable d'env
-`CORS_ORIGINS` (fallback = `localhost:5173` + `localhost:8080` uniquement).
-Toute requête `fetch` depuis le navigateur web sera rejetée tant que ce n'est pas fait.
+`backend/server.ts` (~l.175) : `allowedOrigins` vient de `CORS_ORIGINS` dans
+**`backend/.env.prod`** (chargé car `NODE_ENV=production`, cf. server.ts:110-116).
+Fallback = `localhost` uniquement.
 
-Ajouter à `CORS_ORIGINS` (liste séparée par des virgules) :
+Sur le VPS :
 
+```bash
+cd <dossier backend>              # celui qui contient dist/server.js ET .env.prod
+cp .env.prod .env.prod.bak
+grep CORS_ORIGINS .env.prod       # valeur actuelle (ex. https://app.blyssapp.fr)
+nano .env.prod
+#   CORS_ORIGINS=https://app.blyssapp.fr,https://blyssapp.fr,https://www.blyssapp.fr
+#   (pas d'espace, pas de slash final)
+pm2 restart <nom>                 # ou systemctl restart / docker compose restart
 ```
-https://blyssapp.fr,https://www.blyssapp.fr
+
+Vérif (cible `app.blyssapp.fr` — `api.blyssapp.fr` n'existe pas encore en DNS) :
+
+```bash
+curl -sS -D - -o /dev/null -H "Origin: https://blyssapp.fr" \
+  https://app.blyssapp.fr/api/users/pros/8 | grep -i access-control-allow-origin
+# → access-control-allow-origin: https://blyssapp.fr
 ```
 
-- **Prod** : VPS Ubuntu/nginx (backend derrière `app.blyssapp.fr` / `api.blyssapp.fr`) —
-  éditer le `.env` du service puis redéployer/restart (cf.
-  `memory/reference_railway_backend_deploy` : redeploy manuel en SSH).
-- **Staging** : service Railway `blyss-staging-backend` → variables d'env.
-- **Dev** : pour tester Blyss-web en local contre le backend staging, ajouter aussi
-  `http://localhost:5173`.
-
-`credentials: true` est déjà positionné côté CORS ; le web envoie surtout un header
-`Authorization: Bearer`, mais garde `credentials` pour le refresh cookie.
+Faire pareil sur le **staging** (Railway `blyss-staging-backend` → Variables) +
+`http://localhost:3000` pour le dev Next.
 
 ---
 
-## 2. Fichiers .well-known sur blyssapp.fr
+## 2. Sous-domaine `api.blyssapp.fr` (recommandé — débloque aussi le mobile prod)
 
-Livrés dans Blyss-web (`public/.well-known/`, servis par `vercel.json`) :
+Actuellement seul `app.blyssapp.fr` sert l'API. Le build **mobile production**
+(`blyss-mobile/eas.json` → `EXPO_PUBLIC_API_URL`) et `app.config.ts` pointent
+déjà vers `https://api.blyssapp.fr`, qui **n'existe pas en DNS** (NXDOMAIN chez OVH).
 
-- `apple-app-site-association` — `appIDs: ["B92ST2GG54.blyss.app"]`, chemins `/s/*`
-  et `/booking/*`. Servi en `application/json`, **sans redirection** (Apple refuse
-  un AASA obtenu via 301/302).
-- `assetlinks.json` — **contient un placeholder** :
-  `REMPLACER_PAR_L_EMPREINTE_SHA256_DU_CERTIFICAT_DE_SIGNATURE_PLAY`.
+Le site web utilise `NEXT_PUBLIC_BLYSS_API_URL` (défaut `https://app.blyssapp.fr`)
+→ il marche sans ce sous-domaine, mais autant le créer maintenant :
 
-### Action ops
-
-- Après déploiement, vérifier :
-  ```
-  curl -sI https://blyssapp.fr/.well-known/apple-app-site-association
-  # → 200, content-type: application/json, pas de header location
-  ```
-- Fournir l'**empreinte SHA-256** du certificat de signature Android (Play App
-  Signing → Play Console → Configuration → Intégrité de l'app → "Certificat de clé
-  de signature d'application", champ SHA-256) et l'insérer dans `assetlinks.json`.
+1. **OVH** — zone `blyssapp.fr` → `A   api   51.75.77.50` (IP du VPS).
+2. **nginx** — bloc `server { server_name api.blyssapp.fr; location / { proxy_pass
+   http://127.0.0.1:3001; proxy_set_header Host $host; proxy_set_header Upgrade
+   $http_upgrade; proxy_set_header Connection "upgrade"; ... } listen 80; }` puis
+   `certbot --nginx -d api.blyssapp.fr`.
+3. Basculer `NEXT_PUBLIC_BLYSS_API_URL=https://api.blyssapp.fr` côté site.
 
 ---
 
-## 3. Clé Stripe publishable côté Blyss-web
+## 3. Clé Stripe publishable + fichier assetlinks Android
 
-- Ajouter la variable d'env Vercel du projet Blyss-web :
-  `VITE_STRIPE_PUBLISHABLE_KEY` = clé **publishable plateforme** (la même que
-  `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` dans `blyss-mobile/eas.json`) — `pk_test_…`
-  en preview, `pk_live_…` en prod.
-- Backend : **rien à changer**. `POST /api/payments/create-intent` crée une
-  *destination charge* (`transfer_data.destination` + `on_behalf_of`,
-  `automatic_payment_methods`). Le web confirme avec `@stripe/stripe-js` +
-  `PaymentElement` en utilisant juste `client_secret` — pas besoin de contexte
-  compte connecté dans Stripe.js.
-- Le `PaymentIntent` est rattaché au `stripe_customer_id` de la cliente (créé à la
-  volée par le endpoint si absent) — fonctionne pour un compte créé depuis le web.
+- **`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`** dans l'environnement de build du site
+  (`.env` / config de déploiement Next sur le VPS) = clé **publishable plateforme**
+  (la même que `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` dans `blyss-mobile/eas.json`) :
+  `pk_test_…` pour tester, `pk_live_…` en prod. **Rien à changer côté backend** :
+  `POST /api/payments/create-intent` reste une *destination charge*
+  (`transfer_data.destination` + `automatic_payment_methods`), le site confirme
+  avec `@stripe/stripe-js` + `PaymentElement` en n'utilisant que le `client_secret`.
 
----
-
-## 4. Config deep-link mobile (blyss-mobile/app.config.ts)
-
-**Aucun changement nécessaire** une fois les `.well-known` servis sur `blyssapp.fr` :
-
-- `associatedDomains: ["applinks:blyssapp.fr"]` et les `intentFilters`
-  (host `blyssapp.fr`, pathPrefix `/s` et `/booking`) deviennent valides.
-- **NE PAS** basculer sur `app.blyssapp.fr` : les liens de partage
-  (`public-profile.tsx` → `https://blyssapp.fr/s/<id>`) et les nouvelles pages web
-  vivent sur `blyssapp.fr`.
-- Un nouveau build natif iOS/Android sera nécessaire pour que la vérification
-  App Links / Universal Links se rejoue (le CDN Apple se rafraîchit seul, mais
-  `autoVerify` Android est évalué à l'installation).
+- **`src/app/.well-known/assetlinks.json/route.ts`** contient un placeholder
+  `REMPLACER_PAR_L_EMPREINTE_SHA256_DU_CERTIFICAT_PLAY` — à remplacer par
+  l'empreinte SHA-256 du certificat de signature Play (Play Console → Intégrité de
+  l'app → Certificat de clé de signature d'application). Nécessaire pour les App
+  Links Android ; pas bloquant pour tester `/s/[id]` et `/booking/[id]` dans un
+  navigateur. L'AASA iOS (`apple-app-site-association/route.ts`) est complet.
 
 ---
+
+## Config mobile (`blyss-mobile/app.config.ts`)
+
+**Aucun changement** : `associatedDomains: ["applinks:blyssapp.fr"]` +
+`intentFilters` host `blyssapp.fr` deviennent valides dès que le site déploie les
+route handlers `.well-known` (servis en `application/json`, sans redirection). Un
+nouveau build natif iOS/Android sera nécessaire pour que la vérification se rejoue.
 
 ## Rappel produit
 
-Le endpoint `GET /api/users/pros/:proId` filtre déjà sur
-`role='pro' AND pro_status='active' AND profile_visibility='public' AND is_active`.
-Une pro privée/inactive → 404 → la page web affiche « Profil indisponible » (géré).
-Aucune donnée d'adresse exacte n'est exposée si `geo_precision != 'address'`
-(whitelist déjà en place dans le endpoint).
+`GET /api/users/pros/:proId` filtre déjà sur `profile_visibility='public'` +
+`pro_status='active'` + `is_active` → une pro privée renvoie 404, la page web
+affiche « Profil indisponible » (géré). L'adresse exacte n'est jamais exposée si
+`geo_precision != 'address'` (whitelist déjà en place dans le endpoint).
 
-## Ce que le web NE fait PAS (v1)
+## Hors périmètre v1 web
 
-- Pas de messagerie web (« Contacter la pro » → CTA vers l'app).
-- Pas d'espace « Mes réservations » web (gestion/annulation → app).
-- Onboarding client (#34) porté sur le web sans carte ni push : l'étape
-  « notifications » renvoie vers le téléchargement de l'app.
+Pas de messagerie web (« Contacter la pro » → CTA app), pas d'espace « Mes
+réservations » web, onboarding client (#34) porté sans carte ni push (l'étape
+notifications renvoie vers le téléchargement de l'app).
