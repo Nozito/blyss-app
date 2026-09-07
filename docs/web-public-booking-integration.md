@@ -33,6 +33,16 @@ Sans cette clé : le tunnel fonctionne quand même pour les pros **sans Stripe**
 (`stripe_onboarding_complete=false` → « payer sur place », réservation confirmée
 sans paiement).
 
+### Apple Pay / Google Pay
+
+Le site affiche `ExpressCheckoutElement` (Apple Pay / Google Pay / Link). Google Pay
+et Link marchent dès la clé posée + HTTPS. **Apple Pay exige d'enregistrer le
+domaine** : Stripe Dashboard → Settings → Payment methods → Apple Pay → *Add domain*
+→ `blyssapp.fr` (et `www.blyssapp.fr`). Stripe fournit un fichier de vérification à
+servir sous `/.well-known/apple-developer-merchantid-domain-association` — à ajouter
+comme route handler dans `Blyss_Website` quand tu feras l'enregistrement. Rien de
+bloquant : sans ça, seuls Google Pay + carte s'affichent.
+
 ---
 
 ## 2. Empreinte SHA-256 Android → assetlinks.json
