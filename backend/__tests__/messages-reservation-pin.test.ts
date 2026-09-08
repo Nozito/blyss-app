@@ -28,7 +28,12 @@ vi.mock("stripe", () => {
 import { app } from "../server";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
-const clientToken = (id = 10) => jwt.sign({ id, role: "client" }, JWT_SECRET, { expiresIn: "15m" });
+const clientToken = (id = 10) =>
+  jwt.sign({ id, role: "client" }, JWT_SECRET, {
+    expiresIn: "15m",
+    issuer: "blyss-api",
+    audience: "blyss-app",
+  });
 
 beforeEach(() => vi.clearAllMocks());
 
