@@ -315,7 +315,7 @@ const AdminTasks = () => {
         description={`${filteredTasks.length} élément${filteredTasks.length > 1 ? "s" : ""} actif${filteredTasks.length > 1 ? "s" : ""}${filtersActive ? " · filtré" : ""} — visibles par toute l'équipe`}
         actions={
           <>
-            <div className="flex items-center gap-1 rounded-xl border-2 border-border bg-card p-1">
+            <div className="flex items-center gap-1 rounded-xl border border-border bg-card p-1">
               <button
                 onClick={() => setView("calendar")}
                 aria-pressed={view === "calendar"}
@@ -365,7 +365,7 @@ const AdminTasks = () => {
       </div>
 
       {/* Barre d'outils */}
-      <div className="flex flex-wrap items-center gap-3 bg-card rounded-2xl border-2 border-border p-4">
+      <div className="flex flex-wrap items-center gap-3 bg-card rounded-2xl border border-border p-4 shadow-[var(--shadow-card)]">
         <div className="relative flex-1 min-w-[200px]">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
@@ -380,7 +380,7 @@ const AdminTasks = () => {
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as "all" | TaskStatus)}
           aria-label="Filtrer par statut"
-          className="h-10 px-3 rounded-xl border-2 border-border bg-background text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="h-10 px-3 rounded-xl border border-border bg-background text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <option value="all">Tous les statuts</option>
           <option value="pending">À faire</option>
@@ -502,7 +502,7 @@ const AdminTasks = () => {
 
           {/* Aperçu compact — en retard / aujourd'hui */}
           <div className="space-y-6">
-            <div className="bg-card rounded-2xl border-2 border-border p-5">
+            <div className="bg-card rounded-2xl border border-border p-5">
               <h2 className="text-sm font-bold text-foreground mb-3">En retard</h2>
               {buckets.overdue.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Rien en retard.</p>
@@ -525,7 +525,7 @@ const AdminTasks = () => {
               )}
             </div>
 
-            <div className="bg-card rounded-2xl border-2 border-border p-5">
+            <div className="bg-card rounded-2xl border border-border p-5">
               <h2 className="text-sm font-bold text-foreground mb-3">Aujourd'hui</h2>
               {buckets.today.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Rien de prévu aujourd'hui.</p>

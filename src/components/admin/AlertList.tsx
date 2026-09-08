@@ -16,15 +16,15 @@ export interface AlertListProps {
 }
 
 /**
- * Liste des signaux nécessitant une action admin. Monochrome — la priorité
- * se lit dans le texte et l'icône, jamais dans une couleur d'alerte.
+ * Liste des signaux nécessitant une action admin. La priorité se lit dans
+ * le texte, l'icône et une teinte d'alerte (warning).
  * État "rien à signaler" explicite plutôt qu'une zone vide.
  */
 export function AlertList({ items }: AlertListProps) {
   if (items.length === 0) {
     return (
       <div className="flex items-center gap-3 py-6 justify-center text-center">
-        <CheckCircle2 size={18} className="text-muted-foreground shrink-0" aria-hidden="true" />
+        <CheckCircle2 size={18} className="text-success shrink-0" aria-hidden="true" />
         <p className="text-sm text-muted-foreground">Rien ne nécessite ton attention pour le moment.</p>
       </div>
     );
@@ -38,10 +38,10 @@ export function AlertList({ items }: AlertListProps) {
           <li key={item.id}>
             <Link
               to={item.actionHref}
-              className="flex items-center gap-3 p-3 rounded-xl border border-border bg-muted/30 hover:bg-muted/60 transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex items-center gap-3 p-3 rounded-xl border border-warning/25 bg-warning/[0.07] hover:bg-warning/[0.12] transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <div className="h-9 w-9 rounded-lg border border-border bg-background flex items-center justify-center shrink-0">
-                <Icon size={16} className="text-foreground" aria-hidden="true" />
+              <div className="h-9 w-9 rounded-lg border border-warning/25 bg-warning/15 flex items-center justify-center shrink-0">
+                <Icon size={16} className="text-warning" aria-hidden="true" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-foreground truncate">{item.title}</p>

@@ -25,8 +25,10 @@ export function KpiCard({ icon: Icon, label, value, change, changeLabel, emphasi
   return (
     <div
       className={cn(
-        "rounded-2xl border-2 p-5 flex flex-col justify-between gap-4 min-h-[128px]",
-        emphasis ? "bg-foreground text-background border-foreground" : "bg-card border-border",
+        "rounded-2xl border p-5 flex flex-col justify-between gap-4 min-h-[128px] shadow-[var(--shadow-card)]",
+        emphasis
+          ? "border-transparent bg-[linear-gradient(150deg,hsl(var(--primary))_0%,hsl(330_100%_62%)_55%,hsl(336_98%_72%)_100%)] text-white shadow-[var(--shadow-soft)]"
+          : "bg-card border-border",
         className
       )}
     >
@@ -34,23 +36,23 @@ export function KpiCard({ icon: Icon, label, value, change, changeLabel, emphasi
         <span
           className={cn(
             "text-xs font-bold uppercase tracking-wide",
-            emphasis ? "text-background/70" : "text-muted-foreground"
+            emphasis ? "text-white/75" : "text-muted-foreground"
           )}
         >
           {label}
         </span>
-        <Icon size={16} className={emphasis ? "text-background/70" : "text-muted-foreground"} aria-hidden="true" />
+        <Icon size={16} className={emphasis ? "text-white/75" : "text-muted-foreground"} aria-hidden="true" />
       </div>
 
       <div>
-        <p className={cn("text-3xl font-black tracking-tight", emphasis ? "text-background" : "text-foreground")}>
+        <p className={cn("text-3xl font-black tracking-tight", emphasis ? "text-white" : "text-foreground")}>
           {value}
         </p>
         {change !== undefined && (
           <div
             className={cn(
               "mt-1.5 inline-flex items-center gap-1 text-xs font-semibold",
-              emphasis ? "text-background/70" : "text-muted-foreground"
+              emphasis ? "text-white/75" : "text-muted-foreground"
             )}
           >
             {change === null ? (

@@ -507,8 +507,23 @@ router.get(
             SELECT COUNT(DISTINCT user_id) AS active_users
             FROM refresh_tokens
             WHERE expires_at > NOW() AND revoked = FALSE AND created_at >= NOW() - INTERVAL '7 days'
+          ),
+          sub AS (
+            SELECT
+              COUNT(*) FILTER (WHERE status = 'active')                                                       AS subs_active,
+              COUNT(*) FILTER (WHERE created_at >= (SELECT d FROM this_month))                                 AS subs_this,
+              COUNT(*) FILTER (WHERE created_at >= (SELECT d FROM last_month_start) AND created_at < (SELECT d FROM this_month)) AS subs_last,
+              COALESCE(SUM(monthly_price) FILTER (WHERE status = 'active' AND billing_type = 'monthly'), 0)    AS sub_mrr,
+              COUNT(*) FILTER (WHERE status = 'active' AND plan = 'start')                                     AS plan_start,
+              COUNT(*) FILTER (WHERE status = 'active' AND plan = 'serenite')                                  AS plan_serenite,
+              COUNT(*) FILTER (WHERE status = 'active' AND plan = 'signature')                                 AS plan_signature
+            FROM subscriptions
+          ),
+          pay AS (
+            SELECT COALESCE(SUM(amount) FILTER (WHERE status = 'succeeded' AND created_at >= (SELECT d FROM this_month)), 0) AS collected_this
+            FROM payments
           )
-        SELECT uc.*, bc.*, au.active_users FROM uc, bc, au
+        SELECT uc.*, bc.*, au.active_users, sub.*, pay.collected_this FROM uc, bc, au, sub, pay
       `);
 
       const r = (mainRows as any[])[0] ?? {};
@@ -522,12 +537,25 @@ router.get(
       const activeUsers   = Number(r.active_users   ?? 0);
       const newUsersThisMonth = Number(r.users_this ?? 0);
 
+      // Abonnements = le vrai CA de la plateforme (les réservations, c'est
+      // l'argent des pros). MRR = somme des mensualités des abos actifs.
+      const subsActive        = Number(r.subs_active     ?? 0);
+      const subsThisMonth     = Number(r.subs_this       ?? 0);
+      const subMrr            = Number(r.sub_mrr         ?? 0);
+      const collectedThisMonth = Number(r.collected_this  ?? 0);
+      const subsByPlan = {
+        start:     Number(r.plan_start     ?? 0),
+        serenite:  Number(r.plan_serenite  ?? 0),
+        signature: Number(r.plan_signature ?? 0),
+      };
+
       const changes = {
         clients:  calcChange(Number(r.clients_this ?? 0),          Number(r.clients_last       ?? 0)),
         pros:     calcChange(Number(r.pros_this    ?? 0),          Number(r.pros_last          ?? 0)),
         users:    calcChange(Number(r.users_this   ?? 0),          Number(r.users_last         ?? 0)),
         revenue:  calcChange(monthRevenue,                          Number(r.last_month_revenue ?? 0)),
         bookings: calcChange(todayBookings,                         Number(r.yesterday_bookings ?? 0)),
+        subscriptions: calcChange(subsThisMonth,                    Number(r.subs_last ?? 0)),
       };
 
       // ── Query 2: bookings by status ──────────────────────────────────────────
@@ -583,6 +611,7 @@ router.get(
           totalUsers, totalPros, totalClients, totalBookings,
           todayBookings, totalRevenue, monthRevenue, activeUsers,
           newUsersThisMonth,
+          subsActive, subsThisMonth, subMrr, collectedThisMonth, subsByPlan,
           bookingsByStatus, changes,
           alerts: { pendingReports, failedPayments },
         },

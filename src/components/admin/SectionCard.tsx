@@ -18,7 +18,12 @@ export interface SectionCardProps {
  */
 export function SectionCard({ icon: Icon, title, description, actions, children, className }: SectionCardProps) {
   return (
-    <section className={cn("bg-card rounded-2xl border-2 border-border p-5 sm:p-6", className)}>
+    <section
+      className={cn(
+        "bg-card rounded-2xl border border-border p-5 sm:p-6 shadow-[var(--shadow-card)]",
+        className
+      )}
+    >
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="min-w-0">
           <h2 className="text-lg font-bold text-foreground flex items-center gap-2">

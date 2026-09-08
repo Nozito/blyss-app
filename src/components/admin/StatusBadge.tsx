@@ -4,15 +4,15 @@ import { cn } from "@/lib/utils";
 export type StatusTone = "success" | "warning" | "danger" | "info" | "neutral";
 
 /**
- * Badge de statut monochrome — noir/blanc/gris uniquement. Les tons se
- * distinguent par la luminosité et une icône, jamais par une teinte.
+ * Badge de statut — DA Rupture : chaque ton porte sa teinte sémantique
+ * (verre teinté sur nuit prune), renforcée par une icône.
  */
 const TONE_STYLES: Record<StatusTone, { className: string; defaultIcon: LucideIcon }> = {
-  success: { className: "bg-foreground/10 text-foreground border-foreground/20", defaultIcon: CheckCircle2 },
-  warning: { className: "bg-muted text-foreground/80 border-border", defaultIcon: AlertTriangle },
-  danger: { className: "bg-background text-foreground border-foreground/30", defaultIcon: XCircle },
-  info: { className: "bg-muted/60 text-muted-foreground border-border", defaultIcon: Clock },
-  neutral: { className: "bg-muted/40 text-muted-foreground border-border", defaultIcon: Circle },
+  success: { className: "bg-success/15 text-success border-success/30", defaultIcon: CheckCircle2 },
+  warning: { className: "bg-warning/15 text-warning border-warning/30", defaultIcon: AlertTriangle },
+  danger: { className: "bg-destructive/15 text-destructive border-destructive/30", defaultIcon: XCircle },
+  info: { className: "bg-info/15 text-info border-info/30", defaultIcon: Clock },
+  neutral: { className: "bg-muted/50 text-muted-foreground border-border", defaultIcon: Circle },
 };
 
 export interface StatusBadgeProps {

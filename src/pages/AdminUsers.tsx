@@ -130,6 +130,14 @@ const AdminUsers = () => {
     }
   };
 
+  // "06 12 34 56 79" — chiffres groupés par 2, +33 ramené à 0.
+  const formatPhone = (raw: string | undefined | null): string => {
+    if (!raw) return "";
+    let d = raw.replace(/\D/g, "");
+    if (d.startsWith("33") && d.length >= 11) d = "0" + d.slice(2);
+    return d.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
+  };
+
   const formatDate = (dateString: string | undefined | null) => {
     if (!dateString) return null;
     try {
@@ -336,7 +344,7 @@ const AdminUsers = () => {
       />
 
       {/* Filters & Search */}
-      <div className="bg-card rounded-2xl border border-border p-4">
+      <div className="bg-card rounded-2xl border border-border p-4 shadow-[var(--shadow-card)]">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1 relative group">
             <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/60 group-hover:text-muted-foreground transition-colors" aria-hidden="true" />
@@ -370,32 +378,24 @@ const AdminUsers = () => {
         </div>
       </div>
 
-      {/* Stats rapides */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Stats rapides — bandeau éditorial */}
+      <motion.dl
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="grid grid-cols-2 divide-x divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] sm:grid-cols-4 sm:divide-y-0"
+      >
         {[
-          { label: 'Total', value: users.length, icon: UsersIcon },
-          { label: 'Clients', value: users.filter(u => u.role === 'client').length, icon: User },
-          { label: 'Pros', value: users.filter(u => u.role === 'pro').length, icon: Briefcase },
-          { label: 'Nouveaux (30j)', value: users.filter(u => new Date(u.created_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).length, icon: Calendar },
-        ].map((stat, i) => {
-          const Icon = stat.icon;
-          return (
-            <motion.div
-              key={stat.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              className="bg-card rounded-2xl border border-border p-4"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{stat.label}</p>
-                <Icon size={16} className="text-muted-foreground/60" aria-hidden="true" />
-              </div>
-              <p className="text-3xl font-bold text-foreground">{stat.value}</p>
-            </motion.div>
-          );
-        })}
-      </div>
+          { label: 'Total', value: users.length },
+          { label: 'Clientes', value: users.filter(u => u.role === 'client').length },
+          { label: 'Pros', value: users.filter(u => u.role === 'pro').length },
+          { label: 'Nouveaux · 30j', value: users.filter(u => new Date(u.created_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).length },
+        ].map((stat) => (
+          <div key={stat.label} className="px-5 py-5">
+            <dd className="admin-display text-[2.6rem] leading-none text-foreground">{stat.value}</dd>
+            <dt className="mt-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{stat.label}</dt>
+          </div>
+        ))}
+      </motion.dl>
 
       {/* Users Grid */}
       {filteredUsers.length === 0 ? (
@@ -418,11 +418,11 @@ const AdminUsers = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: Math.min(index, 20) * 0.02 }}
-            className="bg-card rounded-2xl border border-border hover:border-foreground/20 transition-colors duration-200 group overflow-hidden"
+            className="flex h-full flex-col bg-card rounded-2xl border border-border hover:border-foreground/20 transition-colors duration-200 group overflow-hidden"
           >
 
             {/* Header Compact */}
-            <div className="relative p-5">
+            <div className="relative flex-1 p-5">
               {/* Badges top-right */}
               {!!(user.is_verified || user.is_admin || !user.is_active || user.is_vigilant || user.is_abusive_reporter) && (
                 <div className="absolute top-3 right-3 flex gap-1.5">
@@ -494,6 +494,7 @@ const AdminUsers = () => {
                       {user.role === 'pro' ? <Briefcase size={10} aria-hidden="true" /> : <User size={10} aria-hidden="true" />}
                       {user.role === 'pro' ? 'Pro' : 'Client'}
                     </span>
+                    <span className="font-mono text-[10px] font-semibold text-muted-foreground">#{user.id}</span>
                   </div>
                 </div>
               </div>
@@ -514,7 +515,7 @@ const AdminUsers = () => {
                     <div className="w-6 h-6 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
                       <Phone size={12} className="text-muted-foreground" aria-hidden="true" />
                     </div>
-                    <span className="font-medium text-xs">{user.phone_number}</span>
+                    <span className="font-medium text-xs tabular-nums">{formatPhone(user.phone_number)}</span>
                   </div>
                 )}
 
@@ -666,7 +667,7 @@ const AdminUsers = () => {
                           required
                           value={formData.first_name}
                           onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                          className="w-full px-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
+                          className="w-full px-4 py-3 rounded-xl border border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
                           placeholder="Jean"
                         />
                       </motion.div>
@@ -679,7 +680,7 @@ const AdminUsers = () => {
                           required
                           value={formData.last_name}
                           onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                          className="w-full px-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
+                          className="w-full px-4 py-3 rounded-xl border border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
                           placeholder="Dupont"
                         />
                       </motion.div>
@@ -704,7 +705,7 @@ const AdminUsers = () => {
                             required
                             value={formData.email}
                             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl border border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
                             placeholder="jean.dupont@example.com"
                           />
                         </div>
@@ -721,7 +722,7 @@ const AdminUsers = () => {
                             required
                             value={formData.phone_number}
                             onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
-                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl border border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
                             placeholder="+33 6 12 34 56 78"
                           />
                         </div>
@@ -738,7 +739,7 @@ const AdminUsers = () => {
                             type="date"
                             value={formData.birth_date ? new Date(formData.birth_date).toISOString().split('T')[0] : ''}
                             onChange={(e) => setFormData({ ...formData, birth_date: e.target.value })}
-                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl border border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium"
                           />
                         </div>
                       </motion.div>
@@ -762,7 +763,7 @@ const AdminUsers = () => {
                             required
                             value={formData.role}
                             onChange={(e) => setFormData({ ...formData, role: e.target.value as 'client' | 'pro' })}
-                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium appearance-none cursor-pointer"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl border border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium appearance-none cursor-pointer"
                           >
                             <option value="client">👤 Client</option>
                             <option value="pro">💼 Professionnel</option>
@@ -783,7 +784,7 @@ const AdminUsers = () => {
                             type="checkbox"
                             checked={formData.is_admin}
                             onChange={(e) => setFormData({ ...formData, is_admin: e.target.checked })}
-                            className="w-5 h-5 rounded-lg border-2 border-border text-foreground focus:ring-2 focus:ring-ring/40"
+                            className="w-5 h-5 rounded-lg border border-border text-foreground focus:ring-2 focus:ring-ring/40"
                           />
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
@@ -804,7 +805,7 @@ const AdminUsers = () => {
                             type="checkbox"
                             checked={formData.is_verified}
                             onChange={(e) => setFormData({ ...formData, is_verified: e.target.checked })}
-                            className="w-5 h-5 rounded-lg border-2 border-border text-foreground focus:ring-2 focus:ring-ring/40"
+                            className="w-5 h-5 rounded-lg border border-border text-foreground focus:ring-2 focus:ring-ring/40"
                           />
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
@@ -826,7 +827,7 @@ const AdminUsers = () => {
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="flex-1 px-6 py-3.5 rounded-xl border-2 border-border bg-card hover:bg-muted/40 font-bold transition-colors flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex-1 px-6 py-3.5 rounded-xl border border-border bg-card hover:bg-muted/40 font-bold transition-colors flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <X size={18} aria-hidden="true" />
                     Annuler

@@ -37,8 +37,8 @@ export function ActivityTimeline({ items, iconFor, emptyTitle = "Aucune activitÃ
             transition={{ delay: Math.min(index, 10) * 0.04 }}
             className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 hover:bg-muted/70 transition-colors"
           >
-            <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-background border border-border shrink-0">
-              <Icon size={16} className="text-foreground" aria-hidden="true" />
+            <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-primary/10 border border-primary/20 shrink-0">
+              <Icon size={16} className="text-primary" aria-hidden="true" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-foreground truncate">{item.title}</p>

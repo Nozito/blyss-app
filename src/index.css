@@ -66,52 +66,78 @@
   }
 
   /* ────────────────────────────────────────────────────────────────
-     Backoffice Admin — DA "Dusk", distincte de l'app consommateur.
-     Palette issue de Blyss_Website (--blyss-dusk / --blyss-dusk-gradient),
-     convertie en HSL. Scopée : ne touche à aucun token consommateur.
+     Backoffice Admin — DA "poster editorial / choc" (reprise du tunnel
+     d'onboarding client) : fond nuit prune quasi-noir, encres pleines
+     rose × prune, titres SF Pro Black CAPITALES à chasse serrée, ruban
+     rayé. Aucune fioriture serif. Scopée à `.admin-theme`.
      ──────────────────────────────────────────────────────────────── */
   .admin-theme {
-    /* Noir / blanc / gris uniquement — aucune teinte. Les états fonctionnels
-       (succès, alerte, info, destructif) se distinguent par la luminosité,
-       les icônes et la typographie, jamais par la couleur. */
-    --background: 0 0% 0%;          /* #000000 */
-    --foreground: 0 0% 98%;         /* #fafafa */
-    --card: 0 0% 10%;               /* #1a1a1a */
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 10%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 95%;            /* CTA = blanc cassé sur fond sombre */
-    --primary-foreground: 0 0% 8%;
-    --secondary: 0 0% 22%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14%;
-    --muted-foreground: 0 0% 65%;
-    --accent: 0 0% 18%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 0% 22%;        /* même famille que secondary — le sens vient de l'icône + la confirmation, pas de la couleur */
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 16%;
-    --input: 0 0% 16%;
-    --ring: 0 0% 75%;
-    --radius: 0.6rem;
+    --background: 330 34% 5%;
+    --foreground: 340 30% 95%;
+    --card: 330 24% 9%;
+    --card-foreground: 340 30% 95%;
+    --popover: 330 26% 8%;
+    --popover-foreground: 340 30% 95%;
 
-    --sidebar-background: 0 0% 10%;
-    --sidebar-foreground: 0 0% 98%;
-    --sidebar-accent: 0 0% 18%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 0 0% 16%;
-    --sidebar-ring: 0 0% 75%;
+    --primary: 336 98% 68%;
+    --primary-foreground: 330 60% 8%;
 
-    /* Distingués uniquement par la luminosité (clair → foncé) */
-    --success: 0 0% 90%;
-    --success-foreground: 0 0% 8%;
-    --warning: 0 0% 55%;
-    --warning-foreground: 0 0% 8%;
-    --info: 0 0% 40%;
-    --info-foreground: 0 0% 98%;
+    --secondary: 32 52% 60%;
+    --secondary-foreground: 330 60% 8%;
+
+    --muted: 330 18% 14%;
+    --muted-foreground: 330 12% 64%;
+    --accent: 336 42% 18%;
+    --accent-foreground: 340 30% 95%;
+    --destructive: 0 78% 62%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 330 18% 16%;
+    --input: 330 18% 16%;
+    --ring: 336 98% 68%;
+    --radius: 0.9rem;
+
+    --sidebar-background: 330 26% 8%;
+    --sidebar-foreground: 340 30% 95%;
+    --sidebar-accent: 336 42% 18%;
+    --sidebar-accent-foreground: 340 30% 95%;
+    --sidebar-border: 330 18% 16%;
+    --sidebar-ring: 336 98% 68%;
+
+    --success: 152 58% 54%;
+    --success-foreground: 152 60% 10%;
+    --warning: 38 92% 62%;
+    --warning-foreground: 32 90% 10%;
+    --info: 266 76% 76%;
+    --info-foreground: 266 50% 12%;
+
+    --shadow-soft: 0 30px 80px -30px hsl(336 98% 55% / 0.36);
+    --shadow-card: 0 18px 46px -22px hsl(330 60% 2% / 0.7);
+    --shadow-elevated: 0 40px 100px -34px hsl(336 98% 55% / 0.28);
 
     color-scheme: dark;
-    background-color: hsl(0 0% 4%);
+    background-color: hsl(330 36% 4%);
+    background-image:
+      radial-gradient(ellipse 70% 44% at 6% -8%, hsl(336 90% 42% / 0.24), transparent 60%),
+      radial-gradient(ellipse 55% 40% at 104% 2%, hsl(28 58% 44% / 0.12), transparent 56%),
+      linear-gradient(180deg, hsl(330 38% 7%) 0%, hsl(330 34% 4%) 55%, hsl(330 32% 3%) 100%);
+    background-attachment: fixed;
+  }
+
+  /* Encre pleine rose — bloc "affiche" pour les heros (chiffre géant sur aplat).
+     Tout le texte du bloc bascule en encre sombre. */
+  .admin-field-rose {
+    background-color: hsl(var(--primary));
+    border-color: transparent;
+  }
+  .admin-field-rose,
+  .admin-field-rose * { color: hsl(330 62% 9%) !important; }
+
+  /* Panneau plus sombre — remplace l'ancien bandeau "nuit prune" maintenant
+     que tout le thème est sombre. */
+  .admin-dusk {
+    background-color: hsl(330 28% 7%);
+    border-color: hsl(330 18% 15%);
+    background-image: none;
   }
 }
 
@@ -149,6 +175,129 @@
   .safe-bottom {
     padding-bottom: max(env(safe-area-inset-bottom), 1.5rem);
   }
+
+  /* ── DA "choc" — admin ─────────────────────────────────────────── */
+
+  /* Titre "affiche" — Archivo Black / SF Pro Black, CAPITALES, chasse serrée.
+     Reprend le langage du tunnel d'onboarding client. Zéro serif. */
+  .admin-display {
+    font-family: "Archivo", -apple-system, BlinkMacSystemFont, "SF Pro Display",
+      "Helvetica Neue", "Arial Black", sans-serif;
+    font-weight: 900;
+    font-style: normal;
+    text-transform: uppercase;
+    letter-spacing: -0.035em;
+    line-height: 0.92;
+  }
+
+  /* ── Pages d'auth (login / mot de passe) — même DA "choc", fond nuit ── */
+  .auth-choc {
+    min-height: 100vh; width: 100%;
+    display: flex; align-items: center; justify-content: center;
+    padding: 40px 24px;
+    font-family: "Archivo", -apple-system, "Helvetica Neue", sans-serif;
+    color: #f6e9ee;
+    background-color: #140a10;
+    background-image:
+      radial-gradient(ellipse 70% 40% at 8% -6%, rgba(254, 93, 157, 0.16), transparent 60%),
+      linear-gradient(180deg, #1c0e17 0%, #140a10 60%, #0f0810 100%);
+    -webkit-font-smoothing: antialiased;
+  }
+  .auth-choc * { box-sizing: border-box; }
+  .auth-choc .box { width: 100%; max-width: 440px; }
+  .auth-choc .back {
+    display: inline-flex; align-items: center; gap: 4px; background: none; border: none;
+    padding: 0; cursor: pointer; color: rgba(246, 233, 238, 0.5);
+    font-size: 10px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase;
+    transition: color 0.2s;
+  }
+  .auth-choc .back:hover { color: #fe5d9d; }
+  .auth-choc .brand {
+    font-family: "Space Mono", monospace; font-size: 10px; letter-spacing: 4px;
+    text-transform: uppercase; color: rgba(246, 233, 238, 0.5); display: block; margin: 34px 0 14px;
+  }
+  .auth-choc h1 {
+    font-weight: 900; font-size: 3.1rem; line-height: 0.86; letter-spacing: -0.045em;
+    text-transform: uppercase; margin: 0;
+  }
+  .auth-choc p { font-size: 13px; line-height: 1.55; color: rgba(246, 233, 238, 0.62); margin: 14px 0 0; }
+  .auth-choc label {
+    display: block; font-size: 11px; font-weight: 800; letter-spacing: 1.6px;
+    text-transform: uppercase; color: rgba(246, 233, 238, 0.5); margin-bottom: 10px;
+  }
+  .auth-choc .field { position: relative; }
+  .auth-choc input {
+    width: 100%; background: transparent; border: none;
+    border-bottom: 1.5px solid rgba(246, 233, 238, 0.2);
+    color: #f6e9ee; padding: 12px 34px 12px 0; font-size: 17px; font-weight: 600; outline: none;
+    transition: border-color 0.3s;
+  }
+  .auth-choc input:focus { border-bottom-color: #fe5d9d; }
+  .auth-choc input.err { border-bottom-color: #ff8686; }
+  .auth-choc .toggle {
+    position: absolute; right: 0; top: 12px; background: none; border: none; cursor: pointer;
+    color: rgba(246, 233, 238, 0.5); display: flex; padding: 2px;
+  }
+  .auth-choc .toggle:hover { color: #fe5d9d; }
+  .auth-choc .hint { font-size: 11px; font-weight: 700; margin-top: 6px; }
+  .auth-choc .hint.err { color: #ff8686; }
+  .auth-choc .btn {
+    width: 100%; padding: 20px; margin-top: 34px; border: none; cursor: pointer;
+    background: #fe5d9d; color: #14070c;
+    font-size: 13px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    transition: letter-spacing 0.25s, opacity 0.25s, transform 0.1s;
+  }
+  .auth-choc .btn:not(:disabled):hover { letter-spacing: 4px; }
+  .auth-choc .btn:not(:disabled):active { transform: translateY(1px); }
+  .auth-choc .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .auth-choc .btn-ghost {
+    width: 100%; padding: 16px; margin-top: 14px; background: none; cursor: pointer;
+    border: 1.5px solid rgba(246, 233, 238, 0.2); color: #f6e9ee;
+    font-size: 11px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase;
+  }
+  .auth-choc .btn-ghost:hover { border-color: #fe5d9d; color: #fe5d9d; }
+  .auth-choc .tick {
+    width: 56px; height: 56px; background: #fe5d9d; color: #14070c;
+    display: flex; align-items: center; justify-content: center; margin-bottom: 20px;
+  }
+  .auth-choc .alert {
+    display: flex; align-items: center; gap: 10px; margin-top: 22px; padding: 14px;
+    border: 1.5px solid rgba(255, 134, 134, 0.4); color: #ff8686;
+    font-size: 12px; font-weight: 700;
+  }
+
+  /* Carte standard — nuit prune, bord fin, ombre douce profonde. */
+  .admin-card {
+    background-color: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 1rem;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Entrée en cascade des enfants directs (grilles de cartes, listes).
+     L'anim ne joue qu'une fois, respecte prefers-reduced-motion. */
+  .admin-stagger > * {
+    animation: admin-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .admin-stagger > *:nth-child(1) { animation-delay: 0.02s; }
+  .admin-stagger > *:nth-child(2) { animation-delay: 0.06s; }
+  .admin-stagger > *:nth-child(3) { animation-delay: 0.10s; }
+  .admin-stagger > *:nth-child(4) { animation-delay: 0.14s; }
+  .admin-stagger > *:nth-child(5) { animation-delay: 0.18s; }
+  .admin-stagger > *:nth-child(6) { animation-delay: 0.22s; }
+  .admin-stagger > *:nth-child(7) { animation-delay: 0.26s; }
+  .admin-stagger > *:nth-child(8) { animation-delay: 0.30s; }
+  .admin-stagger > *:nth-child(n + 9) { animation-delay: 0.34s; }
+}
+
+@keyframes admin-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-stagger > * { animation: none; }
 }
 
 @layer utilities {

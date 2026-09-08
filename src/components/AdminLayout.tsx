@@ -12,7 +12,7 @@ import {
   MoreHorizontal,
   ShieldAlert,
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { Dock, DockIcon, DockItem, DockLabel } from "@/components/ui/dock";
@@ -42,6 +42,7 @@ interface DashboardCounts {
 const AdminLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const reduceMotion = useReducedMotion();
   const { logout } = useAuth();
   const [commandOpen, setCommandOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -130,10 +131,10 @@ const AdminLayout = () => {
       <main className="flex-1 overflow-y-auto pb-24 sm:pb-28">
         <motion.div
           key={location.pathname}
-          initial={{ opacity: 0, y: 10 }}
+          initial={reduceMotion ? false : { opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2 }}
-          className="p-4 sm:p-6"
+          transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
+          className="w-full px-4 py-5 sm:px-8 sm:py-8 lg:px-12"
         >
           {/* Suspense propre au backoffice : sans lui, changer de page admin
               (chaque page est lazy-loadée) remonte jusqu'au Suspense racine

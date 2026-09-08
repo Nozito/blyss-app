@@ -38,7 +38,7 @@ export function ChartCard({
   className,
 }: ChartCardProps) {
   return (
-    <div className={`bg-card rounded-2xl border-2 border-border p-5 sm:p-6 ${className ?? ""}`}>
+    <div className={`bg-card rounded-2xl border border-border p-5 sm:p-6 shadow-[var(--shadow-card)] ${className ?? ""}`}>
       <h2 className="text-lg font-bold text-foreground mb-1 flex items-center gap-2">
         {Icon ? <Icon size={18} className="text-muted-foreground shrink-0" aria-hidden="true" /> : null}
         {title}

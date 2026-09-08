@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mail, ChevronLeft, CheckCircle2, Loader2 } from "lucide-react";
+import { ChevronLeft, CheckCircle2, Loader2 } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
@@ -32,86 +32,56 @@ const ForgotPassword = () => {
 
   return (
     <MobileLayout>
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12 bg-gradient-to-b from-background to-muted/20">
-        <div className="w-full max-w-md space-y-8">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ChevronLeft size={16} />
+      <div className="auth-choc">
+        <div className="box">
+          <button className="back" onClick={() => navigate(-1)}>
+            <ChevronLeft size={13} strokeWidth={3} />
             Retour
           </button>
 
           {sent ? (
-            <div className="text-center space-y-4">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-4">
-                <CheckCircle2 size={28} className="text-primary" />
-              </div>
-              <h1 className="text-2xl font-bold text-foreground">Email envoyé</h1>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Si cette adresse est associée à un compte, tu recevras un lien de réinitialisation dans quelques minutes.
+            <>
+              <span className="brand">Blyss · Console admin</span>
+              <div className="tick"><CheckCircle2 size={26} strokeWidth={2.6} /></div>
+              <h1>C'est<br />parti</h1>
+              <p>
+                Si cette adresse est associée à un compte, tu recevras un lien de réinitialisation dans
+                quelques minutes. Pense à vérifier tes spams.
               </p>
-              <p className="text-xs text-muted-foreground">Pense à vérifier tes spams.</p>
-              <button
-                onClick={() => navigate("/login")}
-                className="w-full h-12 rounded-xl bg-blyss-pink text-white font-semibold text-sm shadow-lg shadow-blyss-pink/30 hover:bg-blyss-pink/90 transition-all active:scale-[0.98] mt-4"
-              >
-                Retour à la connexion
-              </button>
-            </div>
+              <button className="btn" onClick={() => navigate("/login")}>Retour à la connexion</button>
+            </>
           ) : (
             <>
-              <div className="text-center space-y-2">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-4">
-                  <Mail size={28} className="text-primary" />
-                </div>
-                <h1 className="text-2xl font-bold text-foreground">Mot de passe oublié</h1>
-                <p className="text-sm text-muted-foreground">
-                  Saisis ton email et on t'envoie un lien de réinitialisation.
-                </p>
-              </div>
+              <span className="brand">Blyss · Console admin</span>
+              <h1>Mot de passe<br />oublié</h1>
+              <p>Saisis ton email, on t'envoie un lien de réinitialisation.</p>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Adresse email
-                  </label>
+              <form onSubmit={handleSubmit} style={{ marginTop: 34 }}>
+                <label htmlFor="fp-email">Adresse email</label>
+                <div className="field">
                   <input
+                    id="fp-email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="ton@email.fr"
+                    placeholder="admin@blyssapp.fr"
                     required
                     autoComplete="email"
-                    className="w-full h-12 px-4 rounded-xl border-2 border-border bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all"
                   />
                 </div>
-
-                <button
-                  type="submit"
-                  disabled={isSending || !email.trim()}
-                  className="flex items-center justify-center gap-2 w-full h-12 rounded-xl bg-blyss-pink text-white font-semibold text-sm shadow-lg shadow-blyss-pink/30 hover:bg-blyss-pink/90 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <button type="submit" className="btn" disabled={isSending || !email.trim()}>
                   {isSending ? (
                     <>
-                      <Loader2 size={16} className="animate-spin" />
-                      Envoi en cours...
+                      <Loader2 size={15} className="animate-spin" />
+                      Envoi…
                     </>
                   ) : (
-                    <>
-                      <Mail size={16} />
-                      Envoyer le lien
-                    </>
+                    "Envoyer le lien"
                   )}
                 </button>
               </form>
 
-              <button
-                onClick={() => navigate("/login")}
-                className="w-full text-sm text-primary hover:underline font-medium text-center"
-              >
-                Retour à la connexion
-              </button>
+              <button className="btn-ghost" onClick={() => navigate("/login")}>Retour à la connexion</button>
             </>
           )}
         </div>

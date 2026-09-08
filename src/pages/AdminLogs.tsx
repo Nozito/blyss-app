@@ -202,33 +202,28 @@ const AdminLogs = () => {
         }
       />
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-        <div className="bg-card rounded-xl p-4 border-2 border-border">
-          <p className="text-sm text-muted-foreground mb-1">Total</p>
-          <p className="text-2xl font-bold text-foreground">{stats.total}</p>
-        </div>
-        <div className="bg-card rounded-xl p-4 border-2 border-border">
-          <p className="text-sm text-muted-foreground mb-1">Info</p>
-          <p className="text-2xl font-bold text-foreground">{stats.info}</p>
-        </div>
-        <div className="bg-card rounded-xl p-4 border-2 border-border">
-          <p className="text-sm text-muted-foreground mb-1">Succès</p>
-          <p className="text-2xl font-bold text-foreground">{stats.success}</p>
-        </div>
-        <div className="bg-card rounded-xl p-4 border-2 border-border">
-          <p className="text-sm text-muted-foreground mb-1">Attention</p>
-          <p className="text-2xl font-bold text-foreground">{stats.warning}</p>
-        </div>
-        <div className="bg-card rounded-xl p-4 border-2 border-foreground/30">
-          <p className="text-sm text-muted-foreground mb-1">Erreurs</p>
-          <p className="text-2xl font-bold text-foreground">{stats.error}</p>
-        </div>
-      </div>
+      {/* Stats — bandeau éditorial */}
+      <dl className="grid grid-cols-2 divide-x divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] sm:grid-cols-5 sm:divide-y-0">
+        {[
+          { label: "Total", value: stats.total, dot: "" },
+          { label: "Info", value: stats.info, dot: "bg-info" },
+          { label: "Succès", value: stats.success, dot: "bg-success" },
+          { label: "Attention", value: stats.warning, dot: "bg-warning" },
+          { label: "Erreurs", value: stats.error, dot: "bg-destructive" },
+        ].map((s) => (
+          <div key={s.label} className="px-5 py-5">
+            <dd className="admin-display text-[2.4rem] leading-none text-foreground">{s.value}</dd>
+            <dt className="mt-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+              {s.dot && <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />}
+              {s.label}
+            </dt>
+          </div>
+        ))}
+      </dl>
 
       {/* Filtres */}
-      <div className="bg-card rounded-2xl p-6 border-2 border-border">
-        <div className="grid grid-cols-3 gap-4">
+      <div className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="relative">
             <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
             <input
@@ -236,14 +231,14 @@ const AdminLogs = () => {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Rechercher..."
-              className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border bg-muted/40 focus:border-primary focus:bg-card outline-none transition-all"
+              className="w-full pl-12 pr-4 py-3 rounded-xl border border-border bg-muted/40 focus:border-primary focus:bg-card outline-none transition-all"
             />
           </div>
 
           <select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value as "all" | Severity)}
-            className="px-4 py-3 rounded-xl border-2 border-border bg-muted/40 focus:border-primary focus:bg-card outline-none font-semibold"
+            className="px-4 py-3 rounded-xl border border-border bg-muted/40 focus:border-primary focus:bg-card outline-none font-semibold"
           >
             <option value="all">Tous les types</option>
             <option value="info">Info</option>
@@ -255,7 +250,7 @@ const AdminLogs = () => {
           <select
             value={dateFilter}
             onChange={(e) => setDateFilter(e.target.value)}
-            className="px-4 py-3 rounded-xl border-2 border-border bg-muted/40 focus:border-primary focus:bg-card outline-none font-semibold"
+            className="px-4 py-3 rounded-xl border border-border bg-muted/40 focus:border-primary focus:bg-card outline-none font-semibold"
           >
             <option value="today">Aujourd'hui</option>
             <option value="week">Cette semaine</option>

@@ -310,7 +310,7 @@ const AdminProfile = () => {
   const accountTypeLabel = user?.role === "pro" ? "Professionnel" : "Client";
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="space-y-6">
       <PageHeader
         title="Profil"
         description="Gère les informations, la sécurité et les préférences de ton compte administrateur."
@@ -320,7 +320,7 @@ const AdminProfile = () => {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-card rounded-2xl border-2 border-border p-5 sm:p-6"
+        className="bg-card rounded-2xl border border-border p-5 sm:p-6 shadow-[var(--shadow-card)]"
       >
         <div className="flex flex-col sm:flex-row sm:items-center gap-5">
           <div className="relative shrink-0 self-start">
@@ -341,7 +341,7 @@ const AdminProfile = () => {
               onClick={() => avatarInputRef.current?.click()}
               disabled={avatarUploading}
               aria-label="Changer la photo de profil"
-              className="absolute -bottom-1.5 -right-1.5 h-8 w-8 rounded-full bg-foreground text-background flex items-center justify-center border-2 border-card hover:opacity-90 transition-opacity disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="absolute -bottom-1.5 -right-1.5 h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center border-2 border-card hover:opacity-90 transition-opacity disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Camera size={14} aria-hidden="true" />
             </button>
@@ -587,7 +587,7 @@ const AdminProfile = () => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-card rounded-2xl p-5 sm:p-6 border-2 border-border lg:col-span-2"
+          className="bg-card rounded-2xl p-5 sm:p-6 border border-border lg:col-span-2"
         >
           <h2 className="text-lg font-bold text-foreground mb-1 flex items-center gap-2">
             <Activity size={18} className="text-muted-foreground shrink-0" aria-hidden="true" />

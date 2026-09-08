@@ -4,6 +4,8 @@ export interface PageHeaderProps {
   title: string;
   description?: ReactNode;
   actions?: ReactNode;
+  /** @deprecated conservé pour compat d'appel — plus rendu. */
+  eyebrow?: string;
 }
 
 /**
@@ -13,10 +15,12 @@ export interface PageHeaderProps {
  */
 export function PageHeader({ title, description, actions }: PageHeaderProps) {
   return (
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">{title}</h1>
-        {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+        <h1 className="admin-display text-[2.4rem] text-foreground sm:text-[3.2rem]">
+          {title}
+        </h1>
+        {description ? <p className="mt-2 text-sm text-muted-foreground">{description}</p> : null}
       </div>
       {actions ? <div className="flex items-center gap-2 shrink-0">{actions}</div> : null}
     </div>

@@ -61,9 +61,9 @@ const fmt = (d: string | null) =>
 
 function StatusPill({ status }: { status: OnboardingData["status"] }) {
   const map = {
-    completed: { icon: CheckCircle2, text: "Complété", cls: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" },
-    skipped: { icon: SkipForward, text: "Passé", cls: "bg-amber-500/10 text-amber-600 border-amber-500/20" },
-    in_progress: { icon: Circle, text: "En cours", cls: "bg-blue-500/10 text-blue-600 border-blue-500/20" },
+    completed: { icon: CheckCircle2, text: "Complété", cls: "bg-success/15 text-success border-success/30" },
+    skipped: { icon: SkipForward, text: "Passé", cls: "bg-warning/15 text-warning border-warning/30" },
+    in_progress: { icon: Circle, text: "En cours", cls: "bg-info/15 text-info border-info/30" },
     not_started: { icon: Circle, text: "Pas commencé", cls: "bg-muted text-muted-foreground border-border" },
   }[status];
   const Icon = map.icon;
