@@ -336,7 +336,7 @@ const AdminUsers = () => {
       />
 
       {/* Filters & Search */}
-      <div className="bg-card rounded-2xl border border-border p-4">
+      <div className="bg-card rounded-2xl border border-border p-4 shadow-[var(--shadow-card)]">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1 relative group">
             <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/60 group-hover:text-muted-foreground transition-colors" aria-hidden="true" />

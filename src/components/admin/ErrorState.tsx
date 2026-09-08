@@ -11,8 +11,8 @@ export interface ErrorStateProps {
 export function ErrorState({ title = "Une erreur est survenue", description, onRetry }: ErrorStateProps) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-foreground/30 bg-muted/40">
-        <AlertTriangle size={20} className="text-foreground" aria-hidden="true" />
+      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-destructive/30 bg-destructive/10">
+        <AlertTriangle size={20} className="text-destructive" aria-hidden="true" />
       </div>
       <div>
         <p className="text-sm font-semibold text-foreground">{title}</p>

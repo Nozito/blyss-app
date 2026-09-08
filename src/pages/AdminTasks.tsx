@@ -365,7 +365,7 @@ const AdminTasks = () => {
       </div>
 
       {/* Barre d'outils */}
-      <div className="flex flex-wrap items-center gap-3 bg-card rounded-2xl border border-border p-4">
+      <div className="flex flex-wrap items-center gap-3 bg-card rounded-2xl border border-border p-4 shadow-[var(--shadow-card)]">
         <div className="relative flex-1 min-w-[200px]">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input

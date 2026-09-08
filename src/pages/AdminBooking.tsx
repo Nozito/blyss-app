@@ -373,7 +373,7 @@ const AdminBookings = () => {
       />
 
       {/* Filters & Search */}
-      <div className="bg-card rounded-2xl border border-border p-4">
+      <div className="bg-card rounded-2xl border border-border p-4 shadow-[var(--shadow-card)]">
         <div className="flex flex-col sm:flex-row gap-4">
           {/* Search */}
           <div className="flex-1 relative">
@@ -433,7 +433,7 @@ const AdminBookings = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.05 }}
-            className="bg-card rounded-2xl border border-border p-4 hover:border-primary/20 transition-all"
+            className="bg-card rounded-2xl border border-border p-4 shadow-[var(--shadow-card)] hover:border-primary/20 transition-all"
           >
             <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">{stat.label}</p>
             <p className="text-3xl font-black text-foreground">{stat.value}</p>
