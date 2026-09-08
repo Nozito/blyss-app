@@ -66,70 +66,24 @@
   }
 
   /* ────────────────────────────────────────────────────────────────
-     Backoffice Admin — DA "Rupture" à contraste.
-     Base papier chaud (crème rosé, texte quasi-noir prune) qui alterne
-     avec des bandeaux "nuit prune" (.admin-dusk) : c'est le choc entre les
-     deux qui porte la marque. Rose #fe5d9d en accent, titres Instrument
-     Serif italique. Scopée à `.admin-theme` : login (:root) intact.
+     Backoffice Admin — la DA de l'app d'abord (tokens :root inchangés :
+     blanc / gris / rose Blyss, radius 1rem, ombres douces). Par-dessus,
+     une COUCHE "Rupture" purement additive : titres Instrument Serif
+     (.admin-display), ruban de marque (.admin-ribbon), et un seul accent
+     fort — le bandeau "nuit prune" (.admin-dusk) réservé aux heros.
+     Aucune couleur de base n'est remplacée ici.
      ──────────────────────────────────────────────────────────────── */
   .admin-theme {
-    /* Papier chaud — #f8f0ea */
-    --background: 26 42% 95%;
-    --foreground: 330 26% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 330 26% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 330 26% 11%;
-
-    /* CTA = rose de marque, densifié pour le fond clair */
-    --primary: 336 88% 57%;
-    --primary-foreground: 0 0% 100%;
-
-    /* Accent secondaire = terre / or Blyss */
-    --secondary: 28 46% 48%;
-    --secondary-foreground: 0 0% 100%;
-
-    --muted: 24 30% 91%;
-    --muted-foreground: 330 8% 40%;
-    --accent: 336 78% 95%;
-    --accent-foreground: 336 62% 34%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 26 22% 87%;
-    --input: 26 22% 87%;
-    --ring: 336 88% 57%;
-    --radius: 1rem;
-
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 330 26% 11%;
-    --sidebar-accent: 336 78% 95%;
-    --sidebar-accent-foreground: 336 62% 34%;
-    --sidebar-border: 26 22% 87%;
-    --sidebar-ring: 336 88% 57%;
-
-    /* États sémantiques — mode clair */
-    --success: 152 55% 38%;
-    --success-foreground: 0 0% 100%;
-    --warning: 35 92% 44%;
-    --warning-foreground: 0 0% 100%;
-    --info: 238 66% 58%;
-    --info-foreground: 0 0% 100%;
-
-    /* Ombres — douces, halo rose discret */
-    --shadow-soft: 0 26px 64px -26px hsl(336 88% 55% / 0.3);
-    --shadow-card: 0 14px 34px -16px hsl(330 30% 24% / 0.16);
-    --shadow-elevated: 0 32px 74px -30px hsl(330 30% 24% / 0.22);
-
-    color-scheme: light;
-    background-color: hsl(26 42% 95%);
+    /* Voile blush quasi-imperceptible en haut — la seule touche d'ambiance. */
     background-image:
-      radial-gradient(ellipse 60% 45% at 8% -8%, hsl(336 90% 84% / 0.55), transparent 58%),
-      radial-gradient(ellipse 50% 40% at 104% 4%, hsl(28 70% 78% / 0.4), transparent 55%);
+      radial-gradient(ellipse 55% 40% at 6% -10%, hsl(336 99% 92% / 0.5), transparent 60%),
+      radial-gradient(ellipse 45% 35% at 102% -4%, hsl(32 70% 90% / 0.4), transparent 58%);
     background-attachment: fixed;
   }
 
-  /* Bandeau "nuit prune" — le contraste. Redéfinit les tokens localement,
-     donc les composants enfants (text-foreground, border-border, …) suivent. */
+  /* Bandeau "nuit prune" — le seul contraste fort, réservé aux heros.
+     Redéfinit les tokens LOCALEMENT : les composants enfants
+     (text-foreground, border-border, text-success…) suivent sans hack. */
   .admin-dusk {
     --foreground: 340 24% 96%;
     --card-foreground: 340 24% 96%;
@@ -187,16 +141,9 @@
     padding-bottom: max(env(safe-area-inset-bottom), 1.5rem);
   }
 
-  /* ── DA Rupture — admin ─────────────────────────────────────────── */
-  .admin-theme,
-  .admin-theme h1,
-  .admin-theme h2,
-  .admin-theme h3,
-  .admin-theme h4,
-  .admin-theme h5,
-  .admin-theme h6 {
-    font-family: "Plus Jakarta Sans", "Helvetica Neue", -apple-system, BlinkMacSystemFont, sans-serif;
-  }
+  /* ── Couche Rupture — admin (additive, ne remplace rien) ────────── */
+  /* Le corps garde la police de l'app (Helvetica Neue). Seul le display
+     bascule en serif, via .admin-display. */
 
   /* Titre "affiche" — Instrument Serif italique, comme les display du site. */
   .admin-display {

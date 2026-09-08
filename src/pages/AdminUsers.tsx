@@ -375,7 +375,7 @@ const AdminUsers = () => {
       <motion.dl
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        className="admin-dusk grid grid-cols-2 divide-x divide-y divide-border overflow-hidden rounded-2xl border shadow-[var(--shadow-soft)] sm:grid-cols-4 sm:divide-y-0"
+        className="grid grid-cols-2 divide-x divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] sm:grid-cols-4 sm:divide-y-0"
       >
         {[
           { label: 'Total', value: users.length },

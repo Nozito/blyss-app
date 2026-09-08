@@ -317,11 +317,11 @@ const AdminProfile = () => {
         description="Gère les informations, la sécurité et les préférences de ton compte administrateur."
       />
 
-      {/* Vue d'ensemble — nuit prune */}
+      {/* Vue d'ensemble */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="admin-dusk rounded-2xl border p-6 sm:p-8 shadow-[var(--shadow-soft)]"
+        className="bg-card rounded-2xl border border-border p-5 sm:p-6 shadow-[var(--shadow-card)]"
       >
         <div className="flex flex-col sm:flex-row sm:items-center gap-5">
           <div className="relative shrink-0 self-start">

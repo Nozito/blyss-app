@@ -203,8 +203,8 @@ const AdminLogs = () => {
         }
       />
 
-      {/* Stats — bandeau nuit prune */}
-      <dl className="admin-dusk grid grid-cols-2 divide-x divide-y divide-border overflow-hidden rounded-2xl border shadow-[var(--shadow-soft)] sm:grid-cols-5 sm:divide-y-0">
+      {/* Stats — bandeau éditorial */}
+      <dl className="grid grid-cols-2 divide-x divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] sm:grid-cols-5 sm:divide-y-0">
         {[
           { label: "Total", value: stats.total, dot: "" },
           { label: "Info", value: stats.info, dot: "bg-info" },

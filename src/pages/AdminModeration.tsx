@@ -115,8 +115,8 @@ const AdminModeration = () => {
         description="Avis et conversations signalés par les utilisateurs — rien ici n'est scanné proactivement."
       />
 
-      {/* KPI rapide — bandeau nuit prune */}
-      <div className="admin-dusk grid grid-cols-1 divide-y divide-border overflow-hidden rounded-2xl border shadow-[var(--shadow-soft)] sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+      {/* KPI rapide — bandeau éditorial */}
+      <div className="grid grid-cols-1 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] sm:grid-cols-2 sm:divide-x sm:divide-y-0">
         {[
           { icon: Star, label: "Avis signalés", value: domain === "reviews" ? total : "—" },
           { icon: MessageSquare, label: "Conversations signalées", value: domain === "messages" ? total : "—" },

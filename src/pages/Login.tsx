@@ -240,20 +240,16 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
   return (
     <div className="mercury-wrapper" ref={ref}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;800&family=Instrument+Serif:ital@0;1&family=Space+Mono&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;800&family=Space+Mono&display=swap');
 
         .mercury-wrapper {
-          --bg: #140a10;
-          --mercury: #fe5d9d;
+          --bg: #050505;
+          --mercury: #e0e0e0;
           --accent: #ffffff;
           --text-dim: rgba(255, 255, 255, 0.5);
           --filter-goo: url('#gooey');
 
           background-color: var(--bg);
-          background-image:
-            radial-gradient(ellipse 80% 60% at 15% -10%, rgba(254, 93, 157, 0.28), transparent 60%),
-            radial-gradient(ellipse 70% 50% at 110% 10%, rgba(219, 169, 112, 0.14), transparent 55%),
-            linear-gradient(180deg, #1c0e17 0%, #140a10 45%, #0f0810 100%);
           color: var(--accent);
           font-family: 'Inter', sans-serif;
           min-height: 100vh;
@@ -281,12 +277,12 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
 
         .mercury-wrapper .blob {
           position: absolute;
-          background: linear-gradient(135deg, #fe5d9d, #8e315c);
+          background: linear-gradient(135deg, var(--mercury), #888);
           border-radius: 50%;
           filter: blur(20px);
           animation: mercuryFloat 20s infinite alternate ease-in-out;
           box-shadow: inset -10px -10px 20px rgba(0,0,0,0.5),
-                      10px 10px 30px rgba(254,93,157,0.25);
+                      10px 10px 30px rgba(255,255,255,0.2);
           transition: margin 0.1s ease-out;
         }
 
@@ -321,13 +317,11 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
         }
 
         .mercury-wrapper .header h1 {
-          font-family: 'Instrument Serif', 'Times New Roman', Georgia, serif;
-          font-style: italic;
-          font-weight: 400;
-          font-size: 3.6rem;
-          line-height: 0.92;
-          letter-spacing: -1px;
-          margin-left: -2px;
+          font-weight: 800;
+          font-size: 3rem;
+          line-height: 0.9;
+          letter-spacing: -2px;
+          margin-left: -4px;
           margin-top: 0;
         }
 
