@@ -326,6 +326,7 @@ const AdminBookings = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        eyebrow="Backoffice · Gestion"
         title="Réservations"
         description={`${filteredBookings.length} réservation${filteredBookings.length > 1 ? 's' : ''}${
           statusFilter !== 'all' ? ` · ${statusConfig[statusFilter].label}` : ''

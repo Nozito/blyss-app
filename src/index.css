@@ -66,71 +66,89 @@
   }
 
   /* ────────────────────────────────────────────────────────────────
-     Backoffice Admin — DA "Rupture", reprise intégrale de Blyss_Website :
-     nuit prune (--blyss-dusk), rose de marque #fe5d9d en accent franc,
-     titres display en Instrument Serif italique, halo blush, ombres douces
-     et profondes. Scopée à `.admin-theme` : ne touche ni au login (:root)
-     ni au profil public.
+     Backoffice Admin — DA "Rupture" à contraste.
+     Base papier chaud (crème rosé, texte quasi-noir prune) qui alterne
+     avec des bandeaux "nuit prune" (.admin-dusk) : c'est le choc entre les
+     deux qui porte la marque. Rose #fe5d9d en accent, titres Instrument
+     Serif italique. Scopée à `.admin-theme` : login (:root) intact.
      ──────────────────────────────────────────────────────────────── */
   .admin-theme {
-    /* Nuit prune — #150a11 → surfaces #241019 (≈ --blyss-dusk du site) */
-    --background: 330 32% 6%;
-    --foreground: 340 24% 96%;
-    --card: 330 30% 11%;
-    --card-foreground: 340 24% 96%;
-    --popover: 330 30% 9%;
-    --popover-foreground: 340 24% 96%;
+    /* Papier chaud — #f8f0ea */
+    --background: 26 42% 95%;
+    --foreground: 330 26% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 330 26% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 330 26% 11%;
 
-    /* CTA = rose de marque (#fe5d9d) */
-    --primary: 336 98% 68%;
+    /* CTA = rose de marque, densifié pour le fond clair */
+    --primary: 336 88% 57%;
     --primary-foreground: 0 0% 100%;
 
-    /* Accent secondaire = or Blyss (#dba970) */
-    --secondary: 32 58% 62%;
-    --secondary-foreground: 330 40% 8%;
+    /* Accent secondaire = terre / or Blyss */
+    --secondary: 28 46% 48%;
+    --secondary-foreground: 0 0% 100%;
 
-    --muted: 330 20% 15%;
-    --muted-foreground: 330 14% 68%;
-    --accent: 336 48% 20%;
-    --accent-foreground: 340 24% 96%;
-    --destructive: 0 72% 56%;
+    --muted: 24 30% 91%;
+    --muted-foreground: 330 8% 40%;
+    --accent: 336 78% 95%;
+    --accent-foreground: 336 62% 34%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 330 20% 17%;
-    --input: 330 20% 17%;
-    --ring: 336 98% 68%;
+    --border: 26 22% 87%;
+    --input: 26 22% 87%;
+    --ring: 336 88% 57%;
     --radius: 1rem;
 
-    --sidebar-background: 330 30% 9%;
-    --sidebar-foreground: 340 24% 96%;
-    --sidebar-accent: 336 48% 20%;
-    --sidebar-accent-foreground: 340 24% 96%;
-    --sidebar-border: 330 20% 17%;
-    --sidebar-ring: 336 98% 68%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 330 26% 11%;
+    --sidebar-accent: 336 78% 95%;
+    --sidebar-accent-foreground: 336 62% 34%;
+    --sidebar-border: 26 22% 87%;
+    --sidebar-ring: 336 88% 57%;
 
-    /* États sémantiques — teintés, lisibles sur nuit prune */
-    --success: 152 58% 52%;
-    --success-foreground: 152 65% 12%;
-    --warning: 38 92% 60%;
-    --warning-foreground: 32 90% 12%;
-    --info: 276 70% 74%;
-    --info-foreground: 276 55% 14%;
+    /* États sémantiques — mode clair */
+    --success: 152 55% 38%;
+    --success-foreground: 0 0% 100%;
+    --warning: 35 92% 44%;
+    --warning-foreground: 0 0% 100%;
+    --info: 238 66% 58%;
+    --info-foreground: 0 0% 100%;
 
-    /* Ombres — douces et profondes, halo rose (repris du site) */
-    --shadow-soft: 0 30px 80px -30px hsl(336 98% 58% / 0.38);
-    --shadow-card: 0 18px 50px -22px hsl(330 60% 3% / 0.6);
-    --shadow-elevated: 0 40px 100px -34px hsl(336 98% 58% / 0.3);
+    /* Ombres — douces, halo rose discret */
+    --shadow-soft: 0 26px 64px -26px hsl(336 88% 55% / 0.3);
+    --shadow-card: 0 14px 34px -16px hsl(330 30% 24% / 0.16);
+    --shadow-elevated: 0 32px 74px -30px hsl(330 30% 24% / 0.22);
 
-    color-scheme: dark;
-    background-color: hsl(330 34% 4%);
+    color-scheme: light;
+    background-color: hsl(26 42% 95%);
+    background-image:
+      radial-gradient(ellipse 60% 45% at 8% -8%, hsl(336 90% 84% / 0.55), transparent 58%),
+      radial-gradient(ellipse 50% 40% at 104% 4%, hsl(28 70% 78% / 0.4), transparent 55%);
+    background-attachment: fixed;
   }
 
-  /* Fond signature : dégradé nuit + halo blush, fixe derrière le contenu. */
-  .admin-theme {
+  /* Bandeau "nuit prune" — le contraste. Redéfinit les tokens localement,
+     donc les composants enfants (text-foreground, border-border, …) suivent. */
+  .admin-dusk {
+    --foreground: 340 24% 96%;
+    --card-foreground: 340 24% 96%;
+    --muted-foreground: 330 16% 72%;
+    --border: 330 22% 22%;
+    --accent: 336 46% 22%;
+    --accent-foreground: 340 24% 96%;
+    --primary: 336 98% 70%;
+    --success: 152 60% 56%;
+    --warning: 38 92% 64%;
+    --info: 266 78% 78%;
+    --destructive: 0 78% 64%;
+    color: hsl(var(--foreground));
+    background-color: hsl(330 34% 7%);
     background-image:
-      radial-gradient(ellipse 80% 60% at 15% -10%, hsl(336 90% 45% / 0.22), transparent 60%),
-      radial-gradient(ellipse 70% 50% at 110% 10%, hsl(32 60% 55% / 0.12), transparent 55%),
-      linear-gradient(180deg, hsl(330 40% 8%) 0%, hsl(330 34% 5%) 40%, hsl(330 30% 4%) 100%);
-    background-attachment: fixed;
+      radial-gradient(ellipse 72% 90% at 90% -25%, hsl(336 92% 52% / 0.42), transparent 62%),
+      radial-gradient(ellipse 60% 80% at -8% 125%, hsl(28 62% 50% / 0.16), transparent 60%),
+      linear-gradient(150deg, hsl(330 40% 11%), hsl(330 34% 6%));
+    border-color: hsl(330 22% 22%);
   }
 }
 

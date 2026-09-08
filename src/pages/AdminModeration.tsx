@@ -111,6 +111,7 @@ const AdminModeration = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        eyebrow="Backoffice · Gestion"
         title="Modération"
         description="Avis et conversations signalés par les utilisateurs — rien ici n'est scanné proactivement."
       />

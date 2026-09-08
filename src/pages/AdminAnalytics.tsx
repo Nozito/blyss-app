@@ -313,6 +313,7 @@ const AdminAnalytics = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        eyebrow="Backoffice · Pilotage"
         title="Finances"
         description={
           tab === "overview"
@@ -545,17 +546,12 @@ const AdminAnalytics = () => {
         </div>
       ) : (
         <>
-          {/* Bandeau métrique phare — revenus */}
+          {/* Bandeau métrique phare — revenus (nuit prune) */}
           <motion.section
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            className="relative overflow-hidden rounded-[1.5rem] border border-border bg-card p-6 shadow-[var(--shadow-card)] sm:p-8"
+            className="admin-dusk relative overflow-hidden rounded-[1.5rem] border p-6 shadow-[var(--shadow-soft)] sm:p-9"
           >
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute -right-10 -top-16 h-64 w-64 rounded-full opacity-70 blur-3xl"
-              style={{ background: "radial-gradient(circle, hsl(336 90% 55% / 0.35), transparent 70%)" }}
-            />
             <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">

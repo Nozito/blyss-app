@@ -294,6 +294,7 @@ const AdminUsers = () => {
     <div className="space-y-6">
       {/* Header */}
       <PageHeader
+        eyebrow="Backoffice · Gestion"
         title="Utilisateurs"
         description={`${filteredUsers.length} utilisateur${filteredUsers.length > 1 ? 's' : ''}${
           roleFilter !== 'all' ? ` · ${roleFilter === 'pro' ? 'Professionnels' : 'Clients'}` : ''

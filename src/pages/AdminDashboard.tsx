@@ -265,13 +265,8 @@ const AdminDashboard = () => {
         />
       </header>
 
-      {/* ── Bandeau métrique phare : CA du mois ─────────────────────────── */}
-      <section className="relative overflow-hidden rounded-[1.5rem] border border-border bg-card p-6 shadow-[var(--shadow-card)] sm:p-8">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -right-10 -top-16 h-64 w-64 rounded-full opacity-70 blur-3xl"
-          style={{ background: "radial-gradient(circle, hsl(336 90% 55% / 0.35), transparent 70%)" }}
-        />
+      {/* ── Bandeau métrique phare : CA du mois — nuit prune (le choc) ──── */}
+      <section className="admin-dusk relative overflow-hidden rounded-[1.5rem] border p-6 shadow-[var(--shadow-soft)] sm:p-9">
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">

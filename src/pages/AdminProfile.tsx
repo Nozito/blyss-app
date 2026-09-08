@@ -312,6 +312,7 @@ const AdminProfile = () => {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <PageHeader
+        eyebrow="Backoffice · Compte"
         title="Profil"
         description="Gère les informations, la sécurité et les préférences de ton compte administrateur."
       />

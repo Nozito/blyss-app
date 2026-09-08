@@ -302,7 +302,8 @@ const AdminTasks = () => {
   if (loadError) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Planning admin" description="Activité et tâches de l'équipe backoffice." />
+        <PageHeader eyebrow="Backoffice · Système"
+        title="Planning admin" description="Activité et tâches de l'équipe backoffice." />
         <ErrorState title="Impossible de charger le planning" onRetry={() => fetchTasks()} />
       </div>
     );
@@ -311,6 +312,7 @@ const AdminTasks = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        eyebrow="Backoffice · Système"
         title="Planning admin"
         description={`${filteredTasks.length} élément${filteredTasks.length > 1 ? "s" : ""} actif${filteredTasks.length > 1 ? "s" : ""}${filtersActive ? " · filtré" : ""} — visibles par toute l'équipe`}
         actions={
