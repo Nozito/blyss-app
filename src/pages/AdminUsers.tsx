@@ -32,6 +32,7 @@ import { toast } from "sonner";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import AdminAccessDialog from "@/components/admin/AdminAccessDialog";
 import ClientOnboardingDialog from "@/components/admin/ClientOnboardingDialog";
+import UserDetailDialog from "@/components/admin/UserDetailDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -87,6 +88,7 @@ const AdminUsers = () => {
     setSearchParams(p, { replace: true });
   }, [setSearchParams]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [detailUserId, setDetailUserId] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [onboardingClient, setOnboardingClient] = useState<User | null>(null);
@@ -418,7 +420,11 @@ const AdminUsers = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: Math.min(index, 20) * 0.02 }}
-            className="flex h-full flex-col bg-card rounded-2xl border border-border hover:border-foreground/20 transition-colors duration-200 group overflow-hidden"
+            onClick={() => setDetailUserId(user.id)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter") setDetailUserId(user.id); }}
+            className="flex h-full cursor-pointer flex-col bg-card rounded-2xl border border-border hover:border-foreground/20 transition-colors duration-200 group overflow-hidden"
           >
 
             {/* Header Compact */}
@@ -888,6 +894,12 @@ const AdminUsers = () => {
       </AlertDialog>
 
       <AdminAccessDialog open={accessDialogOpen} onOpenChange={setAccessDialogOpen} />
+
+      <UserDetailDialog
+        userId={detailUserId}
+        open={detailUserId != null}
+        onOpenChange={(v) => { if (!v) setDetailUserId(null); }}
+      />
 
       <ClientOnboardingDialog
         clientId={onboardingClient?.id ?? null}
