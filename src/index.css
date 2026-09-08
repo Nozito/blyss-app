@@ -66,43 +66,78 @@
   }
 
   /* ────────────────────────────────────────────────────────────────
-     Backoffice Admin — la DA de l'app d'abord (tokens :root inchangés :
-     blanc / gris / rose Blyss, radius 1rem, ombres douces). Par-dessus,
-     une COUCHE "Rupture" purement additive : titres Instrument Serif
-     (.admin-display), ruban de marque (.admin-ribbon), et un seul accent
-     fort — le bandeau "nuit prune" (.admin-dusk) réservé aux heros.
-     Aucune couleur de base n'est remplacée ici.
+     Backoffice Admin — DA "poster editorial / choc" (reprise du tunnel
+     d'onboarding client) : fond nuit prune quasi-noir, encres pleines
+     rose × prune, titres SF Pro Black CAPITALES à chasse serrée, ruban
+     rayé. Aucune fioriture serif. Scopée à `.admin-theme`.
      ──────────────────────────────────────────────────────────────── */
   .admin-theme {
-    /* Voile blush quasi-imperceptible en haut — la seule touche d'ambiance. */
+    --background: 330 34% 5%;
+    --foreground: 340 30% 95%;
+    --card: 330 24% 9%;
+    --card-foreground: 340 30% 95%;
+    --popover: 330 26% 8%;
+    --popover-foreground: 340 30% 95%;
+
+    --primary: 336 98% 68%;
+    --primary-foreground: 330 60% 8%;
+
+    --secondary: 32 52% 60%;
+    --secondary-foreground: 330 60% 8%;
+
+    --muted: 330 18% 14%;
+    --muted-foreground: 330 12% 64%;
+    --accent: 336 42% 18%;
+    --accent-foreground: 340 30% 95%;
+    --destructive: 0 78% 62%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 330 18% 16%;
+    --input: 330 18% 16%;
+    --ring: 336 98% 68%;
+    --radius: 0.9rem;
+
+    --sidebar-background: 330 26% 8%;
+    --sidebar-foreground: 340 30% 95%;
+    --sidebar-accent: 336 42% 18%;
+    --sidebar-accent-foreground: 340 30% 95%;
+    --sidebar-border: 330 18% 16%;
+    --sidebar-ring: 336 98% 68%;
+
+    --success: 152 58% 54%;
+    --success-foreground: 152 60% 10%;
+    --warning: 38 92% 62%;
+    --warning-foreground: 32 90% 10%;
+    --info: 266 76% 76%;
+    --info-foreground: 266 50% 12%;
+
+    --shadow-soft: 0 30px 80px -30px hsl(336 98% 55% / 0.36);
+    --shadow-card: 0 18px 46px -22px hsl(330 60% 2% / 0.7);
+    --shadow-elevated: 0 40px 100px -34px hsl(336 98% 55% / 0.28);
+
+    color-scheme: dark;
+    background-color: hsl(330 36% 4%);
     background-image:
-      radial-gradient(ellipse 55% 40% at 6% -10%, hsl(336 99% 92% / 0.5), transparent 60%),
-      radial-gradient(ellipse 45% 35% at 102% -4%, hsl(32 70% 90% / 0.4), transparent 58%);
+      radial-gradient(ellipse 70% 44% at 6% -8%, hsl(336 90% 42% / 0.24), transparent 60%),
+      radial-gradient(ellipse 55% 40% at 104% 2%, hsl(28 58% 44% / 0.12), transparent 56%),
+      linear-gradient(180deg, hsl(330 38% 7%) 0%, hsl(330 34% 4%) 55%, hsl(330 32% 3%) 100%);
     background-attachment: fixed;
   }
 
-  /* Bandeau "nuit prune" — le seul contraste fort, réservé aux heros.
-     Redéfinit les tokens LOCALEMENT : les composants enfants
-     (text-foreground, border-border, text-success…) suivent sans hack. */
+  /* Encre pleine rose — bloc "affiche" pour les heros (chiffre géant sur aplat).
+     Tout le texte du bloc bascule en encre sombre. */
+  .admin-field-rose {
+    background-color: hsl(var(--primary));
+    border-color: transparent;
+  }
+  .admin-field-rose,
+  .admin-field-rose * { color: hsl(330 62% 9%) !important; }
+
+  /* Panneau plus sombre — remplace l'ancien bandeau "nuit prune" maintenant
+     que tout le thème est sombre. */
   .admin-dusk {
-    --foreground: 340 24% 96%;
-    --card-foreground: 340 24% 96%;
-    --muted-foreground: 330 16% 72%;
-    --border: 330 22% 22%;
-    --accent: 336 46% 22%;
-    --accent-foreground: 340 24% 96%;
-    --primary: 336 98% 70%;
-    --success: 152 60% 56%;
-    --warning: 38 92% 64%;
-    --info: 266 78% 78%;
-    --destructive: 0 78% 64%;
-    color: hsl(var(--foreground));
-    background-color: hsl(330 34% 7%);
-    background-image:
-      radial-gradient(ellipse 72% 90% at 90% -25%, hsl(336 92% 52% / 0.42), transparent 62%),
-      radial-gradient(ellipse 60% 80% at -8% 125%, hsl(28 62% 50% / 0.16), transparent 60%),
-      linear-gradient(150deg, hsl(330 40% 11%), hsl(330 34% 6%));
-    border-color: hsl(330 22% 22%);
+    background-color: hsl(330 28% 7%);
+    border-color: hsl(330 18% 15%);
+    background-image: none;
   }
 }
 
@@ -141,17 +176,18 @@
     padding-bottom: max(env(safe-area-inset-bottom), 1.5rem);
   }
 
-  /* ── Couche Rupture — admin (additive, ne remplace rien) ────────── */
-  /* Le corps garde la police de l'app (Helvetica Neue). Seul le display
-     bascule en serif, via .admin-display. */
+  /* ── DA "choc" — admin ─────────────────────────────────────────── */
 
-  /* Titre "affiche" — Instrument Serif italique, comme les display du site. */
+  /* Titre "affiche" — SF Pro Black (système), CAPITALES, chasse serrée.
+     Repris tel quel du tunnel d'onboarding client. Zéro serif. */
   .admin-display {
-    font-family: "Instrument Serif", "Times New Roman", Georgia, serif;
-    font-style: italic;
-    font-weight: 400;
-    letter-spacing: -0.01em;
-    line-height: 1.02;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
+      "Helvetica Neue", "Arial Black", "Archivo", sans-serif;
+    font-weight: 900;
+    font-style: normal;
+    text-transform: uppercase;
+    letter-spacing: -0.035em;
+    line-height: 0.92;
   }
 
   /* Ruban rayé rose × prune — accent de marque (barre fine, statique). */

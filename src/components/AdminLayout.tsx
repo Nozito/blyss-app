@@ -145,7 +145,7 @@ const AdminLayout = () => {
           initial={reduceMotion ? false : { opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
-          className="mx-auto max-w-[1200px] p-4 sm:p-6"
+          className="w-full px-4 py-5 sm:px-8 sm:py-8 lg:px-12"
         >
           {/* Suspense propre au backoffice : sans lui, changer de page admin
               (chaque page est lazy-loadée) remonte jusqu'au Suspense racine

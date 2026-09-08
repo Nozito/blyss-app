@@ -546,31 +546,31 @@ const AdminAnalytics = () => {
         </div>
       ) : (
         <>
-          {/* Bandeau métrique phare — revenus (nuit prune) */}
+          {/* Métrique phare — revenus, aplat rose plein largeur */}
           <motion.section
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            className="admin-dusk relative overflow-hidden rounded-[1.5rem] border p-6 shadow-[var(--shadow-soft)] sm:p-9"
+            className="admin-field-rose relative overflow-hidden rounded-[1.25rem] p-7 sm:p-10"
           >
             <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                  <DollarSign size={13} className="text-primary" /> Revenus encaissés
+                <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em]">
+                  <DollarSign size={13} /> Revenus encaissés
                 </p>
-                <p className="admin-display mt-2 text-[3.4rem] leading-none text-foreground sm:text-[4.6rem]">
+                <p className="admin-display mt-3 text-[4rem] leading-[0.85] sm:text-[6rem]">
                   {paymentStats.totalRevenue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })}
-                  <span className="ml-2 align-top text-[1.6rem] text-muted-foreground">€</span>
+                  <span className="ml-2 align-top text-[1.8rem]">€</span>
                 </p>
               </div>
-              <dl className="grid grid-cols-3 gap-x-6 gap-y-1 text-right">
+              <dl className="grid grid-cols-3 gap-x-8 gap-y-1 text-right">
                 {[
                   { k: "Frais", v: `${paymentStats.totalFees.toFixed(0)} €` },
                   { k: "Revenu net", v: `${paymentStats.netRevenue.toFixed(0)} €` },
                   { k: "En attente", v: paymentStats.pendingCount },
                 ].map((s) => (
                   <div key={s.k}>
-                    <dd className="text-xl font-black text-foreground">{s.v}</dd>
-                    <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{s.k}</dt>
+                    <dd className="admin-display text-[1.8rem] leading-none">{s.v}</dd>
+                    <dt className="mt-1 text-[10px] font-black uppercase tracking-[0.12em]">{s.k}</dt>
                   </div>
                 ))}
               </dl>

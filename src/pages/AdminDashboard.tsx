@@ -23,6 +23,7 @@ import { ActivityTimeline } from "@/components/admin/ActivityTimeline";
 import { LastUpdatedIndicator } from "@/components/admin/LastUpdatedIndicator";
 import { ErrorState } from "@/components/admin/ErrorState";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
@@ -87,6 +88,7 @@ const bookingStatusRows: { key: string; label: string }[] = [
 ];
 
 const AdminDashboard = () => {
+  const { user } = useAuth();
   const {
     data,
     isLoading: loading,
@@ -244,19 +246,19 @@ const AdminDashboard = () => {
   const now = new Date();
   const greeting = now.getHours() < 6 ? "Bonne nuit" : now.getHours() < 18 ? "Bonjour" : "Bonsoir";
   const monthChange = changes.revenue;
+  const adminName = (user?.first_name ?? "").trim();
 
   return (
     <div className="space-y-8">
-      {/* ── Hero éditorial ──────────────────────────────────────────────── */}
+      {/* ── Hero ────────────────────────────────────────────────────────── */}
       <header className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
             {now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
           </p>
-          <h1 className="admin-display mt-1 text-[2.6rem] leading-[1.05] text-foreground sm:text-[3.4rem]">
-            {greeting}.
+          <h1 className="admin-display mt-2 text-[2.9rem] text-foreground sm:text-[4.2rem]">
+            {greeting}{adminName ? `, ${adminName}` : ""}.
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">Pilotage Blyss — 30 derniers jours.</p>
         </div>
         <LastUpdatedIndicator
           updatedAt={dataUpdatedAt || null}
@@ -265,38 +267,34 @@ const AdminDashboard = () => {
         />
       </header>
 
-      {/* ── Bandeau métrique phare : CA du mois — nuit prune (le choc) ──── */}
-      <section className="admin-dusk relative overflow-hidden rounded-[1.5rem] border p-6 shadow-[var(--shadow-soft)] sm:p-9">
+      {/* ── Métrique phare : CA du mois — aplat rose plein largeur ──────── */}
+      <section className="admin-field-rose relative overflow-hidden rounded-[1.25rem] p-7 sm:p-10">
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
-              <DollarSign size={13} className="text-primary" /> Chiffre d'affaires du mois
+            <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em]">
+              <DollarSign size={13} /> Chiffre d'affaires du mois
             </p>
-            <p className="admin-display mt-2 text-[3.4rem] leading-none text-foreground sm:text-[4.6rem]">
+            <p className="admin-display mt-3 text-[4rem] leading-[0.85] sm:text-[6rem]">
               {(stats?.monthRevenue ?? 0).toLocaleString("fr-FR")}
-              <span className="ml-2 align-top text-[1.6rem] text-muted-foreground">€</span>
+              <span className="ml-2 align-top text-[1.8rem]">€</span>
             </p>
             {monthChange != null && (
-              <p
-                className={`mt-2 inline-flex items-center gap-1.5 text-sm font-semibold ${
-                  monthChange >= 0 ? "text-success" : "text-destructive"
-                }`}
-              >
+              <p className="mt-3 inline-flex items-center gap-1.5 text-sm font-black">
                 {monthChange >= 0 ? <TrendingUp size={14} /> : <TrendingUp size={14} className="rotate-180" />}
                 {monthChange > 0 ? "+" : ""}
                 {monthChange}% vs mois dernier
               </p>
             )}
           </div>
-          <dl className="grid grid-cols-3 gap-x-6 gap-y-1 text-right">
+          <dl className="grid grid-cols-3 gap-x-8 gap-y-1 text-right">
             {[
               { k: "Total encaissé", v: `${(stats?.totalRevenue ?? 0).toLocaleString("fr-FR")} €` },
               { k: "RDV aujourd'hui", v: stats?.todayBookings ?? 0 },
               { k: "Réservations", v: stats?.totalBookings ?? 0 },
             ].map((s) => (
               <div key={s.k}>
-                <dd className="text-xl font-black text-foreground">{s.v}</dd>
-                <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{s.k}</dt>
+                <dd className="admin-display text-[1.8rem] leading-none">{s.v}</dd>
+                <dt className="mt-1 text-[10px] font-black uppercase tracking-[0.12em]">{s.k}</dt>
               </div>
             ))}
           </dl>
