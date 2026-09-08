@@ -260,46 +260,56 @@ describe("POST /api/auth/login — challenge 2FA", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 // ADMIN_2FA_REQUIRED
 // ═══════════════════════════════════════════════════════════════════════════
-describe("ADMIN_2FA_REQUIRED = true", () => {
+describe("ADMIN_2FA_REQUIRED = true (console web / cookie uniquement)", () => {
   beforeEach(() => {
     process.env.ADMIN_2FA_REQUIRED = "true";
   });
 
-  it("admin sans TOTP → 403 2fa_enrollment_required sur /api/admin/*", async () => {
+  it("web (cookie) admin sans TOTP → 403 2fa_enrollment_required", async () => {
     mockQuery.mockResolvedValueOnce([[{ is_admin: true, totp_enabled: false }]]);
     const res = await request(app)
       .get("/api/admin/users")
-      .set("Authorization", `Bearer ${accessToken(1)}`);
+      .set("Cookie", `access_token=${accessToken(1)}`);
     expect(res.status).toBe(403);
     expect(res.body.error).toBe("2fa_enrollment_required");
   });
 
-  it("admin avec TOTP mais token sans amr → 401 mfa_required", async () => {
+  it("web (cookie) admin avec TOTP mais token sans amr → 401 mfa_required", async () => {
     mockQuery.mockResolvedValueOnce([[{ is_admin: true, totp_enabled: true }]]);
     const res = await request(app)
       .get("/api/admin/users")
-      .set("Authorization", `Bearer ${accessToken(1)}`);
+      .set("Cookie", `access_token=${accessToken(1)}`);
     expect(res.status).toBe(401);
     expect(res.body.error).toBe("mfa_required");
   });
 
-  it("admin avec TOTP et token amr:['mfa'] → 200", async () => {
+  it("web (cookie) admin avec TOTP et token amr:['mfa'] → 200", async () => {
     mockQuery.mockResolvedValueOnce([[{ is_admin: true, totp_enabled: true }]]);
     mockQuery.mockResolvedValueOnce([[{ total: 0 }]]);
     mockQuery.mockResolvedValueOnce([[]]);
     const res = await request(app)
       .get("/api/admin/users")
-      .set("Authorization", `Bearer ${accessToken(1, ["mfa"])}`);
+      .set("Cookie", `access_token=${accessToken(1, ["mfa"])}`);
     expect(res.status).toBe(200);
   });
 
-  it("route d'enrôlement /2fa/setup accessible à un admin sans TOTP", async () => {
+  it("app mobile (Bearer) → PAS de 2FA obligatoire, comportement historique", async () => {
+    mockQuery.mockResolvedValueOnce([[{ is_admin: true, totp_enabled: false }]]);
+    mockQuery.mockResolvedValueOnce([[{ total: 0 }]]);
+    mockQuery.mockResolvedValueOnce([[]]);
+    const res = await request(app)
+      .get("/api/admin/users")
+      .set("Authorization", `Bearer ${accessToken(1)}`);
+    expect(res.status).toBe(200);
+  });
+
+  it("route d'enrôlement /2fa/setup accessible à un admin web sans TOTP", async () => {
     mockQuery.mockResolvedValueOnce([[{ is_admin: true, totp_enabled: false }]]);
     mockQuery.mockResolvedValueOnce([[{ email: "admin@blyss.fr", totp_enabled: false }]]);
     mockQuery.mockResolvedValue([[]]);
     const res = await request(app)
       .post("/api/admin/2fa/setup")
-      .set("Authorization", `Bearer ${accessToken(1)}`);
+      .set("Cookie", `access_token=${accessToken(1)}`);
     expect(res.status).toBe(200);
   });
 
@@ -307,7 +317,7 @@ describe("ADMIN_2FA_REQUIRED = true", () => {
     mockQuery.mockResolvedValueOnce([[{ is_admin: false, totp_enabled: false }]]);
     const res = await request(app)
       .get("/api/admin/users")
-      .set("Authorization", `Bearer ${accessToken(2)}`);
+      .set("Cookie", `access_token=${accessToken(2)}`);
     expect(res.status).toBe(403);
     expect(res.body.error).toBeUndefined();
   });

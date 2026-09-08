@@ -11,6 +11,11 @@ import { AuthenticatedRequest } from "../lib/types";
  *     d'enrôlement, un admin doit avoir totp_enabled = TRUE ET présenter un
  *     token d'accès portant amr:["mfa"] (émis par POST /api/auth/2fa/verify).
  *
+ * L'obligation ne s'applique qu'aux requêtes authentifiées par COOKIE
+ * (= console admin web dans un navigateur). L'app mobile (header Bearer)
+ * garde le comportement historique — on ne veut pas la bloquer sur un
+ * parcours d'enrôlement 2FA mobile qui n'est pas encore fiable.
+ *
  * Voir docs/2FA-admin.md.
  */
 export function isAdmin2faRequired(): boolean {
@@ -57,7 +62,7 @@ export async function requireAdminMiddleware(
       return;
     }
 
-    if (isAdmin2faRequired() && !isEnrollmentPath(req.path)) {
+    if (isAdmin2faRequired() && req.user?.viaCookie && !isEnrollmentPath(req.path)) {
       if (!row.totp_enabled) {
         res.status(403).json({
           success: false,
