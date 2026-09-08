@@ -1,8 +1,8 @@
 import express, { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
-import { authMiddleware, authenticateToken } from "../middleware/auth";
-import { authLoginLimiter, authLoginAccountLimiter, authSignupLimiter, authRefreshLimiter, passwordResetLimiter, passwordResetAccountLimiter, passwordResetConsumeLimiter } from "../middleware/rate-limits";
+import { authenticateToken } from "../middleware/auth";
+import { authLoginLimiter, authLoginAccountLimiter, authSignupLimiter, authCheckLimiter, authRefreshLimiter, passwordResetLimiter, passwordResetAccountLimiter, passwordResetConsumeLimiter } from "../middleware/rate-limits";
 import { validate } from "../middleware/validate";
 import { forgotPasswordSchema, resetPasswordSchema } from "../middleware/validate";
 import { getDb } from "../lib/db";
@@ -12,8 +12,11 @@ import jwt from "jsonwebtoken";
 import {
   generateAccessToken,
   generateAndStoreRefreshToken,
+  AMR_MFA,
   revokeRefreshToken,
   findRefreshToken,
+  jwtSignOpts,
+  jwtVerifyOpts,
 } from "../lib/tokens";
 import { decryptTotpSecret, verifyTotpToken, matchBackupCode } from "../lib/totp";
 import { twoFaLoginVerifySchema } from "../middleware/validate";
@@ -56,6 +59,43 @@ function clearAuthCookies(res: Response) {
   res.clearCookie("access_token", BASE_COOKIE);
   res.clearCookie("refresh_token", BASE_COOKIE);
 }
+
+/* POST /check-availability — disponibilité email / téléphone pendant la saisie.
+   Ne renvoie que des booléens. La contrainte réelle reste posée par /signup. */
+router.post("/check-availability", authCheckLimiter, async (req: Request, res: Response) => {
+  try {
+    const { email, phone_number } = req.body as { email?: unknown; phone_number?: unknown };
+    const trimmedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+    const cleanPhone = typeof phone_number === "string" ? phone_number.replace(/\s/g, "") : "";
+
+    if (!trimmedEmail && !cleanPhone) {
+      return res.status(400).json({ success: false, error: "missing_fields", message: "Aucun champ à vérifier" });
+    }
+
+    const db = getDb();
+    const data: { email_taken?: boolean; phone_taken?: boolean } = {};
+
+    if (trimmedEmail) {
+      const [rows] = (await db.query("SELECT 1 FROM users WHERE email = ? LIMIT 1", [trimmedEmail])) as [
+        unknown[],
+        unknown,
+      ];
+      data.email_taken = rows.length > 0;
+    }
+    if (cleanPhone) {
+      const [rows] = (await db.query(
+        "SELECT 1 FROM users WHERE phone_number IS NOT NULL AND phone_number = ? LIMIT 1",
+        [cleanPhone]
+      )) as [unknown[], unknown];
+      data.phone_taken = rows.length > 0;
+    }
+
+    res.json({ success: true, data });
+  } catch (err) {
+    log.error("/api/auth/check-availability", err instanceof Error ? err.message : String(err));
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
 
 /* POST /signup */
 router.post(
@@ -148,15 +188,13 @@ router.post(
         }
       }
 
-      if (phone_number) {
-        const cleanPhone = phone_number.replace(/\s/g, "");
-        if (!/^[0-9]{10}$/.test(cleanPhone)) {
-          return res.status(400).json({
-            success: false,
-            message: "Invalid phone number format",
-            error: "invalid_phone",
-          });
-        }
+      const cleanPhone = phone_number ? phone_number.replace(/\s/g, "") : "";
+      if (cleanPhone && !/^[0-9]{10}$/.test(cleanPhone)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid phone number format",
+          error: "invalid_phone",
+        });
       }
 
       // Hashé AVANT d'acquérir la connexion DB, et borné par bcryptSemaphore
@@ -179,16 +217,18 @@ router.post(
 
       try {
         const [existing] = (await connection.query(
-          "SELECT id FROM users WHERE email = ?",
-          [trimmedEmail]
-        )) as [any[], any];
+          `SELECT email, phone_number FROM users
+           WHERE email = ? OR (phone_number IS NOT NULL AND phone_number = ?)`,
+          [trimmedEmail, cleanPhone || null]
+        )) as [Array<{ email: string; phone_number: string | null }>, unknown];
 
         if (existing.length > 0) {
           await connection.rollback();
+          const emailTaken = existing.some((r) => r.email === trimmedEmail);
           return res.status(409).json({
             success: false,
-            message: "Email already exists",
-            error: "email_exists",
+            message: emailTaken ? "Email already exists" : "Phone number already exists",
+            error: emailTaken ? "email_exists" : "phone_exists",
           });
         }
 
@@ -200,7 +240,7 @@ router.post(
             first_name?.trim() || null,
             last_name?.trim() || null,
             trimmedEmail,
-            phone_number?.replace(/\s/g, "") || null,
+            cleanPhone || null,
             birth_date || null,
             passwordHash,
             role === "pro" ? "pro" : "client",
@@ -231,11 +271,14 @@ router.post(
       const [msg, stack] = errInfo(err);
       log.error("/api/auth/signup", msg, stack);
 
-      if (err.code === "ER_DUP_ENTRY") {
+      // 23505 = unique_violation (pg). Le nom de la contrainte distingue
+      // email (users_email_key) du téléphone (uq_users_phone_number).
+      if (err.code === "23505" || err.code === "ER_DUP_ENTRY") {
+        const phoneHit = typeof err.constraint === "string" && err.constraint.includes("phone");
         return res.status(409).json({
           success: false,
-          message: "Email already exists",
-          error: "email_exists",
+          message: phoneHit ? "Phone number already exists" : "Email already exists",
+          error: phoneHit ? "phone_exists" : "email_exists",
         });
       }
 
@@ -439,7 +482,7 @@ router.post(
         const challengeToken = jwt.sign(
           { id: user.id, purpose: "2fa_challenge" },
           process.env.JWT_SECRET!,
-          { expiresIn: "5m" }
+          { ...jwtSignOpts, expiresIn: "5m" }
         );
         return res.json({ success: true, data: { requires_2fa: true, challenge_token: challengeToken } });
       }
@@ -476,7 +519,7 @@ router.post(
 
       let payload: { id: number; purpose: string };
       try {
-        payload = jwt.verify(challenge_token, process.env.JWT_SECRET!) as any;
+        payload = jwt.verify(challenge_token, process.env.JWT_SECRET!, jwtVerifyOpts) as any;
       } catch {
         return res.status(401).json({ success: false, error: "invalid_challenge" });
       }
@@ -514,9 +557,11 @@ router.post(
 
       await db.execute("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
 
+      // Second facteur validé → session « MFA » : amr:["mfa"] sur le token
+      // d'accès, marqueur mfa sur le refresh token (propagé à chaque rotation).
       const { password_hash, totp_secret_encrypted, totp_secret_iv, totp_backup_codes, ...userWithoutPassword } = user;
-      const accessToken = generateAccessToken(user.id);
-      const refreshToken = await generateAndStoreRefreshToken(user.id);
+      const accessToken = generateAccessToken(user.id, { amr: AMR_MFA });
+      const refreshToken = await generateAndStoreRefreshToken(user.id, { mfa: true });
 
       setAuthCookies(res, accessToken, refreshToken);
 
@@ -560,8 +605,10 @@ router.post(
         return res.status(401).json({ success: false, message: "Refresh token expired" });
       }
 
-      const newAccessToken = generateAccessToken(record.user_id);
-      const newRefreshToken = await generateAndStoreRefreshToken(record.user_id);
+      // Propage le marqueur MFA : une session dont le 2ᵉ facteur a été vérifié
+      // le reste sur toute sa durée de vie, sans re-challenge à chaque rotation.
+      const newAccessToken = generateAccessToken(record.user_id, record.mfa ? { amr: AMR_MFA } : {});
+      const newRefreshToken = await generateAndStoreRefreshToken(record.user_id, { mfa: record.mfa });
       await revokeRefreshToken(refreshToken);
 
       setAuthCookies(res, newAccessToken, newRefreshToken);

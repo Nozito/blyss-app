@@ -1,0 +1,20 @@
+# Semgrep — chemins exclus de l'analyse SAST (job "SAST (Semgrep)").
+# Voir issue #14.
+
+# Dépendances / build
+node_modules/
+dist/
+build/
+coverage/
+*.min.js
+
+# Fixtures de test : contiennent volontairement des hash bcrypt et des
+# identifiants factices (règle detected-bcrypt-hash, ~21 occurrences) — ce
+# ne sont pas des secrets de production.
+backend/__tests__/
+tests/e2e/fixtures/
+supabase/seed.sql
+supabase/seed-*.sql
+
+# Rapports générés
+loadtest/reports/

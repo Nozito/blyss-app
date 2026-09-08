@@ -28,11 +28,10 @@ if (process.env.SENTRY_DSN) {
 import express, { Request, Response, NextFunction, Router } from "express";
 import cors from "cors";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
 import bcrypt from "bcrypt";
 import { getDb, DbTimeoutError } from "./lib/db";
-import { formatRdvWhen, formatRdvDate, formatRdvTime, formatEuros } from "./lib/notifyDate";
+import { formatRdvWhen, formatEuros } from "./lib/notifyDate";
 import dotenv from "dotenv";
 import multer, { FileFilterCallback } from "multer";
 import path from "path";
@@ -45,8 +44,7 @@ const UPLOADS_DIR = path.resolve(
   ["production", "staging"].includes(process.env.NODE_ENV ?? "") ? "../uploads" : "uploads"
 );
 import sharp from "sharp";
-import { sendPushToUser } from "./lib/push";
-import { startReminderCron, runReminderCycle } from "./lib/reminders";
+import { startReminderCron } from "./lib/reminders";
 import { geocodeCity, haversineKm, jitterCoords } from "./lib/geocoding";
 import { startDataRetentionCron } from "./cron/data-retention";
 import { startPaymentCleanupCron } from "./cron/payment-cleanup";
@@ -57,6 +55,7 @@ import { initiateRefundsForReservation } from "./lib/refunds";
 import { getActiveEntitlement } from "./lib/revenuecat";
 import { startRecallCron } from "./cron/recall";
 import { startDailyRecapCron } from "./cron/daily-recap";
+import { startOnboardingNudgeCron } from "./cron/onboarding-nudge";
 import nailTechRouter, { notifyWaitingList } from "./routes/nail-tech.routes";
 import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
@@ -74,9 +73,9 @@ import {
   connectedClients,
   sendUnreadNotifications,
   sendNotificationToUser,
-  broadcastNotification,
 } from "./lib/notifications";
 import { authMiddleware, authenticateToken } from "./middleware/auth";
+import { jwtVerifyOpts } from "./lib/tokens";
 import {
   bookingLimiter,
   paymentIntentLimiter,
@@ -84,6 +83,7 @@ import {
   adminLimiter,
   pushLimiter,
   nailTechWriteLimiter,
+  onboardingLimiter,
 } from "./middleware/rate-limits";
 import { validate, userUpdateSchema, financeObjectiveSchema, prestationSchema, prestationPatchSchema, slotCreateSchema, reservationSchema, reviewSchema, depositSchema, paymentIntentSchema, favoriteSchema, unavailabilitySchema, reservationStatusSchema, liveActivityTokenSchema, liveActivitySettingsSchema, proAppointmentSchema, proAppointmentUpdateSchema } from "./middleware/validate";
 import { sendLiveActivityEnd, sendLiveActivityUpdate } from "./lib/apns";
@@ -93,9 +93,11 @@ import adminRouter from "./routes/admin.routes";
 import cancellationRouter from "./routes/cancellation.routes";
 import rescheduleRouter from "./routes/reschedule.routes";
 import workingHoursRouter from "./routes/working-hours.routes";
+import clientOnboardingRouter from "./routes/client-onboarding.routes";
+import proNailStylesRouter from "./routes/pro-nail-styles.routes";
 import { createRescheduleRequest, RescheduleServiceError } from "./services/reschedule.service";
 import { createReservation, ReservationServiceError } from "./services/reservation.service";
-import { getAvailability, checkSlotAvailability, AvailabilityError } from "./services/availability.service";
+import { getAvailability, AvailabilityError } from "./services/availability.service";
 import messagesRouter from "./routes/messages.routes";
 import { getTopServices, getRevenueStats } from "./lib/finance";
 
@@ -152,7 +154,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 // 3. INTERFACES
 // ==========================================
 interface AuthenticatedRequest extends Request {
-  user?: { id: number };
+  user?: { id: number; amr?: string[] };
   file?: Express.Multer.File;
 }
 
@@ -500,8 +502,9 @@ async function requireProAccess(req: AuthenticatedRequest, res: Response, next: 
     return;
   }
 
-  // Admins passent toujours
-  if (user.is_admin === 1) return next();
+  // Admins passent toujours. `is_admin` remonte en booléen pg (TRUE/FALSE) :
+  // un test `=== 1` était toujours faux (fail-safe mais incohérent).
+  if (user.is_admin) return next();
 
   // Doit être un pro
   if (user.role !== "pro") {
@@ -527,11 +530,13 @@ async function requireProAccess(req: AuthenticatedRequest, res: Response, next: 
 app.use("/api/pro", authMiddleware, requireProAccess);
 
 app.use("/api/pro", router);
+app.use("/api", proNailStylesRouter);
 app.use("/api", cancellationRouter);
 app.use("/api", rescheduleRouter);
 app.use("/api", workingHoursRouter);
 app.use("/api", nailTechRouter);
 app.use("/api/messages", messagesRouter);
+app.use("/api/client/onboarding", onboardingLimiter, authMiddleware, clientOnboardingRouter);
 
 // ── Health check (no auth) ──────────────────────────────────────────────────
 app.get("/api/health", async (_req: Request, res: Response) => {
@@ -556,7 +561,6 @@ interface WebSocketMessage {
 // ✅ Configuration des timeouts
 const AUTH_TIMEOUT = 10000; // 10 secondes pour s'authentifier
 const HEARTBEAT_INTERVAL = 30000; // 30 secondes
-const HEARTBEAT_TIMEOUT = 35000; // 35 secondes
 
 // ✅ Interface pour le WebSocket avec métadonnées
 interface AuthenticatedWebSocket extends WebSocket {
@@ -580,7 +584,7 @@ function parseCookies(cookieHeader: string): Record<string, string> {
 // Helper: authenticate a WS client and flush unread notifications
 async function wsAuthenticate(ws: AuthenticatedWebSocket, token: string): Promise<boolean> {
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: number };
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!, jwtVerifyOpts) as { id: number };
     ws.userId = decoded.id;
     ws.isAuthenticated = true;
     if (ws.authTimeout) {
@@ -2946,6 +2950,7 @@ app.put(
       const {
         first_name,
         last_name,
+        email,
         activity_name,
         city,
         instagram_account,
@@ -2992,6 +2997,33 @@ app.put(
           });
         }
         passwordHash = await bcrypt.hash(newPassword, 12);
+      }
+
+      // Changement d'email — l'email est l'identifiant de connexion : mot de
+      // passe actuel obligatoire, et unicité vérifiée (les emails sont stockés
+      // en minuscules, cf. /signup).
+      let updatedEmail = user.email;
+      const normalizedNewEmail =
+        typeof email === "string" ? email.trim().toLowerCase() : "";
+      if (normalizedNewEmail && normalizedNewEmail !== user.email.toLowerCase()) {
+        if (!currentPassword) {
+          return res.status(400).json({
+            success: false,
+            message: "Ton mot de passe actuel est requis pour changer d'email.",
+          });
+        }
+        const pwValid = await bcrypt.compare(currentPassword, user.password_hash);
+        if (!pwValid) {
+          return res.status(401).json({ success: false, message: "Mot de passe actuel incorrect." });
+        }
+        const [dupeRows] = await db.query(
+          "SELECT id FROM users WHERE LOWER(email) = ? AND id != ?",
+          [normalizedNewEmail, req.user!.id]
+        );
+        if ((dupeRows as any[]).length > 0) {
+          return res.status(409).json({ success: false, message: "Cet email est déjà utilisé." });
+        }
+        updatedEmail = normalizedNewEmail;
       }
 
       const updatedFirstName =
@@ -3128,12 +3160,13 @@ app.put(
 
       await db.execute(
         `UPDATE users
-         SET first_name = ?, last_name = ?, activity_name = ?, city = ?, instagram_account = ?, bio = ?, acceptance_conditions = ?::jsonb, password_hash = ?, latitude = ?, longitude = ?,
+         SET first_name = ?, last_name = ?, email = ?, activity_name = ?, city = ?, instagram_account = ?, bio = ?, acceptance_conditions = ?::jsonb, password_hash = ?, latitude = ?, longitude = ?,
              geo_precision = ?, address_line = ?, postal_code = ?, public_latitude = ?, public_longitude = ?, service_radius_km = ?, service_area_label = ?, profile_visibility = ?
          WHERE id = ?`,
         [
           updatedFirstName,
           updatedLastName,
+          updatedEmail,
           updatedActivityName,
           updatedCity,
           updatedInstagramAccount,
@@ -4087,29 +4120,37 @@ app.get(
   }
 );
 
-/* PRO CLIENT SEARCH — search across ALL app clients (not just those who
- * already have a reservation with this pro), for picking a client when
- * manually creating an appointment (walk-in, phone booking). */
+/* PRO CLIENT SEARCH — RGPD : minimisation appliquée ICI, pas seulement dans l'app.
+ *
+ * Recherche par nom/email/téléphone STRICTEMENT bornée aux clientes ayant déjà
+ * une réservation confirmed/completed avec CETTE pro (pro_id issu du token,
+ * jamais du client). Aucun mode "walk-in" / contact exact : une pro ne peut
+ * pas atteindre une cliente avec qui elle n'a pas de relation.
+ */
 app.get(
   "/api/pro/clients/search",
   authMiddleware,
   nailTechWriteLimiter,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
+      const proId = getProId(req);
       const q = String(req.query.q ?? "").trim();
-      if (!q) return res.json({ success: true, data: [] });
+
+      if (q.length < 2) return res.json({ success: true, data: [] });
 
       const like = `%${q}%`;
       const [rows] = await db.query(
         `
-        SELECT id, first_name, last_name, phone_number, email, profile_photo
-        FROM users
-        WHERE role = 'client'
-          AND (first_name ILIKE ? OR last_name ILIKE ? OR email ILIKE ? OR phone_number ILIKE ?)
-        ORDER BY first_name ASC, last_name ASC
+        SELECT DISTINCT u.id, u.first_name, u.last_name, u.phone_number, u.email, u.profile_photo
+        FROM reservations r
+        JOIN users u ON u.id = r.client_id
+        WHERE r.pro_id = ?
+          AND r.status IN ('confirmed','completed')
+          AND (u.first_name ILIKE ? OR u.last_name ILIKE ? OR u.email ILIKE ? OR u.phone_number ILIKE ?)
+        ORDER BY u.first_name ASC, u.last_name ASC
         LIMIT 30
         `,
-        [like, like, like, like]
+        [proId, like, like, like, like]
       );
 
       res.json({ success: true, data: rows });
@@ -5093,15 +5134,20 @@ app.post(
       const proId = getProId(req);
       const { client_id, prestation_id, start_datetime, early_execution_requested, manual_override } = req.body;
 
-      // Contrôle d'accès : la cliente doit exister ET être une cliente. Le
-      // client_id vient du body ici (la pro choisit), mais reste borné à un
-      // rôle 'client' — jamais une autre pro / un admin.
-      const [clientRows] = await db.query(
-        `SELECT id FROM users WHERE id = ? AND role = 'client'`,
-        [client_id]
+      // Contrôle d'accès RGPD — le client_id vient du body (la pro choisit),
+      // donc on ne s'y fie pas : autorisé UNIQUEMENT s'il existe une
+      // réservation confirmed/completed entre CETTE pro (pro_id du token) et
+      // ce client_id. Sinon : réponse générique, sans révéler si le compte
+      // existe (client_id inexistant, non lié ou d'une autre pro → même 403).
+      const [relRows] = await db.query(
+        `SELECT 1 FROM reservations
+         WHERE pro_id = ? AND client_id = ? AND status IN ('confirmed','completed')
+         LIMIT 1`,
+        [proId, client_id]
       );
-      if ((clientRows as any[]).length === 0) {
-        return res.status(404).json({ success: false, message: "Cliente introuvable" });
+
+      if ((relRows as any[]).length === 0) {
+        return res.status(403).json({ success: false, message: "Cliente non rattachée à votre compte." });
       }
 
       const result = await createReservation({
@@ -5818,6 +5864,32 @@ app.get("/api/pro/reviews", authenticateToken, async (req: AuthenticatedRequest,
     res.json({ success: true, data: rows });
   } catch (error) {
     console.error("Erreur récupération avis pro:", error);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
+
+// GET - Avis émis par la cliente connectée (pour « Mes avis » côté profil client)
+app.get("/api/client/reviews", authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const clientId = req.user?.id;
+
+    const [rows] = await db.query(
+      `SELECT
+         r.id, r.rating, r.comment, r.created_at,
+         r.pro_id,
+         CONCAT(p.first_name, ' ', p.last_name) AS pro_name,
+         p.activity_name AS pro_activity_name,
+         p.profile_photo AS pro_profile_photo
+       FROM reviews r
+       JOIN users p ON p.id = r.pro_id
+       WHERE r.client_id = ? AND r.deleted_at IS NULL
+       ORDER BY r.created_at DESC`,
+      [clientId]
+    );
+
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error("Erreur récupération avis client:", error);
     res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
@@ -6634,7 +6706,7 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
     // autorité, un slot non marqué ne recrée pas de double-booking.
     if (slot_id) {
       db.query(`UPDATE slots SET status = 'booked' WHERE id = ? AND status = 'available'`, [slot_id]).catch(
-        (e) => log.warn("[RESERVATION_CREATE]", "legacy slot mark failed (non-fatal)", { slot_id })
+        () => log.warn("[RESERVATION_CREATE]", "legacy slot mark failed (non-fatal)", { slot_id })
       );
     }
 
@@ -6954,6 +7026,7 @@ if (process.env.NODE_ENV !== "test") {
     startSubscriptionExpiryCron();
     startFinanceReportsCron();
     startDailyRecapCron();
+    startOnboardingNudgeCron();
   });
 }
 

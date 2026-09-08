@@ -55,7 +55,7 @@ import { app } from "../server";
 const JWT_SECRET = process.env.JWT_SECRET!;
 
 function makeAccessToken(userId: number) {
-  return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: "15m" });
+  return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" });
 }
 
 // Faux utilisateur retourné par le mock DB
@@ -128,6 +128,70 @@ describe("POST /api/auth/login", () => {
     expect(res1.status).toBe(res2.status);
     expect(res1.body.error).toBe(res2.body.error);
     expect(res1.status).toBe(401);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// POST /api/auth/signup — unicité email / téléphone
+// ═══════════════════════════════════════════════════════════════════════════
+describe("POST /api/auth/signup — doublons", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const body = (over: Record<string, unknown> = {}) => ({
+    first_name: "Léa",
+    last_name: "Test",
+    email: "lea@blyss.fr",
+    password: "Abcd1234!",
+    phone_number: "0612345678",
+    birth_date: "2000-01-01",
+    role: "client",
+    ...over,
+  });
+
+  it("409 phone_exists quand seul le téléphone existe déjà", async () => {
+    mockQuery.mockResolvedValueOnce([[{ email: "autre@blyss.fr", phone_number: "0612345678" }]]);
+    const res = await request(app).post("/api/auth/signup").send(body());
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("phone_exists");
+  });
+
+  it("409 email_exists quand l'email existe déjà", async () => {
+    mockQuery.mockResolvedValueOnce([[{ email: "lea@blyss.fr", phone_number: null }]]);
+    const res = await request(app).post("/api/auth/signup").send(body({ phone_number: "0699999999" }));
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("email_exists");
+  });
+
+  it("email prioritaire si email ET téléphone collisionnent", async () => {
+    mockQuery.mockResolvedValueOnce([[{ email: "lea@blyss.fr", phone_number: "0612345678" }]]);
+    const res = await request(app).post("/api/auth/signup").send(body());
+    expect(res.body.error).toBe("email_exists");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// POST /api/auth/check-availability
+// ═══════════════════════════════════════════════════════════════════════════
+describe("POST /api/auth/check-availability", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("400 si ni email ni téléphone", async () => {
+    const res = await request(app).post("/api/auth/check-availability").send({});
+    expect(res.status).toBe(400);
+  });
+
+  it("email_taken=true quand l'email existe, requête normalisée en minuscules", async () => {
+    mockQuery.mockResolvedValueOnce([[{ "?column?": 1 }]]);
+    const res = await request(app).post("/api/auth/check-availability").send({ email: "  LEA@Blyss.FR " });
+    expect(res.body.data).toEqual({ email_taken: true });
+    expect(mockQuery.mock.calls[0][1]).toEqual(["lea@blyss.fr"]);
+  });
+
+  it("phone_taken=false quand le numéro est libre", async () => {
+    mockQuery.mockResolvedValueOnce([[]]);
+    const res = await request(app).post("/api/auth/check-availability").send({ phone_number: "06 12 34 56 78" });
+    expect(res.body.data).toEqual({ phone_taken: false });
+    expect(mockQuery.mock.calls[0][1]).toEqual(["0612345678"]);
   });
 });
 
@@ -234,7 +298,7 @@ describe("authenticateToken middleware", () => {
     const challengeToken = jwt.sign(
       { id: 1, purpose: "2fa_challenge" },
       JWT_SECRET,
-      { expiresIn: "5m" }
+      { expiresIn: "5m", issuer: "blyss-api", audience: "blyss-app" }
     );
 
     const res = await request(app)
@@ -248,13 +312,34 @@ describe("authenticateToken middleware", () => {
     const tokenWithPurpose = jwt.sign(
       { id: 1, purpose: "anything" },
       JWT_SECRET,
-      { expiresIn: "15m" }
+      { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" }
     );
 
     const res = await request(app)
       .get("/api/auth/profile")
       .set("Authorization", `Bearer ${tokenWithPurpose}`);
 
+    expect(res.status).toBe(401);
+  });
+
+  // Régression #22 : issuer / audience obligatoires.
+  it("401 avec un token sans issuer/audience (émis hors contexte)", async () => {
+    const noIssAud = jwt.sign({ id: 1 }, JWT_SECRET, { expiresIn: "15m" });
+    const res = await request(app)
+      .get("/api/auth/profile")
+      .set("Authorization", `Bearer ${noIssAud}`);
+    expect(res.status).toBe(401);
+  });
+
+  it("401 avec un token dont l'issuer / audience ne correspond pas", async () => {
+    const wrongIssAud = jwt.sign({ id: 1 }, JWT_SECRET, {
+      expiresIn: "15m",
+      issuer: "someone-else",
+      audience: "another-app",
+    });
+    const res = await request(app)
+      .get("/api/auth/profile")
+      .set("Authorization", `Bearer ${wrongIssAud}`);
     expect(res.status).toBe(401);
   });
 });

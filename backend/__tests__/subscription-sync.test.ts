@@ -57,7 +57,7 @@ import { app } from "../server";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 function makeToken(userId = 77, role = "pro") {
-  return jwt.sign({ id: userId, role }, JWT_SECRET, { expiresIn: "15m" });
+  return jwt.sign({ id: userId, role }, JWT_SECRET, { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" });
 }
 
 function sqlIncludes(args: unknown[], ...fragments: string[]): boolean {

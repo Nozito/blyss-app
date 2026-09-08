@@ -12,7 +12,7 @@
  * client qu'un envoi "partiellement" bloqué.
  */
 
-import express, { Response, NextFunction } from "express";
+import express, { Response } from "express";
 import multer, { FileFilterCallback } from "multer";
 import path from "path";
 import fs from "fs";

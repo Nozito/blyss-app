@@ -29,7 +29,7 @@ function warn(route: string, message: string, context?: Record<string, unknown>)
     ts: new Date().toISOString(),
     level: "warn",
     route,
-    message,
+    message: scrub(message),
     ...(context ? { ctx: sanitize(context) } : {}),
   });
 }
@@ -39,21 +39,39 @@ function error(route: string, message: string, stack?: string): void {
     ts: new Date().toISOString(),
     level: "error",
     route,
-    message,
-    ...(stack ? { stack: stack.slice(0, 500) } : {}),
+    message: scrub(message),
+    ...(stack ? { stack: scrub(stack.slice(0, 500)) } : {}),
   });
 }
 
-/** Remove PII-sensitive keys from a context object before logging. */
-function sanitize(obj: Record<string, unknown>): Record<string, unknown> {
-  const BLOCKED = new Set([
-    "email", "password", "password_hash", "iban", "IBAN", "token",
-    "access_token", "refresh_token", "authorization", "cookie",
-    "first_name", "last_name", "phone_number", "birth_date",
-  ]);
-  return Object.fromEntries(
-    Object.entries(obj).filter(([key]) => !BLOCKED.has(key.toLowerCase()))
-  );
+const BLOCKED_KEYS = new Set([
+  "email", "password", "password_hash", "iban", "token",
+  "access_token", "refresh_token", "authorization", "cookie",
+  "first_name", "last_name", "phone_number", "birth_date",
+]);
+
+/** Neutralise les sauts de ligne / caractères de contrôle (anti log-injection). */
+function scrub(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\x00-\x1F\x7F]/g, " ");
+}
+
+/**
+ * Retire les clés PII-sensibles et neutralise les valeurs texte, en profondeur
+ * (objets et tableaux imbriqués — sinon un payload `{ user: { email } }`
+ * passait au travers).
+ */
+function sanitize(value: unknown): unknown {
+  if (typeof value === "string") return scrub(value);
+  if (Array.isArray(value)) return value.map(sanitize);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !BLOCKED_KEYS.has(key.toLowerCase()))
+        .map(([key, v]) => [key, sanitize(v)])
+    );
+  }
+  return value;
 }
 
 export const log = { info, warn, error };

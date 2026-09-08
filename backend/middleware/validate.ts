@@ -12,6 +12,7 @@ export function validate<T>(schema: ZodSchema<T>) {
       res.status(400).json({
         success: false,
         error: "validation_error",
+        message: "Certaines informations sont invalides. Vérifie et réessaie.",
         details: result.error.issues.map((issue) => ({
           field: issue.path.join("."),
           message: issue.message,
@@ -52,6 +53,13 @@ export const slotCreateSchema = z
 export const userUpdateSchema = z.object({
   first_name: z.string().min(1, "Prénom trop court").max(50, "Prénom trop long").optional(),
   last_name: z.string().min(1, "Nom trop court").max(50, "Nom trop long").optional(),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email("Adresse email invalide")
+    .max(255, "Adresse email trop longue")
+    .optional(),
   activity_name: z.string().max(100, "Nom d'activité trop long").optional(),
   city: z.string().max(100, "Ville trop longue").optional(),
   instagram_account: z.string().max(50, "Compte Instagram trop long").optional(),
@@ -471,4 +479,63 @@ export const totpDisableSchema = z.object({
 export const twoFaLoginVerifySchema = z.object({
   challenge_token: z.string().min(1, "challenge_token requis"),
   code: z.string().min(6, "Code invalide").max(20, "Code invalide"),
+});
+
+// #34 — taxonomie nails (v2), partagée client (préférence) et pro (spécialités).
+// Doit rester alignée sur l'ENUM nail_style (migration 20260911000001).
+// L'onboarding client n'affiche qu'un sous-ensemble (semi_permanent, french,
+// baby_boomer_ombre, nail_art, effets_finitions, formes_sculptees) mais le
+// schéma reste permissif : les 12 familles sont acceptées des deux côtés.
+export const NAIL_STYLES = [
+  "manucure_soin",
+  "renforcement_ongle",
+  "pose_gel",
+  "resine_acrylique",
+  "acrygel_polygel",
+  "capsules_gelx",
+  "semi_permanent",
+  "french",
+  "baby_boomer_ombre",
+  "nail_art",
+  "effets_finitions",
+  "formes_sculptees",
+] as const;
+
+// #34 passe 3b — écran « comment tu as connu Blyss » (client_onboarding.acquisition_source).
+export const ACQUISITION_SOURCES = ["instagram", "tiktok", "amie", "prothesiste", "google", "pub", "autre"] as const;
+
+// #34 passe 3b — le style devient multi-choix. `style_nails` (rétro-compat, =
+// styles[0]) reste accepté ; `styles` est la liste complète.
+export const onboardingPreferencesSchema = z
+  .object({
+    styles: z.array(z.enum(NAIL_STYLES)).min(1).max(NAIL_STYLES.length).optional(),
+    style_nails: z.enum(NAIL_STYLES).optional(),
+    city: z.string().trim().min(1).max(120).optional(),
+  })
+  .refine((v) => (v.styles && v.styles.length > 0) || !!v.style_nails, {
+    message: "styles ou style_nails requis",
+  });
+export const proNailStyleSchema = z.object({
+  style: z.enum(NAIL_STYLES),
+});
+export const onboardingAttributionSchema = z.object({
+  source: z.enum(ACQUISITION_SOURCES),
+});
+
+// PUT /api/pro/working-hours — garantit la STRUCTURE (types, format HH:MM,
+// weekday 0-6) avant que le service ne trie/valide la sémantique
+// (chevauchements, fin > début). Sans ce garde-fou, un `start_time` non-string
+// faisait planter le comparateur de tri → 500 au lieu de 400.
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Heure invalide (attendu HH:MM)");
+export const workingHoursSchema = z.object({
+  days: z
+    .array(
+      z.object({
+        weekday: z.number().int().min(0, "weekday 0-6").max(6, "weekday 0-6"),
+        ranges: z
+          .array(z.object({ start_time: hhmm, end_time: hhmm }))
+          .default([]),
+      })
+    )
+    .default([]),
 });

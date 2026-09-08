@@ -1,7 +1,7 @@
 import { Request } from "express";
 
 export interface AuthenticatedRequest extends Request {
-  user?: { id: number };
+  user?: { id: number; amr?: string[] };
   file?: Express.Multer.File;
 }
 

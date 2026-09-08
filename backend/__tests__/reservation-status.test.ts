@@ -61,7 +61,7 @@ import { app } from "../server";
 const JWT_SECRET = process.env.JWT_SECRET!;
 
 function makeProToken(userId = 7) {
-  return jwt.sign({ id: userId, role: "pro" }, JWT_SECRET, { expiresIn: "15m" });
+  return jwt.sign({ id: userId, role: "pro" }, JWT_SECRET, { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

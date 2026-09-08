@@ -29,6 +29,7 @@
  */
 import path from "path";
 import fs from "fs";
+import { safeJoin } from "./lib/safe-path";
 
 import type { getDb } from "./lib/db";
 
@@ -120,7 +121,7 @@ export async function runMigration(db: Db, opts: MigrateOptions = {}): Promise<M
         [r.id]
       )) as [Record<string, unknown>[], unknown];
 
-      const snapshotPath = path.join(snapshotDir, `${stamp}-pro-${r.id}.json`);
+      const snapshotPath = safeJoin(snapshotDir, `${stamp}-pro-${r.id}.json`);
       fs.writeFileSync(
         snapshotPath,
         JSON.stringify(

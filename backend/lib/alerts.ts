@@ -11,7 +11,6 @@ const WEBHOOK_URL = process.env.ALERT_WEBHOOK_URL;
 
 // In-memory counter: minute bucket → count of 5xx errors
 const fivexxBuckets = new Map<number, number>();
-const FIVE_MIN_MS = 5 * 60 * 1000;
 const SURGE_THRESHOLD = 10;
 let surgeAlerted = false;
 

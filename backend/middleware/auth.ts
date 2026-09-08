@@ -1,6 +1,7 @@
 import { Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { AuthenticatedRequest } from "../lib/types";
+import { jwtVerifyOpts } from "../lib/tokens";
 
 export function authMiddleware(
   req: AuthenticatedRequest,
@@ -21,9 +22,10 @@ export function authMiddleware(
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!, jwtVerifyOpts) as {
       id: number;
       purpose?: string;
+      amr?: string[];
     };
     // Les tokens d'accès légitimes (generateAccessToken) ne portent JAMAIS de
     // claim `purpose`. Un token intermédiaire — challenge 2FA
@@ -33,7 +35,10 @@ export function authMiddleware(
     if (decoded.purpose) {
       return res.status(401).json({ success: false, message: "Invalid token" });
     }
-    req.user = { id: decoded.id };
+    req.user = {
+      id: decoded.id,
+      amr: Array.isArray(decoded.amr) ? decoded.amr : undefined,
+    };
     next();
   } catch {
     return res.status(401).json({ success: false, message: "Invalid token" });

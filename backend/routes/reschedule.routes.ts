@@ -12,6 +12,7 @@
 
 import express, { Response } from "express";
 import { authMiddleware } from "../middleware/auth";
+import { rescheduleLimiter } from "../middleware/rate-limits";
 import { parseParamToInt } from "../lib/helpers";
 import {
   acceptRescheduleRequest,
@@ -32,7 +33,7 @@ function handleError(err: unknown, res: Response, route: string): void {
   res.status(500).json({ success: false, message: "Erreur serveur" });
 }
 
-router.get("/client/reschedule-requests/:id", authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+router.get("/client/reschedule-requests/:id", rescheduleLimiter, authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user?.id;
     if (!clientId) return res.status(401).json({ success: false, message: "Non authentifié" });
@@ -45,7 +46,7 @@ router.get("/client/reschedule-requests/:id", authMiddleware, async (req: Authen
   }
 });
 
-router.patch("/client/reschedule-requests/:id/accept", authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+router.patch("/client/reschedule-requests/:id/accept", rescheduleLimiter, authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user?.id;
     if (!clientId) return res.status(401).json({ success: false, message: "Non authentifié" });
@@ -58,7 +59,7 @@ router.patch("/client/reschedule-requests/:id/accept", authMiddleware, async (re
   }
 });
 
-router.patch("/client/reschedule-requests/:id/decline", authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+router.patch("/client/reschedule-requests/:id/decline", rescheduleLimiter, authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user?.id;
     if (!clientId) return res.status(401).json({ success: false, message: "Non authentifié" });

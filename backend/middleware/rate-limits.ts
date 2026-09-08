@@ -67,6 +67,22 @@ export const authSignupLimiter = rateLimit({
   },
 });
 
+// Vérification de disponibilité email/téléphone pendant la saisie du signup.
+// Assez large pour un parcours normal (email + tel + quelques corrections),
+// assez serré face à l'énumération (l'info est déjà accessible via /signup).
+export const authCheckLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+  skip: loadtestBypass,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de vérifications, réessayez dans quelques minutes.",
+  },
+});
+
 export const authRefreshLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
@@ -91,6 +107,22 @@ export const bookingLimiter = rateLimit({
     success: false,
     error: "too_many_requests",
     message: "Trop de réservations, réessayez dans 1 heure.",
+  },
+});
+
+// 30 actions de report (accept/decline/get) par 15 min par IP. Ces routes
+// sont authentifiées et re-vérifient l'ownership, mais restent des écritures
+// d'état sur une réservation — un limiter ferme le brute-force / spam d'IDs.
+export const rescheduleLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  skip: loadtestBypass,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de requêtes, réessayez dans 15 minutes.",
   },
 });
 
@@ -137,6 +169,22 @@ export const adminLimiter = rateLimit({
     success: false,
     error: "too_many_requests",
     message: "Trop de requêtes admin, réessayez dans 15 minutes.",
+  },
+});
+
+// Onboarding client (#34) — flux court et ponctuel : 60 req / 15 min / IP,
+// large pour le polling de /status + retries, sans exposer la reco (requête
+// d'agrégation) à du flood.
+export const onboardingLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  skip: loadtestBypass,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "too_many_requests",
+    message: "Trop de requêtes, réessayez dans 15 minutes.",
   },
 });
 

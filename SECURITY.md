@@ -50,6 +50,13 @@ We do not currently offer a monetary bug bounty program, but we will acknowledge
 ## Security Measures
 
 - JWT tokens stored as HttpOnly cookies (SameSite: Strict)
+- JWT signés/vérifiés avec `algorithm` HS256, `issuer` et `audience` explicites
+  et constants (`backend/lib/tokens.ts`)
+- 2FA TOTP pour les comptes admin (secret AES-256-GCM, codes de secours bcrypt
+  à usage unique). Obligation contrôlée par `ADMIN_2FA_REQUIRED` : quand `true`,
+  `/api/admin/*` exige `totp_enabled` + un token d'accès `amr:["mfa"]` (hors
+  routes d'enrôlement). Rollout progressif (staging → prod, période
+  d'enrôlement) et procédure de récupération : `docs/2FA-admin.md`.
 - Passwords hashed with bcrypt (cost factor 12)
 - IBAN encrypted with AES-256-GCM (random IV per record)
 - Rate limiting on all auth endpoints
@@ -59,6 +66,27 @@ We do not currently offer a monetary bug bounty program, but we will acknowledge
 - Row-Level Security (Supabase RLS)
 - Automated security scanning in CI/CD (Semgrep, CodeQL, Gitleaks, npm audit)
 
+### Analyse statique — source de vérité
+
+L'analyse **CodeQL de référence** est celle exécutée par le workflow
+`.github/workflows/security-audit.yml` — check **« CodeQL Analysis »**. C'est
+elle, et elle seule, qui doit figurer dans les *required status checks* de la
+protection de branche.
+
+Le check **« CodeQL » de GitHub Advanced Security** (sans workflow, qui évalue
+le SARIF ci-dessus contre le diff d'une PR) est **consultatif uniquement** : il
+ne dispose pas de baseline sur les branches de PR et réattribue le backlog
+préexistant du monolithe à chaque PR touchant `server.ts` ou les routes. Il
+**ne doit pas** être utilisé comme référence, ni figurer dans les *required
+checks*. Le *default setup* CodeQL est désactivé (`state: not-configured`) et
+ne doit pas être réactivé.
+
+Idem pour le check **« Semgrep OSS » (GHAS)** : la référence est le job
+**« SAST (Semgrep) »** de `security-audit.yml`.
+
+Le backlog CodeQL/Semgrep restant est suivi dans l'issue #14 et ses
+sous-tickets.
+
 ---
 
-*Last updated: 2026-03-30*
+*Last updated: 2026-09-04*
