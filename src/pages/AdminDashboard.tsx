@@ -258,7 +258,13 @@ const AdminDashboard = () => {
   const revenueIsEmpty = !revenueData || revenueData.every((p) => p.revenue === 0);
 
   const now = new Date();
-  const greeting = now.getHours() < 6 ? "Bonne nuit" : now.getHours() < 18 ? "Bonjour" : "Bonsoir";
+  const hour = now.getHours();
+  const greeting =
+    hour < 5 ? "Bonne nuit"
+    : hour < 12 ? "Bonjour"
+    : hour < 18 ? "Bon après-midi"
+    : hour < 22 ? "Bonsoir"
+    : "Bonne nuit";
   const subChange = changes.subscriptions;
   const adminName = (user?.first_name ?? "").trim();
   const subsByPlan = stats?.subsByPlan ?? { start: 0, serenite: 0, signature: 0 };

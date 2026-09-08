@@ -382,6 +382,7 @@ router.get(
             ? {
                 plan: activeSub.plan,
                 status: activeSub.status,
+                start_date: activeSub.start_date,
                 end_date: activeSub.end_date,
                 is_granted: activeSub.payment_id === "admin_grant" || Number(activeSub.monthly_price) === 0,
               }
