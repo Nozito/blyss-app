@@ -176,6 +176,20 @@ const allowedOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
   : ["http://localhost:5173", "http://localhost:8080"];
 
+const IS_LOCAL_ENV = !["production", "staging"].includes(process.env.NODE_ENV ?? "");
+
+// En dev, un même poste s'ouvre indifféremment via localhost, 127.0.0.1 ou
+// l'IP LAN (téléphone qui teste sur le réseau). Toutes ces origines locales
+// sont acceptées pour ne pas bloquer sur un simple choix d'hôte. En
+// prod/staging, seule la whitelist explicite compte.
+const isAllowedOrigin = (origin: string): boolean => {
+  if (allowedOrigins.includes(origin)) return true;
+  if (!IS_LOCAL_ENV) return false;
+  return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(
+    origin
+  );
+};
+
 // ==========================================
 // 5. CONNEXION DATABASE (Supabase via pg)
 // ==========================================
@@ -217,7 +231,7 @@ app.use(
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || isAllowedOrigin(origin)) {
         callback(null, true);
       } else {
         callback(new Error("Not allowed by CORS"));
