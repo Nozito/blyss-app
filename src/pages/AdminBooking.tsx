@@ -420,11 +420,11 @@ const AdminBookings = () => {
         </div>
       </div>
 
-      {/* Stats rapides — bandeau éditorial */}
+      {/* Stats rapides — bandeau nuit prune (le choc) */}
       <motion.dl
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border shadow-[var(--shadow-card)] sm:grid-cols-5"
+        className="admin-dusk grid grid-cols-2 divide-x divide-y divide-border overflow-hidden rounded-2xl border shadow-[var(--shadow-soft)] sm:grid-cols-5 sm:divide-y-0"
       >
         {[
           { label: 'Total', value: bookings.length, dot: '' },
@@ -433,9 +433,9 @@ const AdminBookings = () => {
           { label: 'Terminées', value: bookings.filter(b => b.status === 'completed').length, dot: 'bg-success' },
           { label: 'Nouvelles · 30j', value: bookings.filter(b => isRecentBooking(b.created_at)).length, dot: '' },
         ].map((stat) => (
-          <div key={stat.label} className="bg-card px-5 py-4">
-            <dd className="admin-display text-[2.2rem] leading-none text-foreground">{stat.value}</dd>
-            <dt className="mt-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+          <div key={stat.label} className="px-5 py-5">
+            <dd className="admin-display text-[2.4rem] leading-none text-foreground">{stat.value}</dd>
+            <dt className="mt-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
               {stat.dot && <span className={`h-1.5 w-1.5 rounded-full ${stat.dot}`} />}
               {stat.label}
             </dt>

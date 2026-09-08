@@ -375,17 +375,17 @@ const AdminUsers = () => {
       <motion.dl
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border shadow-[var(--shadow-card)] sm:grid-cols-4"
+        className="admin-dusk grid grid-cols-2 divide-x divide-y divide-border overflow-hidden rounded-2xl border shadow-[var(--shadow-soft)] sm:grid-cols-4 sm:divide-y-0"
       >
         {[
           { label: 'Total', value: users.length },
-          { label: 'Clients', value: users.filter(u => u.role === 'client').length },
+          { label: 'Clientes', value: users.filter(u => u.role === 'client').length },
           { label: 'Pros', value: users.filter(u => u.role === 'pro').length },
           { label: 'Nouveaux · 30j', value: users.filter(u => new Date(u.created_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).length },
         ].map((stat) => (
-          <div key={stat.label} className="bg-card px-5 py-4">
-            <dd className="admin-display text-[2.2rem] leading-none text-foreground">{stat.value}</dd>
-            <dt className="mt-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{stat.label}</dt>
+          <div key={stat.label} className="px-5 py-5">
+            <dd className="admin-display text-[2.6rem] leading-none text-foreground">{stat.value}</dd>
+            <dt className="mt-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{stat.label}</dt>
           </div>
         ))}
       </motion.dl>

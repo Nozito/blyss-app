@@ -203,8 +203,8 @@ const AdminLogs = () => {
         }
       />
 
-      {/* Stats — bandeau éditorial */}
-      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border shadow-[var(--shadow-card)] sm:grid-cols-5">
+      {/* Stats — bandeau nuit prune */}
+      <dl className="admin-dusk grid grid-cols-2 divide-x divide-y divide-border overflow-hidden rounded-2xl border shadow-[var(--shadow-soft)] sm:grid-cols-5 sm:divide-y-0">
         {[
           { label: "Total", value: stats.total, dot: "" },
           { label: "Info", value: stats.info, dot: "bg-info" },
@@ -212,9 +212,9 @@ const AdminLogs = () => {
           { label: "Attention", value: stats.warning, dot: "bg-warning" },
           { label: "Erreurs", value: stats.error, dot: "bg-destructive" },
         ].map((s) => (
-          <div key={s.label} className={s.label === "Erreurs" ? "bg-destructive/10 px-5 py-4" : "bg-card px-5 py-4"}>
-            <dd className="admin-display text-[2.2rem] leading-none text-foreground">{s.value}</dd>
-            <dt className="mt-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+          <div key={s.label} className="px-5 py-5">
+            <dd className="admin-display text-[2.4rem] leading-none text-foreground">{s.value}</dd>
+            <dt className="mt-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
               {s.dot && <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />}
               {s.label}
             </dt>

@@ -4,7 +4,6 @@ import { Flag, MessageSquare, Star, ShieldCheck, RotateCcw, Trash2, Lock } from 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/admin/PageHeader";
-import { KpiCard } from "@/components/admin/KpiCard";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { ErrorState } from "@/components/admin/ErrorState";
 import { StatusBadge } from "@/components/admin/StatusBadge";
@@ -116,10 +115,20 @@ const AdminModeration = () => {
         description="Avis et conversations signalés par les utilisateurs — rien ici n'est scanné proactivement."
       />
 
-      {/* KPI rapide sur la vue courante */}
-      <div className="admin-stagger grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <KpiCard icon={Star} label="Avis signalés" value={domain === "reviews" ? total : "—"} />
-        <KpiCard icon={MessageSquare} label="Conversations signalées" value={domain === "messages" ? total : "—"} />
+      {/* KPI rapide — bandeau nuit prune */}
+      <div className="admin-dusk grid grid-cols-1 divide-y divide-border overflow-hidden rounded-2xl border shadow-[var(--shadow-soft)] sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+        {[
+          { icon: Star, label: "Avis signalés", value: domain === "reviews" ? total : "—" },
+          { icon: MessageSquare, label: "Conversations signalées", value: domain === "messages" ? total : "—" },
+        ].map(({ icon: Icon, label, value }) => (
+          <div key={label} className="flex items-center justify-between px-6 py-6">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
+              <p className="admin-display mt-2 text-[3rem] leading-none text-foreground">{value}</p>
+            </div>
+            <Icon size={30} className="text-primary" strokeWidth={1.6} />
+          </div>
+        ))}
       </div>
 
       {/* Onglets domaine */}
