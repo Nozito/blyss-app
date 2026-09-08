@@ -144,6 +144,24 @@ describe("createReservation — séquence nominale", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+describe("createReservation — statut initial selon le paiement en ligne", () => {
+  // params[5] = colonne status de l'INSERT
+  it("client + paiement en ligne (acompte > 0) → 'pending'", async () => {
+    installFixture({});
+    await createReservation({ ...baseInput, paidOnline: true });
+    const [, params] = mockExecute.mock.calls[0];
+    expect(params[5]).toBe("pending");
+  });
+
+  it("client sans paiement en ligne → 'confirmed'", async () => {
+    installFixture({});
+    await createReservation({ ...baseInput, paidOnline: false });
+    const [, params] = mockExecute.mock.calls[0];
+    expect(params[5]).toBe("confirmed");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 describe("createReservation — conflit", () => {
   it("409 SLOT_NO_LONGER_AVAILABLE si le pré-check voit déjà un chevauchement", async () => {
     installFixture({
