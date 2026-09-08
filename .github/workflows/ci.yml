@@ -113,14 +113,14 @@ jobs:
           # anon, authenticated). Aucune session Supabase Auth en CI, ce sont
           # des rôles sans login — voir migrations RLS.
           $PSQL -c "CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN;"
-          # 20260904000002_drop_reservations_slot_id : migration auto-gardée du
-          # chantier 4.6b, encore bloquée en prod (pros non toutes basculées) —
-          # elle échoue volontairement et reservations.slot_id existe toujours,
-          # y compris dans supabase/seed.sql. On la saute pour refléter l'état
-          # réel du schéma. À réintégrer quand 4.6b sera débloqué.
-          SKIP='20260904000002_drop_reservations_slot_id.sql'
+          # 20260313000001_migrate_data : import DML historique (dump MySQL, ~130
+          # réservations pro #3). 100 % écrasé par le TRUNCATE de seed.sql — il
+          # n'apporte rien en CI et ses pros `active` legacy faisaient échouer
+          # (jadis) le garde de 20260904000002. On le saute : le schéma est
+          # ainsi validé de bout en bout, drop_reservations_slot_id inclus.
+          SKIP='20260313000001_migrate_data.sql'
           for f in supabase/migrations/*.sql; do
-            [ "$(basename "$f")" = "$SKIP" ] && { echo ">> SKIP $f (chantier 4.6b)"; continue; }
+            [ "$(basename "$f")" = "$SKIP" ] && { echo ">> SKIP $f (import DML historique, écrasé par seed)"; continue; }
             echo ">> migration $f"
             $PSQL -f "$f"
           done

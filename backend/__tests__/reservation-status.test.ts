@@ -145,11 +145,10 @@ describe("PATCH /api/pro/reservations/:id/status — business logic", () => {
     expect(res.body.success).toBe(true);
   });
 
-  it("200 si cancelled avec slot_id — libère le slot", async () => {
+  it("200 si cancelled — pas de libération de slot précréé (moteur de dispo)", async () => {
     mockConnection.query
-      .mockResolvedValueOnce([[{ id: 1, status: "confirmed", slot_id: 5 }], []])
-      .mockResolvedValueOnce([[], []]) // UPDATE reservations
-      .mockResolvedValueOnce([[], []]); // UPDATE slots
+      .mockResolvedValueOnce([[{ id: 1, status: "confirmed" }], []])
+      .mockResolvedValue([[], []]);
 
     const res = await request(app)
       .patch("/api/pro/reservations/1/status")
@@ -159,12 +158,8 @@ describe("PATCH /api/pro/reservations/:id/status — business logic", () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
 
-    // Third call should update slots
     const calls = mockConnection.query.mock.calls;
-    const slotUpdateCall = calls.find((c: any[]) =>
-      String(c[0]).toLowerCase().includes("slots") &&
-      String(c[0]).toLowerCase().includes("available")
-    );
-    expect(slotUpdateCall).toBeDefined();
+    expect(calls.some((c: any[]) => String(c[0]).toLowerCase().includes("update slots"))).toBe(false);
+    expect(calls.some((c: any[]) => /update reservations[\s\S]*cancelled/i.test(String(c[0])))).toBe(true);
   });
 });

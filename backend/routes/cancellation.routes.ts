@@ -148,12 +148,9 @@ router.get(
  *   3. Le statut est 'confirmed' ou 'pending'.
  *   4. L'heure actuelle est strictement avant la deadline d'annulation.
  *
- * Effets : status → 'cancelled', slot libéré, notification au pro.
- *
- * ARCHITECTURE NOTE: Les mises à jour (reservations + slots) sont des
- * requêtes séquentielles sans transaction. La libération du slot est
- * non-critique en cas d'échec isolé (un cron de reconciliation peut
- * corriger). Pour un fort volume, préférer une transaction explicite.
+ * Effets : status → 'cancelled', notification au pro. La capacité est
+ * automatiquement rendue au moteur de dispo (il filtre les réservations
+ * annulées).
  */
 router.post(
   "/reservations/:id/cancel",
@@ -181,7 +178,7 @@ router.post(
       // ── 1. Charger la réservation + la politique du pro en une seule requête
       const [rows] = await db.query(
         `SELECT r.id, r.client_id, r.pro_id, r.status,
-                r.start_datetime, r.slot_id, r.payment_status, r.deposit_amount,
+                r.start_datetime, r.payment_status, r.deposit_amount,
                 u.cancellation_notice_hours
          FROM reservations r
          JOIN users u ON u.id = r.pro_id
@@ -195,7 +192,6 @@ router.post(
         pro_id: number;
         status: string;
         start_datetime: Date | string;
-        slot_id: number | null;
         payment_status: string;
         deposit_amount: string | number | null;
         cancellation_notice_hours: number;
@@ -276,13 +272,6 @@ router.post(
           [reservationId]
         );
         cancelled = (updRows as unknown[]).length > 0;
-
-        if (cancelled && reservation.slot_id !== null) {
-          await cx.query(
-            `UPDATE slots SET status = 'available' WHERE id = ? AND status = 'booked'`,
-            [reservation.slot_id]
-          );
-        }
 
         await cx.commit();
       } catch (txErr) {

@@ -5021,7 +5021,7 @@ app.patch(
       connection = await db.getConnection();
 
       const [rows] = await connection.query(
-        "SELECT id, status, slot_id, client_id, pro_id, payment_status, start_datetime FROM reservations WHERE id = ? AND pro_id = ?",
+        "SELECT id, status, client_id, pro_id, payment_status, start_datetime FROM reservations WHERE id = ? AND pro_id = ?",
         [reservationId, proId]
       );
 
@@ -5040,14 +5040,6 @@ app.patch(
           "UPDATE reservations SET status = 'cancelled', cancelled_by = 'pro' WHERE id = ?",
           [reservationId]
         );
-
-        // Free the slot
-        if (reservation.slot_id) {
-          await connection.query(
-            "UPDATE slots SET status = 'available' WHERE id = ?",
-            [reservation.slot_id]
-          );
-        }
 
         // Initiate refund if client had paid online (best-effort — outside connection to avoid lock)
         connection.release();
@@ -6080,7 +6072,7 @@ app.patch(
       connection = await db.getConnection();
 
       const [existing] = await connection.query(
-        `SELECT id, status, start_datetime, slot_id, pro_id FROM reservations
+        `SELECT id, status, start_datetime, pro_id FROM reservations
          WHERE id = ? AND client_id = ?`,
         [bookingId, clientId]
       ) as [any[], any];
@@ -6123,14 +6115,6 @@ app.patch(
         `UPDATE reservations SET status = 'cancelled' WHERE id = ?`,
         [bookingId]
       );
-
-      // Re-open the slot if one was linked to this booking
-      if (booking.slot_id) {
-        await connection.query(
-          `UPDATE slots SET status = 'available' WHERE id = ?`,
-          [booking.slot_id]
-        );
-      }
 
       log.info("/api/client/bookings/cancel", 200, 0, clientId);
 
@@ -6187,7 +6171,7 @@ app.patch(
     try {
       const clientId = req.user?.id;
       const bookingId = parseParamToInt(req.params.id);
-      const { start_datetime, end_datetime, slot_id } = req.body;
+      const { start_datetime, end_datetime } = req.body;
 
       if (!clientId) return res.status(401).json({ success: false, message: "Non authentifié" });
       if (isNaN(bookingId)) return res.status(400).json({ success: false, message: "ID invalide" });
@@ -6204,7 +6188,7 @@ app.patch(
       connection = await db.getConnection();
 
       const [existing] = await connection.query(
-        `SELECT r.id, r.status, r.start_datetime, r.slot_id, r.pro_id,
+        `SELECT r.id, r.status, r.start_datetime, r.pro_id,
                 u.cancellation_notice_hours
            FROM reservations r
            JOIN users u ON u.id = r.pro_id
@@ -6225,55 +6209,30 @@ app.patch(
         return res.status(400).json({ success: false, message: `Impossible de reporter moins de ${noticeHours}h avant le rendez-vous` });
       }
 
-      const newSlotId = slot_id ? parseInt(slot_id) : null;
-
-      // Same contention risk POST /api/reservations already guards against
-      // (two requests for the same pro racing a check-then-write): this used
-      // to be a plain SELECT-then-UPDATE with no transaction at all. Also
-      // fixes a second bug — the old slot was freed *before* confirming the
-      // new one, so a failed reschedule (new slot taken) left the original
-      // slot marked "available" while the reservation still pointed at it,
-      // exposing it to being booked out from under the client.
+      // Contention : verrou pro + re-check de chevauchement sous transaction
+      // (mirror du POST /api/reservations, en excluant cette réservation).
       await connection.beginTransaction();
       try {
         await connection.query(`SELECT pg_advisory_xact_lock(?)`, [booking.pro_id]);
 
-        if (newSlotId) {
-          const [slotUpdateRows] = await connection.query(
-            `UPDATE slots SET status = 'booked' WHERE id = ? AND status = 'available' RETURNING id`,
-            [newSlotId]
-          );
-          if ((slotUpdateRows as any[]).length === 0) {
-            await connection.rollback();
-            return res.status(409).json({ success: false, message: "Ce créneau n'est plus disponible" });
-          }
-        } else {
-          // No specific slot targeted — still must not collide with another
-          // reservation for this pro (mirrors the overlap check in POST
-          // /api/reservations, excluding this booking itself).
-          const [overlapRows] = await connection.query(
-            `SELECT r.id FROM reservations r
-             LEFT JOIN prestations prev_p ON prev_p.id = r.prestation_id
-             WHERE r.pro_id = ?
-               AND r.id != ?
-               AND r.status NOT IN ('cancelled', 'rejected')
-               AND r.start_datetime < ?
-               AND (r.end_datetime + COALESCE(prev_p.buffer_after_minutes, 0) * INTERVAL '1 minute') > ?`,
-            [booking.pro_id, bookingId, end_datetime, start_datetime]
-          );
-          if ((overlapRows as any[]).length > 0) {
-            await connection.rollback();
-            return res.status(409).json({ success: false, message: "Ce créneau est déjà réservé ou trop proche d'un autre rendez-vous" });
-          }
-        }
-
-        if (booking.slot_id) {
-          await connection.query(`UPDATE slots SET status = 'available' WHERE id = ?`, [booking.slot_id]);
+        const [overlapRows] = await connection.query(
+          `SELECT r.id FROM reservations r
+           LEFT JOIN prestations prev_p ON prev_p.id = r.prestation_id
+           WHERE r.pro_id = ?
+             AND r.id != ?
+             AND r.status NOT IN ('cancelled', 'rejected')
+             AND r.start_datetime < ?
+             AND (r.end_datetime + COALESCE(prev_p.buffer_after_minutes, 0) * INTERVAL '1 minute') > ?`,
+          [booking.pro_id, bookingId, end_datetime, start_datetime]
+        );
+        if ((overlapRows as any[]).length > 0) {
+          await connection.rollback();
+          return res.status(409).json({ success: false, message: "Ce créneau est déjà réservé ou trop proche d'un autre rendez-vous" });
         }
 
         await connection.query(
-          `UPDATE reservations SET start_datetime = ?, end_datetime = ?, slot_id = ? WHERE id = ?`,
-          [start_datetime, end_datetime, newSlotId, bookingId]
+          `UPDATE reservations SET start_datetime = ?, end_datetime = ? WHERE id = ?`,
+          [start_datetime, end_datetime, bookingId]
         );
 
         await connection.commit();
@@ -6707,7 +6666,7 @@ app.put("/api/pro/stripe/deposit", authenticateToken, validate(depositSchema), a
 app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reservationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user?.id as number;
-    const { pro_id, prestation_id, start_datetime, slot_id, payment_method } = req.body;
+    const { pro_id, prestation_id, start_datetime, payment_method } = req.body;
     const paidOnline = payment_method === "online";
 
     // Toute la logique anti-double-booking (lock advisory pro_id → re-check
@@ -6724,15 +6683,6 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
       paidOnline,
       earlyExecutionRequested: !!req.body.early_execution_requested,
     });
-
-    // Modèle `slots` précréés — déprécié mais encore utilisé le temps de la
-    // bascule mobile. Best-effort : la réservation (blocked_*) fait désormais
-    // autorité, un slot non marqué ne recrée pas de double-booking.
-    if (slot_id) {
-      db.query(`UPDATE slots SET status = 'booked' WHERE id = ? AND status = 'available'`, [slot_id]).catch(
-        () => log.warn("[RESERVATION_CREATE]", "legacy slot mark failed (non-fatal)", { slot_id })
-      );
-    }
 
     return res.json({
       success: true,
