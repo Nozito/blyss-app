@@ -3,9 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-
-const API_URL = import.meta.env.VITE_API_URL || "";
 
 const VALIDATION_RULES = {
   EMAIL_REGEX: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
@@ -32,7 +29,7 @@ interface FormErrors {
 
 const Login = () => {
   const navigate = useNavigate();
-  const { login, logout, refreshProfile, isLoading, isAuthenticated, user } = useAuth();
+  const { login, logout, isLoading, isAuthenticated, user } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -40,12 +37,6 @@ const Login = () => {
   const [errors, setErrors] = useState<FormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [attemptCount, setAttemptCount] = useState(0);
-
-  // Second facteur (comptes admin avec 2FA activée)
-  const [stage, setStage] = useState<"credentials" | "2fa">("credentials");
-  const [challengeToken, setChallengeToken] = useState<string | null>(null);
-  const [otpCode, setOtpCode] = useState("");
-  const [otpSubmitting, setOtpSubmitting] = useState(false);
 
   // Un admin déjà connecté file droit au backoffice.
   // Le web ne sert plus les comptes client/pro (mobile only) — on les déconnecte.
@@ -109,18 +100,9 @@ const Login = () => {
         const sanitizedEmail = email.trim().toLowerCase();
         const response = await login({ email: sanitizedEmail, password });
 
-        // Compte admin avec 2FA — le backend ne pose pas de cookie, il renvoie
-        // un challenge à vérifier via /2fa/verify.
-        if ((response as any).data?.requires_2fa) {
-          setChallengeToken((response as any).data.challenge_token);
-          setStage("2fa");
-          setAttemptCount(0);
-          return;
-        }
-
         if (response.success && response.data?.user) {
           const loggedUser = response.data.user;
-          if (!(loggedUser as any).is_admin) {
+          if (!loggedUser.is_admin) {
             await logout();
             setAttemptCount((prev) => prev + 1);
             setFormError("L'espace client/pro n'est plus disponible sur le web. Utilise l'application mobile Blyss.");
@@ -131,7 +113,7 @@ const Login = () => {
         } else {
           setAttemptCount((prev) => prev + 1);
           setFormError(
-            (response as any).error === "account_disabled"
+            response.error === "account_disabled"
               ? "Ton compte a été désactivé. Contacte le support."
               : ERROR_MESSAGES.LOGIN_FAILED,
           );
@@ -145,42 +127,6 @@ const Login = () => {
     [email, password, attemptCount, login, logout, navigate, validateEmail, validatePassword],
   );
 
-  const handleVerify2fa = useCallback(
-    async (e: FormEvent) => {
-      e.preventDefault();
-      if (!challengeToken || otpCode.length < 6) return;
-
-      setOtpSubmitting(true);
-      setFormError(null);
-      try {
-        const response = await fetch(`${API_URL}/api/auth/2fa/verify`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ challenge_token: challengeToken, code: otpCode }),
-        });
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-          await refreshProfile();
-          navigate("/admin/dashboard", { replace: true });
-        } else {
-          setOtpCode("");
-          setFormError(data.error === "invalid_code" ? "Code invalide." : "Session expirée, reconnecte-toi.");
-          if (data.error === "invalid_challenge") {
-            setStage("credentials");
-            setChallengeToken(null);
-          }
-        }
-      } catch {
-        setFormError(ERROR_MESSAGES.NETWORK_ERROR);
-      } finally {
-        setOtpSubmitting(false);
-      }
-    },
-    [challengeToken, otpCode, navigate, refreshProfile],
-  );
-
   const goToForgot = useCallback(() => {
     if (!isLoading) navigate("/forgot-password");
   }, [isLoading, navigate]);
@@ -190,116 +136,78 @@ const Login = () => {
       <div className="box">
         <span className="brand" style={{ marginTop: 0 }}>Blyss · Console admin</span>
 
-        {stage === "2fa" ? (
-          <>
-            <h1>Vérification<br />en deux temps</h1>
-            <p>Entre le code à 6 chiffres de ton application d'authentification.</p>
+        <h1>Accès<br />administrateur</h1>
+        <p>Réservé à l'équipe Blyss. Connecte-toi pour accéder au backoffice.</p>
 
-            <form onSubmit={handleVerify2fa} style={{ marginTop: 34 }}>
-              <InputOTP maxLength={6} value={otpCode} onChange={setOtpCode} disabled={otpSubmitting} autoFocus>
-                <InputOTPGroup className="gap-2">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <InputOTPSlot
-                      key={i}
-                      index={i}
-                      className="h-12 w-11 rounded-none border-[#f6e9ee33] bg-transparent text-lg font-bold text-[#f6e9ee]"
-                    />
-                  ))}
-                </InputOTPGroup>
-              </InputOTP>
+        <form onSubmit={handleLogin} noValidate autoComplete="off" style={{ marginTop: 34 }}>
+          <div className="field" style={{ marginBottom: 24 }}>
+            <label htmlFor="login-email">Adresse email</label>
+            <input
+              id="login-email"
+              type="email"
+              className={errors.email ? "err" : undefined}
+              value={email}
+              onChange={handleEmailChange}
+              onBlur={() => setErrors((p) => ({ ...p, email: validateEmail(email) }))}
+              placeholder="admin@blyssapp.fr"
+              disabled={isLoading}
+              autoComplete="email"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck="false"
+              aria-invalid={!!errors.email}
+              maxLength={254}
+              required
+            />
+            {errors.email && <div className="hint err">{errors.email}</div>}
+          </div>
 
-              {formError && (
-                <div className="alert"><AlertCircle size={15} strokeWidth={2.5} />{formError}</div>
-              )}
-
-              <button type="submit" className="btn" disabled={otpSubmitting || otpCode.length < 6}>
-                {otpSubmitting ? (<><Loader2 size={15} className="animate-spin" />Vérification…</>) : "Valider le code"}
-              </button>
-            </form>
-
+          <div className="field">
+            <label htmlFor="login-password">Mot de passe</label>
+            <input
+              id="login-password"
+              type={showPassword ? "text" : "password"}
+              className={errors.password ? "err" : undefined}
+              value={password}
+              onChange={handlePasswordChange}
+              onBlur={() => setErrors((p) => ({ ...p, password: validatePassword(password) }))}
+              placeholder="••••••••"
+              disabled={isLoading}
+              autoComplete="current-password"
+              aria-invalid={!!errors.password}
+              maxLength={VALIDATION_RULES.PASSWORD_MAX_LENGTH}
+              required
+            />
             <button
-              className="btn-ghost"
-              onClick={() => { setStage("credentials"); setOtpCode(""); setFormError(null); }}
+              type="button"
+              className="toggle"
+              onClick={() => setShowPassword((p) => !p)}
+              disabled={isLoading}
+              aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+              aria-pressed={showPassword}
             >
-              Revenir en arrière
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
-          </>
-        ) : (
-          <>
-            <h1>Accès<br />administrateur</h1>
-            <p>Réservé à l'équipe Blyss. Connecte-toi pour accéder au backoffice.</p>
+            {errors.password && <div className="hint err">{errors.password}</div>}
+          </div>
 
-            <form onSubmit={handleLogin} noValidate autoComplete="off" style={{ marginTop: 34 }}>
-              <div className="field" style={{ marginBottom: 24 }}>
-                <label htmlFor="login-email">Adresse email</label>
-                <input
-                  id="login-email"
-                  type="email"
-                  className={errors.email ? "err" : undefined}
-                  value={email}
-                  onChange={handleEmailChange}
-                  onBlur={() => setErrors((p) => ({ ...p, email: validateEmail(email) }))}
-                  placeholder="admin@blyssapp.fr"
-                  disabled={isLoading}
-                  autoComplete="email"
-                  autoCorrect="off"
-                  autoCapitalize="none"
-                  spellCheck="false"
-                  aria-invalid={!!errors.email}
-                  maxLength={254}
-                  required
-                />
-                {errors.email && <div className="hint err">{errors.email}</div>}
-              </div>
+          {formError && (
+            <div className="alert"><AlertCircle size={15} strokeWidth={2.5} />{formError}</div>
+          )}
 
-              <div className="field">
-                <label htmlFor="login-password">Mot de passe</label>
-                <input
-                  id="login-password"
-                  type={showPassword ? "text" : "password"}
-                  className={errors.password ? "err" : undefined}
-                  value={password}
-                  onChange={handlePasswordChange}
-                  onBlur={() => setErrors((p) => ({ ...p, password: validatePassword(password) }))}
-                  placeholder="••••••••"
-                  disabled={isLoading}
-                  autoComplete="current-password"
-                  aria-invalid={!!errors.password}
-                  maxLength={VALIDATION_RULES.PASSWORD_MAX_LENGTH}
-                  required
-                />
-                <button
-                  type="button"
-                  className="toggle"
-                  onClick={() => setShowPassword((p) => !p)}
-                  disabled={isLoading}
-                  aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
-                  aria-pressed={showPassword}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-                {errors.password && <div className="hint err">{errors.password}</div>}
-              </div>
+          <button
+            type="submit"
+            className="btn"
+            disabled={isLoading || attemptCount >= MAX_ATTEMPTS}
+            aria-busy={isLoading}
+          >
+            {isLoading ? (<><Loader2 size={15} className="animate-spin" />Connexion…</>) : "Se connecter"}
+          </button>
+        </form>
 
-              {formError && (
-                <div className="alert"><AlertCircle size={15} strokeWidth={2.5} />{formError}</div>
-              )}
-
-              <button
-                type="submit"
-                className="btn"
-                disabled={isLoading || attemptCount >= MAX_ATTEMPTS}
-                aria-busy={isLoading}
-              >
-                {isLoading ? (<><Loader2 size={15} className="animate-spin" />Connexion…</>) : "Se connecter"}
-              </button>
-            </form>
-
-            <button className="btn-ghost" onClick={goToForgot} disabled={isLoading}>
-              Mot de passe oublié
-            </button>
-          </>
-        )}
+        <button className="btn-ghost" onClick={goToForgot} disabled={isLoading}>
+          Mot de passe oublié
+        </button>
       </div>
     </div>
   );

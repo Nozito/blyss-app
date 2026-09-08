@@ -20,18 +20,7 @@ import {
   adminNotificationSendSchema,
   adminTaskSchema,
   adminTaskStatusSchema,
-  totpConfirmSchema,
-  totpDisableSchema,
 } from "../middleware/validate";
-import QRCode from "qrcode";
-import {
-  generateTotpSecret,
-  encryptTotpSecret,
-  decryptTotpSecret,
-  totpKeyUri,
-  verifyTotpToken,
-  generateBackupCodes,
-} from "../lib/totp";
 import { logAdminAction } from "../lib/audit";
 
 import { AuthenticatedRequest } from "../lib/types";
@@ -1110,112 +1099,6 @@ router.post(
       res.clearCookie("refresh_token", cookieOpts);
 
       res.json({ success: true, message: "Tous les appareils ont été déconnectés" });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-// ── 2FA TOTP (auto-enrôlement, un admin ne gère que la sienne) ─────────────
-
-/* POST /2fa/setup — génère un secret + QR code, PAS ENCORE activé */
-router.post(
-  "/2fa/setup",
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    try {
-      const adminId = req.user!.id;
-      const [rows] = await getDb().query("SELECT email, totp_enabled FROM users WHERE id = ?", [adminId]);
-      const admin = (rows as any[])[0];
-      if (admin?.totp_enabled) {
-        return res.status(400).json({ success: false, message: "La 2FA est déjà activée" });
-      }
-
-      const secret = generateTotpSecret();
-      const { ciphertext, iv } = encryptTotpSecret(secret);
-      await getDb().query(
-        "UPDATE users SET totp_secret_encrypted = ?, totp_secret_iv = ? WHERE id = ?",
-        [ciphertext, iv, adminId]
-      );
-
-      const uri = totpKeyUri(secret, admin.email);
-      const qrDataUrl = await QRCode.toDataURL(uri);
-      res.json({ success: true, data: { qr_code: qrDataUrl, secret } });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/* POST /2fa/confirm — valide le premier code et active la 2FA (+ codes de secours) */
-router.post(
-  "/2fa/confirm",
-  validate(totpConfirmSchema),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    try {
-      const adminId = req.user!.id;
-      const { token } = req.body;
-
-      const [rows] = await getDb().query(
-        "SELECT totp_secret_encrypted, totp_secret_iv FROM users WHERE id = ?",
-        [adminId]
-      );
-      const admin = (rows as any[])[0];
-      if (!admin?.totp_secret_encrypted) {
-        return res.status(400).json({ success: false, message: "Lance d'abord /2fa/setup" });
-      }
-
-      const secret = decryptTotpSecret(admin.totp_secret_encrypted, admin.totp_secret_iv);
-      const valid = await verifyTotpToken(secret, token);
-      if (!valid) {
-        return res.status(400).json({ success: false, message: "Code invalide" });
-      }
-
-      const { plain, hashed } = await generateBackupCodes();
-      await getDb().query(
-        "UPDATE users SET totp_enabled = TRUE, totp_backup_codes = ? WHERE id = ?",
-        [JSON.stringify(hashed), adminId]
-      );
-      await logAdminAction(req, adminId, "enable_2fa", "user", adminId);
-
-      res.json({ success: true, data: { backup_codes: plain } });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/* POST /2fa/disable — nécessite un code TOTP valide */
-router.post(
-  "/2fa/disable",
-  validate(totpDisableSchema),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    try {
-      const adminId = req.user!.id;
-      const { token } = req.body;
-
-      const [rows] = await getDb().query(
-        "SELECT totp_secret_encrypted, totp_secret_iv, totp_enabled FROM users WHERE id = ?",
-        [adminId]
-      );
-      const admin = (rows as any[])[0];
-      if (!admin?.totp_enabled) {
-        return res.status(400).json({ success: false, message: "La 2FA n'est pas activée" });
-      }
-
-      const secret = decryptTotpSecret(admin.totp_secret_encrypted, admin.totp_secret_iv);
-      const valid = await verifyTotpToken(secret, token);
-      if (!valid) {
-        return res.status(400).json({ success: false, message: "Code invalide" });
-      }
-
-      await getDb().query(
-        `UPDATE users SET totp_enabled = FALSE, totp_secret_encrypted = NULL,
-                totp_secret_iv = NULL, totp_backup_codes = '[]' WHERE id = ?`,
-        [adminId]
-      );
-      await logAdminAction(req, adminId, "disable_2fa", "user", adminId);
-
-      res.json({ success: true });
     } catch (error) {
       next(error);
     }

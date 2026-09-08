@@ -131,7 +131,7 @@ describe("GET /api/admin/users/:id — pro_activity", () => {
 
   function wireDetail(role: "pro" | "client") {
     mockQuery.mockImplementation((sql: string) => {
-      if (sql.includes("SELECT is_admin, totp_enabled")) return Promise.resolve([[{ is_admin: true, totp_enabled: false }]]);
+      if (sql.includes("SELECT is_admin FROM users")) return Promise.resolve([[{ is_admin: true }]]);
       if (sql.includes("FROM users WHERE id")) return Promise.resolve([[{ id: 7, first_name: "Léa", last_name: "P", role, is_admin: false, is_active: true }]]);
       if (sql.includes("AS total_bookings")) return Promise.resolve([[{ total_bookings: 3, completed: 2, cancelled: 1, total_spent: 120 }]]);
       if (sql.includes("FROM subscriptions WHERE client_id")) {

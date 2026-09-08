@@ -1,11 +1,7 @@
 import { Request } from "express";
 
 export interface AuthenticatedRequest extends Request {
-  /** `viaCookie` : la requête est authentifiée par le cookie `access_token`
-   *  (client navigateur — console admin web), pas par un header Bearer
-   *  (app mobile / API). Sert à ne cibler la 2FA admin obligatoire que sur
-   *  la console web. */
-  user?: { id: number; amr?: string[]; viaCookie?: boolean };
+  user?: { id: number };
   file?: Express.Multer.File;
 }
 

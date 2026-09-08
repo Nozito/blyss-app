@@ -33,7 +33,7 @@ import { app } from "../server";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 const tok = (id: number) => jwt.sign({ id }, JWT_SECRET, { expiresIn: "15m", issuer: "blyss-api", audience: "blyss-app" });
-const asAdmin = () => mockQuery.mockResolvedValueOnce([[{ is_admin: true, totp_enabled: false }]]); // requireAdminMiddleware
+const asAdmin = () => mockQuery.mockResolvedValueOnce([[{ is_admin: true }]]); // requireAdminMiddleware
 
 beforeEach(() => vi.clearAllMocks());
 
