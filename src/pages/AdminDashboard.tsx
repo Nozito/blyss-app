@@ -159,11 +159,12 @@ const AdminDashboard = () => {
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto space-y-6">
-        <Skeleton className="h-9 w-64 rounded-lg" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className={`h-32 rounded-2xl ${i === 4 ? "col-span-2 lg:col-span-1" : ""}`} />
+      <div className="space-y-8">
+        <Skeleton className="h-14 w-72 rounded-lg" />
+        <Skeleton className="h-44 w-full rounded-[1.5rem]" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-32 rounded-2xl" />
           ))}
         </div>
         <div className="grid lg:grid-cols-3 gap-6">
@@ -176,7 +177,7 @@ const AdminDashboard = () => {
 
   if (error) {
     return (
-      <div className="max-w-7xl mx-auto space-y-6">
+      <div className="space-y-8">
         <PageHeader title="Dashboard" description="Vue de pilotage de l'application Blyss." />
         <ErrorState
           title="Impossible de charger le dashboard"
@@ -240,24 +241,75 @@ const AdminDashboard = () => {
 
   const revenueIsEmpty = !revenueData || revenueData.every((p) => p.revenue === 0);
 
-  return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <PageHeader
-        title="Dashboard"
-        description="Vue de pilotage de l'application Blyss — 30 derniers jours."
-        actions={
-          <LastUpdatedIndicator
-            updatedAt={dataUpdatedAt || null}
-            onRefresh={handleRefresh}
-            refreshing={statsFetching}
-          />
-        }
-      />
+  const now = new Date();
+  const greeting = now.getHours() < 6 ? "Bonne nuit" : now.getHours() < 18 ? "Bonjour" : "Bonsoir";
+  const monthChange = changes.revenue;
 
-      {/* KPI — comparables, même hauteur. 5 cartes : la dernière comble la
-          rangée incomplète (2 cols mobile, 3 cols tablette) pour ne jamais
-          laisser un trou ; à 5 colonnes (desktop) elle reprend sa place normale. */}
-      <div className="admin-stagger grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+  return (
+    <div className="space-y-8">
+      {/* ── Hero éditorial ──────────────────────────────────────────────── */}
+      <header className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            {now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
+          </p>
+          <h1 className="admin-display mt-1 text-[2.6rem] leading-[1.05] text-foreground sm:text-[3.4rem]">
+            {greeting}.
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">Pilotage Blyss — 30 derniers jours.</p>
+        </div>
+        <LastUpdatedIndicator
+          updatedAt={dataUpdatedAt || null}
+          onRefresh={handleRefresh}
+          refreshing={statsFetching}
+        />
+      </header>
+
+      {/* ── Bandeau métrique phare : CA du mois ─────────────────────────── */}
+      <section className="relative overflow-hidden rounded-[1.5rem] border border-border bg-card p-6 shadow-[var(--shadow-card)] sm:p-8">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -right-10 -top-16 h-64 w-64 rounded-full opacity-70 blur-3xl"
+          style={{ background: "radial-gradient(circle, hsl(336 90% 55% / 0.35), transparent 70%)" }}
+        />
+        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+              <DollarSign size={13} className="text-primary" /> Chiffre d'affaires du mois
+            </p>
+            <p className="admin-display mt-2 text-[3.4rem] leading-none text-foreground sm:text-[4.6rem]">
+              {(stats?.monthRevenue ?? 0).toLocaleString("fr-FR")}
+              <span className="ml-2 align-top text-[1.6rem] text-muted-foreground">€</span>
+            </p>
+            {monthChange != null && (
+              <p
+                className={`mt-2 inline-flex items-center gap-1.5 text-sm font-semibold ${
+                  monthChange >= 0 ? "text-success" : "text-destructive"
+                }`}
+              >
+                {monthChange >= 0 ? <TrendingUp size={14} /> : <TrendingUp size={14} className="rotate-180" />}
+                {monthChange > 0 ? "+" : ""}
+                {monthChange}% vs mois dernier
+              </p>
+            )}
+          </div>
+          <dl className="grid grid-cols-3 gap-x-6 gap-y-1 text-right">
+            {[
+              { k: "Total encaissé", v: `${(stats?.totalRevenue ?? 0).toLocaleString("fr-FR")} €` },
+              { k: "RDV aujourd'hui", v: stats?.todayBookings ?? 0 },
+              { k: "Réservations", v: stats?.totalBookings ?? 0 },
+            ].map((s) => (
+              <div key={s.k}>
+                <dd className="text-xl font-black text-foreground">{s.v}</dd>
+                <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{s.k}</dt>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      {/* KPI secondaires */}
+      <div className="admin-stagger grid grid-cols-2 gap-4 lg:grid-cols-4">
         <KpiCard
           icon={Users}
           label="Utilisateurs"
@@ -273,15 +325,6 @@ const AdminDashboard = () => {
           value={stats?.todayBookings ?? 0}
           change={changes.bookings}
           changeLabel="vs hier"
-        />
-        <KpiCard
-          icon={DollarSign}
-          label="CA du mois"
-          value={`${(stats?.monthRevenue ?? 0).toLocaleString("fr-FR")}€`}
-          change={changes.revenue}
-          changeLabel="vs mois dernier"
-          emphasis
-          className="col-span-2 lg:col-span-1"
         />
       </div>
 
