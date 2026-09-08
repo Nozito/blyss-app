@@ -124,6 +124,59 @@ describe("GET /api/admin/users — RBAC", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// GET /api/admin/users/:id — bloc pro_activity
+// ═══════════════════════════════════════════════════════════════════════════
+describe("GET /api/admin/users/:id — pro_activity", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function wireDetail(role: "pro" | "client") {
+    mockQuery.mockImplementation((sql: string) => {
+      if (sql.includes("SELECT is_admin, totp_enabled")) return Promise.resolve([[{ is_admin: true, totp_enabled: false }]]);
+      if (sql.includes("FROM users WHERE id")) return Promise.resolve([[{ id: 7, first_name: "Léa", last_name: "P", role, is_admin: false, is_active: true }]]);
+      if (sql.includes("AS total_bookings")) return Promise.resolve([[{ total_bookings: 3, completed: 2, cancelled: 1, total_spent: 120 }]]);
+      if (sql.includes("FROM subscriptions WHERE client_id")) {
+        return Promise.resolve([[
+          { id: 1, plan: "serenite", billing_type: "monthly", monthly_price: 0, status: "active", end_date: "2099-01-01", payment_id: "admin_grant" },
+        ]]);
+      }
+      if (sql.includes("FROM message_flags f")) return Promise.resolve([[]]);
+      if (sql.includes("FROM reviews WHERE pro_id")) return Promise.resolve([[{ avg: 4.5, count: 8 }]]);
+      if (sql.includes("FROM reservations WHERE pro_id") && sql.includes("gmv_month")) {
+        return Promise.resolve([[{ total: 10, completed: 7, cancelled: 2, confirmed: 1, gmv_total: 900, gmv_month: 300 }]]);
+      }
+      if (sql.includes("recurring_clients")) return Promise.resolve([[{ distinct_clients: 6, recurring_clients: 2 }]]);
+      return Promise.resolve([[]]);
+    });
+  }
+
+  it("expose pro_activity pour un compte pro (avis, résa, clientèle, abo offert)", async () => {
+    wireDetail("pro");
+    const res = await request(app)
+      .get("/api/admin/users/7")
+      .set("Authorization", `Bearer ${makeToken(1)}`);
+
+    expect(res.status).toBe(200);
+    const pa = res.body.data.pro_activity;
+    expect(pa).toBeTruthy();
+    expect(pa.reviews).toEqual({ avg: 4.5, count: 8 });
+    expect(pa.bookings.cancellation_rate).toBe(20); // 2 / 10
+    expect(pa.bookings.completion_rate).toBe(78);   // 7 / (7+2)
+    expect(pa.clients).toEqual({ distinct: 6, recurring: 2 });
+    expect(pa.subscription).toMatchObject({ plan: "serenite", is_granted: true });
+  });
+
+  it("pro_activity est null pour un compte client", async () => {
+    wireDetail("client");
+    const res = await request(app)
+      .get("/api/admin/users/7")
+      .set("Authorization", `Bearer ${makeToken(1)}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.pro_activity).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // POST /api/admin/notifications/create
 // ═══════════════════════════════════════════════════════════════════════════
 describe("POST /api/admin/notifications/create — RBAC", () => {

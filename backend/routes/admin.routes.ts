@@ -278,7 +278,7 @@ router.get(
       `, [userId, userId]);
 
       const [subRows] = await db.query(`
-        SELECT id, plan, billing_type, monthly_price, start_date, end_date, status, created_at
+        SELECT id, plan, billing_type, monthly_price, start_date, end_date, status, created_at, payment_id
         FROM subscriptions WHERE client_id = ?
         ORDER BY created_at DESC LIMIT 10
       `, [userId]);
@@ -314,12 +314,87 @@ router.get(
       const reportedCount = against.filter((r) => r.outcome !== "dismissed" && r.outcome !== "abusive").length;
       const abusiveMadeCount = made.filter((r) => r.outcome === "abusive").length;
 
+      // ── Activité métier — uniquement pour un compte pro ──
+      // Agrégats opérationnels (avis, réservations réalisées en tant que pro,
+      // clientèle, abonnement) : de quoi juger si une pro est active / saine /
+      // à problème. Pas de détail nominatif des relations client (RGPD :
+      // minimisation — on pilote, on ne surveille pas la relation).
+      let proActivity: Record<string, unknown> | null = null;
+      if (user.role === "pro") {
+        const [revRows] = await db.query(`
+          SELECT ROUND(AVG(rating)::numeric, 1)::float AS avg, COUNT(*)::int AS count
+          FROM reviews WHERE pro_id = ? AND deleted_at IS NULL
+        `, [userId]);
+        const rev = (revRows as any[])[0] ?? { avg: null, count: 0 };
+
+        const [bkRows] = await db.query(`
+          SELECT
+            COUNT(*)::int                                                        AS total,
+            COUNT(*) FILTER (WHERE status = 'completed')::int                    AS completed,
+            COUNT(*) FILTER (WHERE status = 'cancelled')::int                    AS cancelled,
+            COUNT(*) FILTER (WHERE status = 'confirmed')::int                    AS confirmed,
+            COALESCE(SUM(price) FILTER (WHERE status IN ('confirmed','completed')), 0)::float AS gmv_total,
+            COALESCE(SUM(price) FILTER (
+              WHERE status IN ('confirmed','completed')
+                AND start_datetime >= DATE_TRUNC('month', CURRENT_TIMESTAMP)
+            ), 0)::float                                                         AS gmv_month
+          FROM reservations WHERE pro_id = ?
+        `, [userId]);
+        const bk = (bkRows as any[])[0] ?? {};
+
+        const [clRows] = await db.query(`
+          SELECT
+            COUNT(*)::int                        AS distinct_clients,
+            COUNT(*) FILTER (WHERE cnt >= 2)::int AS recurring_clients
+          FROM (
+            SELECT client_id, COUNT(*) AS cnt
+            FROM reservations
+            WHERE pro_id = ? AND status IN ('confirmed','completed')
+            GROUP BY client_id
+          ) t
+        `, [userId]);
+        const cl = (clRows as any[])[0] ?? { distinct_clients: 0, recurring_clients: 0 };
+
+        const total = Number(bk.total ?? 0);
+        const closed = Number(bk.completed ?? 0) + Number(bk.cancelled ?? 0);
+        const activeSub = (subRows as any[]).find(
+          (s) => s.status === "active" && (!s.end_date || new Date(s.end_date) >= new Date())
+        );
+
+        proActivity = {
+          reviews: { avg: rev.avg, count: Number(rev.count ?? 0) },
+          bookings: {
+            total,
+            completed: Number(bk.completed ?? 0),
+            cancelled: Number(bk.cancelled ?? 0),
+            confirmed: Number(bk.confirmed ?? 0),
+            gmv_total: Number(bk.gmv_total ?? 0),
+            gmv_month: Number(bk.gmv_month ?? 0),
+            cancellation_rate: total > 0 ? Math.round((Number(bk.cancelled ?? 0) / total) * 100) : 0,
+            completion_rate: closed > 0 ? Math.round((Number(bk.completed ?? 0) / closed) * 100) : 0,
+          },
+          clients: {
+            distinct: Number(cl.distinct_clients ?? 0),
+            recurring: Number(cl.recurring_clients ?? 0),
+          },
+          subscription: activeSub
+            ? {
+                plan: activeSub.plan,
+                status: activeSub.status,
+                end_date: activeSub.end_date,
+                is_granted: activeSub.payment_id === "admin_grant" || Number(activeSub.monthly_price) === 0,
+              }
+            : null,
+        };
+      }
+
       res.json({
         success: true,
         data: {
           ...user,
           stats: (bookingStats as any[])[0] ?? {},
           subscription_history: subRows as any[],
+          pro_activity: proActivity,
           reports: {
             against,
             made,
