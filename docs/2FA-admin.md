@@ -69,7 +69,12 @@ nécessaire si le process la relit — sinon redéployer).
 | Valeur | Effet sur `/api/admin/*` |
 |---|---|
 | absent / `"false"` | 2FA **optionnelle** — un admin sans TOTP passe (comportement historique) |
-| `"true"` | pour toute route sauf `/2fa/setup` et `/2fa/confirm` : `totp_enabled = FALSE` → **403** `2fa_enrollment_required` ; token sans `amr:["mfa"]` → **401** `mfa_required` |
+| `"true"` | **uniquement pour les requêtes authentifiées par cookie** (= console admin **web** dans un navigateur) : pour toute route sauf `/2fa/setup` et `/2fa/confirm`, `totp_enabled = FALSE` → **403** `2fa_enrollment_required` ; token sans `amr:["mfa"]` → **401** `mfa_required`. Les requêtes par header `Authorization: Bearer` (**app mobile**, API) gardent le comportement historique. |
+
+> **Portée volontairement web only** (issue #21) : l'app mobile admin
+> continue de fonctionner sans TOTP tant que le parcours d'enrôlement 2FA
+> mobile n'est pas fiabilisé (bug `requires_2fa` login mobile). Le
+> discriminant est `req.user.viaCookie` posé par `authMiddleware`.
 
 Les routes d'enrôlement (`/api/admin/2fa/setup`, `/api/admin/2fa/confirm`)
 restent toujours accessibles à un admin authentifié, pour permettre la bascule.

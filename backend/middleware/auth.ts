@@ -13,8 +13,10 @@ export function authMiddleware(
   const authHeader = req.headers.authorization;
 
   let token: string | undefined = cookieToken;
+  let viaCookie = !!cookieToken;
   if (!token && authHeader?.startsWith("Bearer ")) {
     token = authHeader.split(" ")[1];
+    viaCookie = false;
   }
 
   if (!token) {
@@ -38,6 +40,7 @@ export function authMiddleware(
     req.user = {
       id: decoded.id,
       amr: Array.isArray(decoded.amr) ? decoded.amr : undefined,
+      viaCookie,
     };
     next();
   } catch {
