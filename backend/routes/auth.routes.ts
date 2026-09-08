@@ -8,18 +8,12 @@ import { forgotPasswordSchema, resetPasswordSchema } from "../middleware/validat
 import { getDb } from "../lib/db";
 import { bcryptSemaphore } from "../lib/concurrency";
 import { sendPasswordResetEmail } from "../lib/email";
-import jwt from "jsonwebtoken";
 import {
   generateAccessToken,
   generateAndStoreRefreshToken,
-  AMR_MFA,
   revokeRefreshToken,
   findRefreshToken,
-  jwtSignOpts,
-  jwtVerifyOpts,
 } from "../lib/tokens";
-import { decryptTotpSecret, verifyTotpToken, matchBackupCode } from "../lib/totp";
-import { twoFaLoginVerifySchema } from "../middleware/validate";
 import {
   SignupRequestBody,
   LoginRequestBody,
@@ -318,7 +312,7 @@ router.get(
           id, first_name, last_name, email, phone_number, birth_date, role,
           is_admin, activity_name, city, instagram_account, profile_photo, banner_photo,
           bio, profile_visibility, pro_status,
-          accept_online_payment, created_at, last_login_at, totp_enabled,
+          accept_online_payment, created_at, last_login_at,
           geo_precision, address_line, postal_code, service_radius_km, service_area_label,
           acceptance_conditions
         FROM users WHERE id = ?`,
@@ -388,7 +382,6 @@ router.get(
           service_radius_km: user.service_radius_km,
           service_area_label: user.service_area_label,
           acceptance_conditions: user.acceptance_conditions,
-          totp_enabled: user.totp_enabled === true,
         },
       });
     } catch (error) {
@@ -422,9 +415,6 @@ router.post(
         is_admin?: boolean;
         failed_admin_attempts?: number;
         admin_locked_until?: string | null;
-        totp_enabled?: boolean;
-        totp_secret_encrypted?: string | null;
-        totp_secret_iv?: string | null;
       })[])[0];
 
       // Verrouillage anti-bruteforce — comptes admin uniquement. Vérifié
@@ -476,21 +466,11 @@ router.post(
         await db.execute("UPDATE users SET failed_admin_attempts = 0 WHERE id = ?", [user.id]);
       }
 
-      // Compte admin avec 2FA activée : ne pose pas les cookies tout de
-      // suite, renvoie un challenge court à vérifier via /2fa/verify.
-      if (user.is_admin && user.totp_enabled) {
-        const challengeToken = jwt.sign(
-          { id: user.id, purpose: "2fa_challenge" },
-          process.env.JWT_SECRET!,
-          { ...jwtSignOpts, expiresIn: "5m" }
-        );
-        return res.json({ success: true, data: { requires_2fa: true, challenge_token: challengeToken } });
-      }
 
       // Update last_login_at for RGPD data retention cron
       await db.execute("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
 
-      const { password_hash, totp_secret_encrypted, totp_secret_iv, totp_backup_codes, ...userWithoutPassword } = user as any;
+      const { password_hash, ...userWithoutPassword } = user as any;
       const accessToken = generateAccessToken(user.id);
       const refreshToken = await generateAndStoreRefreshToken(user.id);
 
@@ -504,75 +484,6 @@ router.post(
       const [msg, stack] = errInfo(err);
       log.error("/api/auth/login", msg, stack);
       res.status(500).json({ success: false, error: "login_failed" });
-    }
-  }
-);
-
-/* POST /2fa/verify — second facteur pour les comptes admin avec TOTP activée */
-router.post(
-  "/2fa/verify",
-  authLoginLimiter,
-  validate(twoFaLoginVerifySchema),
-  async (req: Request, res: Response) => {
-    try {
-      const { challenge_token, code } = req.body;
-
-      let payload: { id: number; purpose: string };
-      try {
-        payload = jwt.verify(challenge_token, process.env.JWT_SECRET!, jwtVerifyOpts) as any;
-      } catch {
-        return res.status(401).json({ success: false, error: "invalid_challenge" });
-      }
-      if (payload.purpose !== "2fa_challenge") {
-        return res.status(401).json({ success: false, error: "invalid_challenge" });
-      }
-
-      const db = getDb();
-      const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [payload.id]);
-      const user = (rows as any[])[0];
-      if (!user || !user.is_admin || !user.totp_enabled) {
-        return res.status(401).json({ success: false, error: "invalid_challenge" });
-      }
-
-      const cleanCode = code.trim().toUpperCase();
-      let valid = false;
-
-      // Code TOTP à 6 chiffres, ou code de secours au format XXXXXX-XXXXXX
-      if (/^\d{6}$/.test(cleanCode)) {
-        const secret = decryptTotpSecret(user.totp_secret_encrypted, user.totp_secret_iv);
-        valid = await verifyTotpToken(secret, cleanCode);
-      } else {
-        const backupCodes: string[] = user.totp_backup_codes || [];
-        const matchIndex = await matchBackupCode(cleanCode, backupCodes);
-        if (matchIndex >= 0) {
-          valid = true;
-          const remaining = backupCodes.filter((_, i) => i !== matchIndex);
-          await db.execute("UPDATE users SET totp_backup_codes = ? WHERE id = ?", [JSON.stringify(remaining), user.id]);
-        }
-      }
-
-      if (!valid) {
-        return res.status(401).json({ success: false, error: "invalid_code" });
-      }
-
-      await db.execute("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
-
-      // Second facteur validé → session « MFA » : amr:["mfa"] sur le token
-      // d'accès, marqueur mfa sur le refresh token (propagé à chaque rotation).
-      const { password_hash, totp_secret_encrypted, totp_secret_iv, totp_backup_codes, ...userWithoutPassword } = user;
-      const accessToken = generateAccessToken(user.id, { amr: AMR_MFA });
-      const refreshToken = await generateAndStoreRefreshToken(user.id, { mfa: true });
-
-      setAuthCookies(res, accessToken, refreshToken);
-
-      res.json({
-        success: true,
-        data: { accessToken, refreshToken, user: userWithoutPassword },
-      });
-    } catch (err) {
-      const [msg, stack] = errInfo(err);
-      log.error("/api/auth/2fa/verify", msg, stack);
-      res.status(500).json({ success: false, error: "verify_failed" });
     }
   }
 );
@@ -605,10 +516,8 @@ router.post(
         return res.status(401).json({ success: false, message: "Refresh token expired" });
       }
 
-      // Propage le marqueur MFA : une session dont le 2ᵉ facteur a été vérifié
-      // le reste sur toute sa durée de vie, sans re-challenge à chaque rotation.
-      const newAccessToken = generateAccessToken(record.user_id, record.mfa ? { amr: AMR_MFA } : {});
-      const newRefreshToken = await generateAndStoreRefreshToken(record.user_id, { mfa: record.mfa });
+      const newAccessToken = generateAccessToken(record.user_id);
+      const newRefreshToken = await generateAndStoreRefreshToken(record.user_id);
       await revokeRefreshToken(refreshToken);
 
       setAuthCookies(res, newAccessToken, newRefreshToken);

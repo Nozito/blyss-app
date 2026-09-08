@@ -28,7 +28,6 @@ import { PasswordField } from "@/components/admin/PasswordField";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { EmptyState } from "@/components/admin/EmptyState";
 import { ErrorState } from "@/components/admin/ErrorState";
-import { TwoFactorSetup } from "@/components/admin/TwoFactorSetup";
 import { useAuth } from "@/contexts/AuthContext";
 import { usersApi, authApi } from "@/services/api";
 import { getImageUrl } from "@/utils/imageUrl";
@@ -68,7 +67,7 @@ function formatDate(value: string | null | undefined) {
 
 /**
  * Centre de gestion du compte administrateur. Tout ce qui touche à la
- * sécurité (2FA, sessions, activité de connexion) est strictement personnel
+ * sécurité (sessions, activité de connexion) est strictement personnel
  * — req.user courant côté API — jamais comparé ni visible par les autres
  * admins.
  */
@@ -226,7 +225,6 @@ const AdminProfile = () => {
     }
   };
 
-  const totpEnabled = user?.totp_enabled === true;
 
   // ── Sessions ──────────────────────────────────────────────────────────────
   const [sessions, setSessions] = useState<SessionsData | null>(null);
@@ -534,7 +532,6 @@ const AdminProfile = () => {
             </div>
           </SectionCard>
 
-          <TwoFactorSetup enabled={totpEnabled} onChange={refreshProfile} />
 
           <SectionCard
             icon={Monitor}

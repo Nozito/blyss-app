@@ -8,7 +8,6 @@ export const API_URL = API_BASE_URL;
 
 export interface User {
   is_admin: boolean;
-  totp_enabled?: boolean;
   profile_visibility: string;
   id: number;
   first_name: string;
@@ -192,16 +191,12 @@ export const authApi = {
       user: User;
       accessToken: string;
       refreshToken: string;
-      requires_2fa?: boolean;
-      challenge_token?: string;
     }>
   > => {
     const { response, json } = await rawApiCall<{
       user: User;
       accessToken: string;
       refreshToken: string;
-      requires_2fa?: boolean;
-      challenge_token?: string;
     }>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify(credentials),
@@ -211,16 +206,6 @@ export const authApi = {
       return {
         success: false,
         error: json?.message || json?.error || "Une erreur est survenue",
-      };
-    }
-
-    // Compte admin avec 2FA activée : pas de user/tokens ici, juste un
-    // challenge_token à transmettre tel quel — voir POST /2fa/verify.
-    if (json.data?.requires_2fa) {
-      return {
-        success: true,
-        data: { requires_2fa: true, challenge_token: json.data.challenge_token },
-        message: json.message,
       };
     }
 

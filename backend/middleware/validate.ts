@@ -468,19 +468,6 @@ export const adminTaskStatusSchema = z.object({
   }),
 });
 
-export const totpConfirmSchema = z.object({
-  token: z.string().regex(/^\d{6}$/, "Code TOTP invalide (6 chiffres attendus)"),
-});
-
-export const totpDisableSchema = z.object({
-  token: z.string().regex(/^\d{6}$/, "Code TOTP invalide (6 chiffres attendus)"),
-});
-
-export const twoFaLoginVerifySchema = z.object({
-  challenge_token: z.string().min(1, "challenge_token requis"),
-  code: z.string().min(6, "Code invalide").max(20, "Code invalide"),
-});
-
 // #34 — taxonomie nails (v2), partagée client (préférence) et pro (spécialités).
 // Doit rester alignée sur l'ENUM nail_style (migration 20260911000001).
 // L'onboarding client n'affiche qu'un sous-ensemble (semi_permanent, french,
