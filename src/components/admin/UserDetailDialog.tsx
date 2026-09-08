@@ -159,14 +159,14 @@ export default function UserDetailDialog({
                 </section>
               )}
 
-              {/* Stats client */}
-              {u.role !== "pro" && u.stats && (
+              {/* Stats génériques — client, ou repli si pro_activity absent (backend pas encore déployé) */}
+              {u.stats && !(u.role === "pro" && pa) && (
                 <section>
                   <h3 className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Activité</h3>
                   <div className="grid grid-cols-2 gap-3">
-                    <Stat label="Réservations" value={nf.format(u.stats.total_bookings)} />
-                    <Stat label="Terminées" value={nf.format(u.stats.completed)} />
-                    <Stat label="Annulées" value={nf.format(u.stats.cancelled)} />
+                    <Stat label="Réservations" value={nf.format(u.stats.total_bookings ?? 0)} />
+                    <Stat label="Terminées" value={nf.format(u.stats.completed ?? 0)} />
+                    <Stat label="Annulées" value={nf.format(u.stats.cancelled ?? 0)} />
                     <Stat label="Dépensé" value={eur(u.stats.total_spent)} />
                   </div>
                 </section>

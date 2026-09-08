@@ -321,6 +321,7 @@ router.get(
       // minimisation — on pilote, on ne surveille pas la relation).
       let proActivity: Record<string, unknown> | null = null;
       if (user.role === "pro") {
+       try {
         const [revRows] = await db.query(`
           SELECT ROUND(AVG(rating)::numeric, 1)::float AS avg, COUNT(*)::int AS count
           FROM reviews WHERE pro_id = ? AND deleted_at IS NULL
@@ -386,6 +387,12 @@ router.get(
               }
             : null,
         };
+       } catch (err) {
+        // Un échec ici (colonne manquante sur un env pas à jour, etc.) ne doit
+        // pas priver l'admin de toute la fiche — on renvoie juste pro_activity null.
+        log.warn("GET /admin/users/:id", "pro_activity aggregation failed", { userId, err: (err as Error).message });
+        proActivity = null;
+       }
       }
 
       res.json({
