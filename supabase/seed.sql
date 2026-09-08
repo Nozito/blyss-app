@@ -375,43 +375,43 @@ INSERT INTO slots (pro_id, start_datetime, end_datetime, duration, status) VALUE
 -- Réservations
 -- ============================================================
 INSERT INTO reservations (
-  client_id, pro_id, prestation_id, slot_id,
+  client_id, pro_id, prestation_id,
   start_datetime, end_datetime,
   status, price, paid_online, payment_status, total_paid, deposit_amount
 ) VALUES
   -- Léa (5) chez Camille (2) — slot 3 (booked)
-  (5, 2, 3, 3,
+  (5, 2, 3,
    NOW() + INTERVAL '2 days' + TIME '14:00',
    NOW() + INTERVAL '2 days' + TIME '15:30',
    'confirmed', 65.00, TRUE, 'deposit_paid', 32.50, 32.50),
   -- Noah (6) chez Lucas (3) — slot 8 (booked)
-  (6, 3, 6, 8,
+  (6, 3, 6,
    NOW() + INTERVAL '2 days' + TIME '15:00',
    NOW() + INTERVAL '2 days' + TIME '15:45',
    'confirmed', 35.00, FALSE, 'paid_on_site', 0.00, NULL),
   -- Jade (7) chez Emma (4) — slot 12 (booked)
-  (7, 4, 8, 12,
+  (7, 4, 8,
    NOW() + INTERVAL '3 days' + TIME '14:00',
    NOW() + INTERVAL '3 days' + TIME '15:30',
    'confirmed', 60.00, TRUE, 'fully_paid', 60.00, NULL),
   -- Réservations passées (complétées)
-  (5, 3, 5, NULL,
+  (5, 3, 5,
    NOW() - INTERVAL '7 days'  + TIME '10:00',
    NOW() - INTERVAL '7 days'  + TIME '11:00',
    'completed', 55.00, FALSE, 'paid_on_site', 55.00, NULL),
-  (6, 2, 1, NULL,
+  (6, 2, 1,
    NOW() - INTERVAL '14 days' + TIME '09:00',
    NOW() - INTERVAL '14 days' + TIME '10:00',
    'completed', 65.00, TRUE, 'fully_paid', 65.00, NULL),
-  (5, 8, 12, NULL,
+  (5, 8, 12,
    NOW() - INTERVAL '10 days' + TIME '11:00',
    NOW() - INTERVAL '10 days' + TIME '12:15',
    'completed', 65.00, TRUE, 'fully_paid', 65.00, NULL),
-  (6, 9, 15, NULL,
+  (6, 9, 15,
    NOW() - INTERVAL '5 days'  + TIME '09:00',
    NOW() - INTERVAL '5 days'  + TIME '11:00',
    'completed', 95.00, TRUE, 'fully_paid', 95.00, NULL),
-  (7, 12, 23, NULL,
+  (7, 12, 23,
    NOW() - INTERVAL '3 days'  + TIME '09:00',
    NOW() - INTERVAL '3 days'  + TIME '10:30',
    'completed', 70.00, TRUE, 'fully_paid', 70.00, NULL);

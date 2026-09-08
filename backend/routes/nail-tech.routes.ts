@@ -72,7 +72,7 @@ router.patch(
 
       // Verify ownership + status
       const [rows] = await db.query(
-        `SELECT id, status, client_id, slot_id, start_datetime, is_no_show
+        `SELECT id, status, client_id, start_datetime, is_no_show
          FROM reservations WHERE id = ? AND pro_id = ?`,
         [reservationId, proId]
       );
@@ -102,20 +102,14 @@ router.patch(
         return;
       }
 
-      // Mark no-show + free slot
+      // Mark no-show — la capacité repasse au moteur de dispo (il ignore les
+      // réservations annulées).
       await db.execute(
         `UPDATE reservations
          SET status = 'cancelled', is_no_show = TRUE, cancelled_by = 'system', updated_at = NOW()
          WHERE id = ?`,
         [reservationId]
       );
-
-      if (reservation.slot_id) {
-        await db.execute(
-          `UPDATE slots SET status = 'available', updated_at = NOW() WHERE id = ? AND status = 'booked'`,
-          [reservation.slot_id]
-        );
-      }
 
       // Notify client (best-effort) — single source of truth for the copy,
       // reused for the API confirmation below too (used to be three

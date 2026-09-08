@@ -413,8 +413,7 @@ describe("POST /api/reservations/:id/cancel — succès", () => {
     // Séquence :
     //   1. SELECT réservation + policy → ligne existante
     //   2. UPDATE reservations
-    //   3. UPDATE slots (slot_id non null)
-    //   4. INSERT notification → RETURNING
+    //   3. INSERT notification → RETURNING
     mockQuery
       .mockResolvedValueOnce([
         [
@@ -424,7 +423,6 @@ describe("POST /api/reservations/:id/cancel — succès", () => {
             pro_id: 7,
             status: "confirmed",
             start_datetime: new Date(Date.now() + 48 * 3600 * 1000),
-            slot_id: 11,
             cancellation_notice_hours: 24,
           },
         ],
@@ -436,7 +434,7 @@ describe("POST /api/reservations/:id/cancel — succès", () => {
       ]);
   });
 
-  it("200 + libère le slot", async () => {
+  it("200 — la réservation passe à cancelled (capacité rendue par le moteur de dispo)", async () => {
     const token = makeToken(42, "client");
     const res = await request(app)
       .post("/api/reservations/5/cancel")
@@ -444,10 +442,11 @@ describe("POST /api/reservations/:id/cancel — succès", () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.reservation_id).toBe(5);
-    // Vérifie que la libération du slot a bien été appelée
     const calls = mockQuery.mock.calls
       .map((c) => c[0])
       .filter((sql): sql is string => typeof sql === "string");
-    expect(calls.some((sql) => sql.includes("UPDATE slots"))).toBe(true);
+    expect(calls.some((sql) => /UPDATE reservations[\s\S]*status = 'cancelled'/.test(sql))).toBe(true);
+    // Plus de libération de slot précréé.
+    expect(calls.some((sql) => sql.includes("UPDATE slots"))).toBe(false);
   });
 });

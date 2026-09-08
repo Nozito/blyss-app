@@ -657,7 +657,7 @@ router.get(
           [userId]
         ) as Promise<[any[], any]>,
         db.query(
-          `SELECT id, pro_id, client_id, prestation_id, slot_id, start_datetime, end_datetime,
+          `SELECT id, pro_id, client_id, prestation_id, start_datetime, end_datetime,
             status, price, paid_online, payment_status, total_paid, created_at
            FROM reservations WHERE client_id = ? OR pro_id = ?`,
           [userId, userId]

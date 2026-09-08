@@ -2,7 +2,7 @@
  * Payment cleanup cron — runs every 15 minutes.
  *
  * 1. Cancels reservations that remain unpaid for more than 30 minutes
- *    after creation and re-opens their slots.
+ *    after creation. La capacité est rendue au moteur de dispo automatiquement.
  * 2. Expires the `payments` row left behind by an abandoned checkout
  *    (PaymentIntent created, never confirmed, Stripe never sends a
  *    payment_failed event because the client just walked away). Without
@@ -38,7 +38,7 @@ async function cancelUnpaidReservations(): Promise<number> {
   // (it exists to catch abandoned online-checkout attempts, not on-site
   // bookings that were never supposed to be paid up front).
   const [rows] = await db.query(
-    `SELECT id, slot_id
+    `SELECT id
      FROM reservations
      WHERE payment_status = 'unpaid'
        AND status IN ('pending', 'confirmed')
@@ -47,7 +47,7 @@ async function cancelUnpaidReservations(): Promise<number> {
     [UNPAID_TIMEOUT_MINUTES]
   );
 
-  const reservations = rows as Array<{ id: number; slot_id: number | null }>;
+  const reservations = rows as Array<{ id: number }>;
   if (reservations.length === 0) return 0;
 
   for (const r of reservations) {
@@ -58,14 +58,6 @@ async function cancelUnpaidReservations(): Promise<number> {
          WHERE id = ?`,
         [r.id]
       );
-
-      if (r.slot_id !== null) {
-        await db.execute(
-          `UPDATE slots SET status = 'available', updated_at = NOW()
-           WHERE id = ? AND status = 'booked'`,
-          [r.slot_id]
-        );
-      }
 
       log.warn(ROUTE, "Auto-cancelled unpaid reservation", { reservationId: r.id });
     } catch (err) {
