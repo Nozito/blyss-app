@@ -419,27 +419,28 @@ const AdminBookings = () => {
         </div>
       </div>
 
-      {/* Stats rapides */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      {/* Stats rapides — bandeau éditorial */}
+      <motion.dl
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border shadow-[var(--shadow-card)] sm:grid-cols-5"
+      >
         {[
-          { label: 'Total', value: bookings.length },
-          { label: 'En attente', value: bookings.filter(b => b.status === 'pending').length },
-          { label: 'Confirmées', value: bookings.filter(b => b.status === 'confirmed').length },
-          { label: 'Terminées', value: bookings.filter(b => b.status === 'completed').length },
-          { label: 'Nouvelles (30j)', value: bookings.filter(b => isRecentBooking(b.created_at)).length },
-        ].map((stat, i) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05 }}
-            className="bg-card rounded-2xl border border-border p-4 shadow-[var(--shadow-card)] hover:border-primary/20 transition-all"
-          >
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">{stat.label}</p>
-            <p className="text-3xl font-black text-foreground">{stat.value}</p>
-          </motion.div>
+          { label: 'Total', value: bookings.length, dot: '' },
+          { label: 'En attente', value: bookings.filter(b => b.status === 'pending').length, dot: 'bg-warning' },
+          { label: 'Confirmées', value: bookings.filter(b => b.status === 'confirmed').length, dot: 'bg-primary' },
+          { label: 'Terminées', value: bookings.filter(b => b.status === 'completed').length, dot: 'bg-success' },
+          { label: 'Nouvelles · 30j', value: bookings.filter(b => isRecentBooking(b.created_at)).length, dot: '' },
+        ].map((stat) => (
+          <div key={stat.label} className="bg-card px-5 py-4">
+            <dd className="admin-display text-[2.2rem] leading-none text-foreground">{stat.value}</dd>
+            <dt className="mt-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+              {stat.dot && <span className={`h-1.5 w-1.5 rounded-full ${stat.dot}`} />}
+              {stat.label}
+            </dt>
+          </div>
         ))}
-      </div>
+      </motion.dl>
 
       {/* Vue Calendrier — tous les pros et leurs RDV */}
       {viewMode === 'calendar' && (

@@ -370,32 +370,24 @@ const AdminUsers = () => {
         </div>
       </div>
 
-      {/* Stats rapides */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Stats rapides — bandeau éditorial */}
+      <motion.dl
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border shadow-[var(--shadow-card)] sm:grid-cols-4"
+      >
         {[
-          { label: 'Total', value: users.length, icon: UsersIcon },
-          { label: 'Clients', value: users.filter(u => u.role === 'client').length, icon: User },
-          { label: 'Pros', value: users.filter(u => u.role === 'pro').length, icon: Briefcase },
-          { label: 'Nouveaux (30j)', value: users.filter(u => new Date(u.created_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).length, icon: Calendar },
-        ].map((stat, i) => {
-          const Icon = stat.icon;
-          return (
-            <motion.div
-              key={stat.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              className="bg-card rounded-2xl border border-border p-4 shadow-[var(--shadow-card)]"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{stat.label}</p>
-                <Icon size={16} className="text-muted-foreground/60" aria-hidden="true" />
-              </div>
-              <p className="text-3xl font-bold text-foreground">{stat.value}</p>
-            </motion.div>
-          );
-        })}
-      </div>
+          { label: 'Total', value: users.length },
+          { label: 'Clients', value: users.filter(u => u.role === 'client').length },
+          { label: 'Pros', value: users.filter(u => u.role === 'pro').length },
+          { label: 'Nouveaux · 30j', value: users.filter(u => new Date(u.created_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).length },
+        ].map((stat) => (
+          <div key={stat.label} className="bg-card px-5 py-4">
+            <dd className="admin-display text-[2.2rem] leading-none text-foreground">{stat.value}</dd>
+            <dt className="mt-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{stat.label}</dt>
+          </div>
+        ))}
+      </motion.dl>
 
       {/* Users Grid */}
       {filteredUsers.length === 0 ? (

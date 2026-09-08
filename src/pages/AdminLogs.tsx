@@ -202,29 +202,24 @@ const AdminLogs = () => {
         }
       />
 
-      {/* Stats */}
-      <div className="admin-stagger grid grid-cols-2 sm:grid-cols-5 gap-4">
-        <div className="bg-card rounded-xl p-4 border border-border shadow-[var(--shadow-card)]">
-          <p className="text-sm text-muted-foreground mb-1">Total</p>
-          <p className="text-2xl font-bold text-foreground">{stats.total}</p>
-        </div>
-        <div className="bg-card rounded-xl p-4 border border-border shadow-[var(--shadow-card)]">
-          <p className="text-sm text-muted-foreground mb-1 flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-info" />Info</p>
-          <p className="text-2xl font-bold text-foreground">{stats.info}</p>
-        </div>
-        <div className="bg-card rounded-xl p-4 border border-border shadow-[var(--shadow-card)]">
-          <p className="text-sm text-muted-foreground mb-1 flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-success" />Succès</p>
-          <p className="text-2xl font-bold text-foreground">{stats.success}</p>
-        </div>
-        <div className="bg-card rounded-xl p-4 border border-border shadow-[var(--shadow-card)]">
-          <p className="text-sm text-muted-foreground mb-1 flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-warning" />Attention</p>
-          <p className="text-2xl font-bold text-foreground">{stats.warning}</p>
-        </div>
-        <div className="bg-destructive/10 rounded-xl p-4 border border-destructive/30 shadow-[var(--shadow-card)]">
-          <p className="text-sm text-destructive mb-1 flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-destructive" />Erreurs</p>
-          <p className="text-2xl font-bold text-foreground">{stats.error}</p>
-        </div>
-      </div>
+      {/* Stats — bandeau éditorial */}
+      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border shadow-[var(--shadow-card)] sm:grid-cols-5">
+        {[
+          { label: "Total", value: stats.total, dot: "" },
+          { label: "Info", value: stats.info, dot: "bg-info" },
+          { label: "Succès", value: stats.success, dot: "bg-success" },
+          { label: "Attention", value: stats.warning, dot: "bg-warning" },
+          { label: "Erreurs", value: stats.error, dot: "bg-destructive" },
+        ].map((s) => (
+          <div key={s.label} className={s.label === "Erreurs" ? "bg-destructive/10 px-5 py-4" : "bg-card px-5 py-4"}>
+            <dd className="admin-display text-[2.2rem] leading-none text-foreground">{s.value}</dd>
+            <dt className="mt-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+              {s.dot && <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />}
+              {s.label}
+            </dt>
+          </div>
+        ))}
+      </dl>
 
       {/* Filtres */}
       <div className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]">
