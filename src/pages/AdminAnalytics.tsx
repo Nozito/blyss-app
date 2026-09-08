@@ -545,63 +545,41 @@ const AdminAnalytics = () => {
         </div>
       ) : (
         <>
-          {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="rounded-2xl p-6 text-white bg-[linear-gradient(150deg,hsl(var(--primary))_0%,hsl(330_100%_62%)_55%,hsl(336_98%_72%)_100%)] shadow-[var(--shadow-soft)]"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <DollarSign size={32} />
-                <TrendingUp size={20} />
+          {/* Bandeau métrique phare — revenus */}
+          <motion.section
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative overflow-hidden rounded-[1.5rem] border border-border bg-card p-6 shadow-[var(--shadow-card)] sm:p-8"
+          >
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -right-10 -top-16 h-64 w-64 rounded-full opacity-70 blur-3xl"
+              style={{ background: "radial-gradient(circle, hsl(336 90% 55% / 0.35), transparent 70%)" }}
+            />
+            <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                  <DollarSign size={13} className="text-primary" /> Revenus encaissés
+                </p>
+                <p className="admin-display mt-2 text-[3.4rem] leading-none text-foreground sm:text-[4.6rem]">
+                  {paymentStats.totalRevenue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })}
+                  <span className="ml-2 align-top text-[1.6rem] text-muted-foreground">€</span>
+                </p>
               </div>
-              <p className="text-3xl font-bold">{paymentStats.totalRevenue.toFixed(2)}€</p>
-              <p className="text-sm text-white/75 mt-1">Revenus Total</p>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <CreditCard size={20} className="text-muted-foreground" />
-                <span className="text-xs font-bold text-muted-foreground">FRAIS</span>
-              </div>
-              <p className="text-3xl font-bold text-foreground">{paymentStats.totalFees.toFixed(2)}€</p>
-              <p className="text-sm text-muted-foreground mt-1">Commissions</p>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <TrendingUp size={20} className="text-muted-foreground" />
-                <span className="text-xs font-bold text-muted-foreground">NET</span>
-              </div>
-              <p className="text-3xl font-bold text-foreground">{paymentStats.netRevenue.toFixed(2)}€</p>
-              <p className="text-sm text-muted-foreground mt-1">Revenu Net</p>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <Clock size={20} className="text-muted-foreground" />
-                <span className="text-xs font-bold text-muted-foreground">EN ATTENTE</span>
-              </div>
-              <p className="text-3xl font-bold text-foreground">{paymentStats.pendingCount}</p>
-              <p className="text-sm text-muted-foreground mt-1">Paiements</p>
-            </motion.div>
-          </div>
+              <dl className="grid grid-cols-3 gap-x-6 gap-y-1 text-right">
+                {[
+                  { k: "Frais", v: `${paymentStats.totalFees.toFixed(0)} €` },
+                  { k: "Revenu net", v: `${paymentStats.netRevenue.toFixed(0)} €` },
+                  { k: "En attente", v: paymentStats.pendingCount },
+                ].map((s) => (
+                  <div key={s.k}>
+                    <dd className="text-xl font-black text-foreground">{s.v}</dd>
+                    <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{s.k}</dt>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </motion.section>
 
           {/* Filtres */}
           <div className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]">
