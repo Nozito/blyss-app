@@ -27,7 +27,9 @@ const INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 async function cancelUnpaidReservations(): Promise<number> {
   const db = getDb();
 
-  // Fetch all reservations that are confirmed but unpaid for too long.
+  // Fetch all online-payment reservations still unpaid for too long. These
+  // sit in 'pending' (never confirmed without payment) — older rows created
+  // before that change may still be 'confirmed'; both are swept here.
   // paid_online = FALSE excludes pay-on-site bookings: those also start
   // out with payment_status='unpaid' (nothing is charged at booking time,
   // the pro only marks them paid_on_site the day of service) — without
@@ -39,7 +41,7 @@ async function cancelUnpaidReservations(): Promise<number> {
     `SELECT id, slot_id
      FROM reservations
      WHERE payment_status = 'unpaid'
-       AND status = 'confirmed'
+       AND status IN ('pending', 'confirmed')
        AND paid_online = TRUE
        AND created_at < NOW() - MAKE_INTERVAL(mins => $1)`,
     [UNPAID_TIMEOUT_MINUTES]

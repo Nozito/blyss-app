@@ -309,6 +309,14 @@ app.post(
               `UPDATE reservations SET payment_status = ?, total_paid = total_paid + ? WHERE id = ?`,
               [newStatus, payment.amount, payment.reservation_id]
             );
+            // Une réservation en ligne reste 'pending' jusqu'au paiement : ce
+            // webhook est le seul point qui la confirme une fois l'acompte/solde
+            // encaissé. (WHERE status = 'pending' : ne touche pas un RDV déjà
+            // confirmé ou annulé entre-temps.)
+            await connection.execute(
+              `UPDATE reservations SET status = 'confirmed' WHERE id = ? AND status = 'pending'`,
+              [payment.reservation_id]
+            );
 
             // Notify the pro that a payment/deposit landed (best-effort)
             try {
@@ -3777,7 +3785,7 @@ app.get(
             r.client_id AS client_user_id,
             CONCAT(u.first_name, ' ', u.last_name) AS client_name,
             p.name AS prestation_name,
-            TO_CHAR(r.start_datetime, 'HH24:MI') AS start_time,
+            TO_CHAR(r.start_datetime AT TIME ZONE 'Europe/Paris', 'HH24:MI') AS start_time,
             r.start_datetime,
             r.price,
             r.status
@@ -3951,7 +3959,7 @@ app.get(
         SELECT
           r.id,
           r.start_datetime::date AS date,
-          TO_CHAR(r.start_datetime, 'HH24:MI') AS time,
+          TO_CHAR(r.start_datetime AT TIME ZONE 'Europe/Paris', 'HH24:MI') AS time,
           p.duration_minutes AS duration_minutes,
           r.price,
           r.status,
@@ -4020,7 +4028,7 @@ app.get(
         SELECT
           r.id,
           r.start_datetime::date AS date,
-          TO_CHAR(r.start_datetime, 'HH24:MI') AS time,
+          TO_CHAR(r.start_datetime AT TIME ZONE 'Europe/Paris', 'HH24:MI') AS time,
           p.duration_minutes AS duration_minutes,
           r.price,
           r.status,
@@ -4876,7 +4884,7 @@ app.get(
         `
         SELECT
           id,
-          TO_CHAR(start_datetime, 'HH24:MI') AS time,
+          TO_CHAR(start_datetime AT TIME ZONE 'Europe/Paris', 'HH24:MI') AS time,
           duration,
           CASE
             WHEN start_datetime + (ABS(duration) * INTERVAL '1 minute') < NOW() THEN 'past'
@@ -6001,6 +6009,9 @@ app.get(
             r.status,
             r.price,
             r.paid_online,
+            r.payment_status,
+            r.total_paid,
+            r.deposit_amount,
             p.name AS prestation_name,
             p.description AS prestation_description,
             p.duration_minutes,
@@ -6012,7 +6023,8 @@ app.get(
             u.city,
             u.geo_precision,
             u.address_line,
-            u.postal_code
+            u.postal_code,
+            u.cancellation_notice_hours
         FROM reservations r
         JOIN prestations p ON r.prestation_id = p.id
         JOIN users u ON r.pro_id = u.id
@@ -6029,6 +6041,10 @@ app.get(
       booking.price = Number(booking.price) || 0;
       booking.paid_online = Number(booking.paid_online) || 0;
       booking.duration_minutes = Number(booking.duration_minutes) || 0;
+      booking.total_paid = Number(booking.total_paid) || 0;
+      booking.deposit_amount = booking.deposit_amount == null ? null : Number(booking.deposit_amount);
+      booking.cancellation_notice_hours =
+        booking.cancellation_notice_hours == null ? 24 : Number(booking.cancellation_notice_hours);
 
       // Conditional address reveal: the exact address is only shown once the client has
       // an actual reason to go there (booking confirmed or already completed) — never for
@@ -6200,7 +6216,11 @@ app.patch(
       connection = await db.getConnection();
 
       const [existing] = await connection.query(
-        `SELECT id, status, start_datetime, slot_id, pro_id FROM reservations WHERE id = ? AND client_id = ?`,
+        `SELECT r.id, r.status, r.start_datetime, r.slot_id, r.pro_id,
+                u.cancellation_notice_hours
+           FROM reservations r
+           JOIN users u ON u.id = r.pro_id
+          WHERE r.id = ? AND r.client_id = ?`,
         [bookingId, clientId]
       ) as [any[], any];
 
@@ -6210,9 +6230,11 @@ app.patch(
       if (booking.status === "cancelled") return res.status(400).json({ success: false, message: "Réservation déjà annulée" });
       if (booking.status === "completed") return res.status(400).json({ success: false, message: "Impossible de reporter une réservation terminée" });
 
+      // Même règle que l'annulation : le report suit le délai de prévenance de la pro.
+      const noticeHours = booking.cancellation_notice_hours == null ? 24 : Number(booking.cancellation_notice_hours);
       const hoursUntil = (new Date(booking.start_datetime).getTime() - Date.now()) / 3_600_000;
-      if (hoursUntil < 24) {
-        return res.status(400).json({ success: false, message: "Impossible de reporter moins de 24h avant le rendez-vous" });
+      if (noticeHours > 0 && hoursUntil < noticeHours) {
+        return res.status(400).json({ success: false, message: `Impossible de reporter moins de ${noticeHours}h avant le rendez-vous` });
       }
 
       const newSlotId = slot_id ? parseInt(slot_id) : null;

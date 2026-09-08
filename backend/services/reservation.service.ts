@@ -305,6 +305,20 @@ export async function createReservation(input: CreateReservationInput): Promise<
       const depositAmt: number | null =
         depositPct && depositPct > 0 ? Math.round(price * depositPct) / 100 : null;
 
+      // Une réservation cliente qui doit être payée en ligne (acompte ou solde
+      // via Stripe) ne peut pas être "confirmée" tant que le paiement n'a pas
+      // abouti : elle démarre en 'pending' et c'est le webhook Stripe
+      // (payment_intent.succeeded) qui la bascule en 'confirmed'. Sinon, un
+      // client qui abandonne le paiement — ou dont la clé Stripe n'est pas
+      // configurée — se retrouvait avec un RDV confirmé jamais réglé.
+      // Le paiement sur place et l'ajout manuel par la pro restent 'confirmed'.
+      const requiresOnlinePayment =
+        input.bookingSource === "client" &&
+        (input.paidOnline ?? false) &&
+        depositAmt != null &&
+        depositAmt > 0;
+      const initialStatus = requiresOnlinePayment ? "pending" : "confirmed";
+
       // Conflits reconnus (mode "conflict") — capturés SANS PII.
       let conflictsJson: string | null = null;
       if (overrideApplied === "conflict") {
@@ -340,7 +354,7 @@ export async function createReservation(input: CreateReservationInput): Promise<
            manual_override_reason, manual_override_by_user_id, manual_override_at,
            manual_override_note, manual_override_conflicts,
            early_execution_requested_at, created_at
-         ) VALUES (?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, (SELECT timezone FROM users WHERE id = ?)), ?, ?, ?, ?, ?, ?, NOW())
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, (SELECT timezone FROM users WHERE id = ?)), ?, ?, ?, ?, ?, ?, NOW())
          RETURNING id`,
         [
           input.clientId,
@@ -348,6 +362,7 @@ export async function createReservation(input: CreateReservationInput): Promise<
           input.serviceIds[0],
           input.startDatetime,
           snapshot.visibleEnd,
+          initialStatus,
           price,
           input.bookingSource === "pro" ? "paid_on_site" : "unpaid",
           depositAmt,
