@@ -665,7 +665,7 @@ router.get(
             'booking' AS type,
             CONCAT('Réservation de ', c.first_name, ' ', c.last_name) AS title,
             CONCAT('Chez ', p.first_name, ' ', p.last_name, ' — ', r.status) AS description,
-            TO_CHAR(r.created_at, 'DD/MM HH24:MI') AS time,
+            TO_CHAR(r.created_at AT TIME ZONE 'Europe/Paris', 'DD/MM HH24:MI') AS time,
             r.created_at AS ts
           FROM reservations r
           JOIN users c ON c.id = r.client_id
@@ -675,7 +675,7 @@ router.get(
             'user' AS type,
             CONCAT('Nouvel utilisateur : ', u.first_name, ' ', u.last_name) AS title,
             CONCAT('Rôle : ', CASE WHEN u.role = 'pro' THEN 'Professionnel' ELSE 'Client' END) AS description,
-            TO_CHAR(u.created_at, 'DD/MM HH24:MI') AS time,
+            TO_CHAR(u.created_at AT TIME ZONE 'Europe/Paris', 'DD/MM HH24:MI') AS time,
             u.created_at AS ts
           FROM users u
         ) combined
