@@ -385,7 +385,7 @@ const AdminUsers = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.05 }}
-              className="bg-card rounded-2xl border border-border p-4"
+              className="bg-card rounded-2xl border border-border p-4 shadow-[var(--shadow-card)]"
             >
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{stat.label}</p>
@@ -666,7 +666,7 @@ const AdminUsers = () => {
                           required
                           value={formData.first_name}
                           onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                          className="w-full px-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
+                          className="w-full px-4 py-3 rounded-xl border border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
                           placeholder="Jean"
                         />
                       </motion.div>
@@ -679,7 +679,7 @@ const AdminUsers = () => {
                           required
                           value={formData.last_name}
                           onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                          className="w-full px-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
+                          className="w-full px-4 py-3 rounded-xl border border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
                           placeholder="Dupont"
                         />
                       </motion.div>
@@ -704,7 +704,7 @@ const AdminUsers = () => {
                             required
                             value={formData.email}
                             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl border border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
                             placeholder="jean.dupont@example.com"
                           />
                         </div>
@@ -721,7 +721,7 @@ const AdminUsers = () => {
                             required
                             value={formData.phone_number}
                             onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
-                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl border border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium placeholder:text-muted-foreground/60"
                             placeholder="+33 6 12 34 56 78"
                           />
                         </div>
@@ -738,7 +738,7 @@ const AdminUsers = () => {
                             type="date"
                             value={formData.birth_date ? new Date(formData.birth_date).toISOString().split('T')[0] : ''}
                             onChange={(e) => setFormData({ ...formData, birth_date: e.target.value })}
-                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl border border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium"
                           />
                         </div>
                       </motion.div>
@@ -762,7 +762,7 @@ const AdminUsers = () => {
                             required
                             value={formData.role}
                             onChange={(e) => setFormData({ ...formData, role: e.target.value as 'client' | 'pro' })}
-                            className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium appearance-none cursor-pointer"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl border border-border focus:border-primary focus:ring-4 focus:ring-primary/10 bg-card outline-none transition-all font-medium appearance-none cursor-pointer"
                           >
                             <option value="client">👤 Client</option>
                             <option value="pro">💼 Professionnel</option>
@@ -783,7 +783,7 @@ const AdminUsers = () => {
                             type="checkbox"
                             checked={formData.is_admin}
                             onChange={(e) => setFormData({ ...formData, is_admin: e.target.checked })}
-                            className="w-5 h-5 rounded-lg border-2 border-border text-foreground focus:ring-2 focus:ring-ring/40"
+                            className="w-5 h-5 rounded-lg border border-border text-foreground focus:ring-2 focus:ring-ring/40"
                           />
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
@@ -804,7 +804,7 @@ const AdminUsers = () => {
                             type="checkbox"
                             checked={formData.is_verified}
                             onChange={(e) => setFormData({ ...formData, is_verified: e.target.checked })}
-                            className="w-5 h-5 rounded-lg border-2 border-border text-foreground focus:ring-2 focus:ring-ring/40"
+                            className="w-5 h-5 rounded-lg border border-border text-foreground focus:ring-2 focus:ring-ring/40"
                           />
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
@@ -826,7 +826,7 @@ const AdminUsers = () => {
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="flex-1 px-6 py-3.5 rounded-xl border-2 border-border bg-card hover:bg-muted/40 font-bold transition-colors flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex-1 px-6 py-3.5 rounded-xl border border-border bg-card hover:bg-muted/40 font-bold transition-colors flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <X size={18} aria-hidden="true" />
                     Annuler

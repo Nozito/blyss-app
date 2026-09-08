@@ -321,7 +321,7 @@ const AdminAnalytics = () => {
         }
         actions={
           <>
-            <div className="flex items-center gap-1 rounded-xl border-2 border-border bg-card p-1">
+            <div className="flex items-center gap-1 rounded-xl border border-border bg-card p-1">
               <button onClick={() => setTab("overview")} aria-pressed={tab === "overview"} className={tabButtonClass(tab === "overview")}>
                 <LayoutGrid size={14} aria-hidden="true" /> Vue d'ensemble
               </button>
@@ -335,7 +335,7 @@ const AdminAnalytics = () => {
                 value={period}
                 onChange={(e) => setPeriod(e.target.value as Period)}
                 aria-label="Période d'analyse"
-                className="px-4 py-2.5 rounded-xl border-2 border-border bg-card font-semibold outline-none focus:border-ring focus-visible:ring-2 focus-visible:ring-ring transition-all"
+                className="px-4 py-2.5 rounded-xl border border-border bg-card font-semibold outline-none focus:border-ring focus-visible:ring-2 focus-visible:ring-ring transition-all"
               >
                 <option value="week">Cette semaine</option>
                 <option value="month">Ce mois</option>
@@ -401,7 +401,7 @@ const AdminAnalytics = () => {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.1 }}
                     whileHover={{ y: -3 }}
-                    className="bg-card rounded-2xl p-6 border-2 border-border"
+                    className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]"
                   >
                     <div className="flex items-start justify-between mb-4">
                       <Icon size={32} className="text-muted-foreground" />
@@ -425,7 +425,7 @@ const AdminAnalytics = () => {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-card rounded-2xl p-6 border-2 border-border"
+                className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]"
               >
                 <h2 className="text-xl font-bold text-foreground mb-4">Évolution du Chiffre d'Affaires</h2>
                 {revenueChartData.length === 0 ? (
@@ -454,7 +454,7 @@ const AdminAnalytics = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
-                className="bg-card rounded-2xl p-6 border-2 border-border"
+                className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]"
               >
                 <h2 className="text-xl font-bold text-foreground mb-4">Réservations Terminées vs Annulées</h2>
                 {bookingsChartData.length === 0 ? (
@@ -476,13 +476,13 @@ const AdminAnalytics = () => {
 
             {/* Répartitions réelles */}
             <div className="grid lg:grid-cols-2 gap-6">
-              <div className="bg-card rounded-2xl p-6 border-2 border-border">
+              <div className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]">
                 <h2 className="text-xl font-bold text-foreground mb-6">Réservations par Statut</h2>
                 <div className="space-y-3">
                   {[
-                    { label: "Terminées", value: aggregate?.bookings.completed ?? 0, color: "bg-foreground" },
-                    { label: "Confirmées", value: aggregate?.bookings.confirmed ?? 0, color: "bg-foreground/65" },
-                    { label: "En attente", value: aggregate?.bookings.pending ?? 0, color: "bg-foreground/35" },
+                    { label: "Terminées", value: aggregate?.bookings.completed ?? 0, color: "bg-success" },
+                    { label: "Confirmées", value: aggregate?.bookings.confirmed ?? 0, color: "bg-primary" },
+                    { label: "En attente", value: aggregate?.bookings.pending ?? 0, color: "bg-warning" },
                     { label: "Annulées", value: aggregate?.bookings.cancelled ?? 0, color: "bg-muted-foreground/40" },
                   ].map(({ label, value, color }) => (
                     <div key={label} className="flex items-center gap-3">
@@ -499,7 +499,7 @@ const AdminAnalytics = () => {
                 </div>
               </div>
 
-              <div className="bg-card rounded-2xl p-6 border-2 border-border">
+              <div className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]">
                 <h2 className="text-xl font-bold text-foreground mb-6">Paiements</h2>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40">
@@ -550,21 +550,21 @@ const AdminAnalytics = () => {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-foreground text-background rounded-2xl p-6"
+              className="rounded-2xl p-6 text-white bg-[linear-gradient(150deg,hsl(var(--primary))_0%,hsl(330_100%_62%)_55%,hsl(336_98%_72%)_100%)] shadow-[var(--shadow-soft)]"
             >
               <div className="flex items-center justify-between mb-4">
                 <DollarSign size={32} />
                 <TrendingUp size={20} />
               </div>
               <p className="text-3xl font-bold">{paymentStats.totalRevenue.toFixed(2)}€</p>
-              <p className="text-sm opacity-70 mt-1">Revenus Total</p>
+              <p className="text-sm text-white/75 mt-1">Revenus Total</p>
             </motion.div>
 
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className="bg-card rounded-2xl p-6 border-2 border-border"
+              className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]"
             >
               <div className="flex items-center justify-between mb-2">
                 <CreditCard size={20} className="text-muted-foreground" />
@@ -578,7 +578,7 @@ const AdminAnalytics = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
-              className="bg-card rounded-2xl p-6 border-2 border-border"
+              className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]"
             >
               <div className="flex items-center justify-between mb-2">
                 <TrendingUp size={20} className="text-muted-foreground" />
@@ -592,7 +592,7 @@ const AdminAnalytics = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
-              className="bg-card rounded-2xl p-6 border-2 border-border"
+              className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]"
             >
               <div className="flex items-center justify-between mb-2">
                 <Clock size={20} className="text-muted-foreground" />
@@ -604,7 +604,7 @@ const AdminAnalytics = () => {
           </div>
 
           {/* Filtres */}
-          <div className="bg-card rounded-2xl p-6 border-2 border-border">
+          <div className="bg-card rounded-2xl p-6 border border-border shadow-[var(--shadow-card)]">
             <div className="flex gap-4">
               <div className="relative flex-1">
                 <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
@@ -613,14 +613,14 @@ const AdminAnalytics = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Rechercher par nom..."
-                  className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-border bg-muted/40 focus:border-primary focus:bg-card outline-none transition-all"
+                  className="w-full pl-12 pr-4 py-3 rounded-xl border border-border bg-muted/40 focus:border-primary focus:bg-card outline-none transition-all"
                 />
               </div>
 
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-4 py-3 rounded-xl border-2 border-border bg-muted/40 focus:border-primary focus:bg-card outline-none font-semibold"
+                className="px-4 py-3 rounded-xl border border-border bg-muted/40 focus:border-primary focus:bg-card outline-none font-semibold"
               >
                 <option value="all">Tous les statuts</option>
                 <option value="succeeded">Réussi</option>
@@ -633,7 +633,7 @@ const AdminAnalytics = () => {
           </div>
 
           {/* Table */}
-          <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
+          <div className="bg-card rounded-2xl border border-border overflow-hidden">
             {filteredTransactions.length === 0 ? (
               <EmptyState
                 icon={Receipt}

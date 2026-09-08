@@ -12,7 +12,7 @@ import {
   MoreHorizontal,
   ShieldAlert,
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { Dock, DockIcon, DockItem, DockLabel } from "@/components/ui/dock";
@@ -42,6 +42,7 @@ interface DashboardCounts {
 const AdminLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const reduceMotion = useReducedMotion();
   const { logout } = useAuth();
   const [commandOpen, setCommandOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -127,13 +128,24 @@ const AdminLayout = () => {
 
   return (
     <div className="admin-theme min-h-screen flex flex-col bg-background text-foreground">
+      {/* Ruban de marque — balaie une fois à chaque changement de page */}
+      {!reduceMotion && (
+        <motion.div
+          key={`ribbon-${location.pathname}`}
+          aria-hidden="true"
+          className="admin-ribbon pointer-events-none fixed inset-y-0 left-0 z-50 w-[45vw] skew-x-[-12deg]"
+          initial={{ x: "-120%" }}
+          animate={{ x: "260%" }}
+          transition={{ duration: 0.6, ease: [0.7, 0, 0.2, 1] }}
+        />
+      )}
       <main className="flex-1 overflow-y-auto pb-24 sm:pb-28">
         <motion.div
           key={location.pathname}
-          initial={{ opacity: 0, y: 10 }}
+          initial={reduceMotion ? false : { opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2 }}
-          className="p-4 sm:p-6"
+          transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
+          className="mx-auto max-w-[1200px] p-4 sm:p-6"
         >
           {/* Suspense propre au backoffice : sans lui, changer de page admin
               (chaque page est lazy-loadée) remonte jusqu'au Suspense racine

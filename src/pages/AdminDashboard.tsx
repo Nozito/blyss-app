@@ -195,9 +195,9 @@ const AdminDashboard = () => {
   const wsState = apiState;
 
   const serviceStatusConfig: Record<ServiceState, { label: string; icon: typeof CheckCircle; dot: string }> = {
-    operational: { label: "Opérationnel", icon: CheckCircle, dot: "bg-foreground animate-pulse" },
-    degraded: { label: "Dégradé", icon: AlertTriangle, dot: "bg-foreground/60" },
-    down: { label: "Indisponible", icon: XCircle, dot: "bg-foreground/30 ring-1 ring-foreground/40" },
+    operational: { label: "Opérationnel", icon: CheckCircle, dot: "bg-success animate-pulse" },
+    degraded: { label: "Dégradé", icon: AlertTriangle, dot: "bg-warning" },
+    down: { label: "Indisponible", icon: XCircle, dot: "bg-destructive ring-1 ring-destructive/40" },
     unknown: { label: "Inconnu", icon: Circle, dot: "bg-muted-foreground/40" },
   };
 
@@ -257,7 +257,7 @@ const AdminDashboard = () => {
       {/* KPI — comparables, même hauteur. 5 cartes : la dernière comble la
           rangée incomplète (2 cols mobile, 3 cols tablette) pour ne jamais
           laisser un trou ; à 5 colonnes (desktop) elle reprend sa place normale. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="admin-stagger grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <KpiCard
           icon={Users}
           label="Utilisateurs"
@@ -317,7 +317,7 @@ const AdminDashboard = () => {
           </ChartContainer>
         </ChartCard>
 
-        <div className="bg-card rounded-2xl border-2 border-border p-5 sm:p-6">
+        <div className="bg-card rounded-2xl border border-border p-5 sm:p-6 shadow-[var(--shadow-card)]">
           <h2 className="text-lg font-bold text-foreground mb-1">Nécessite ton attention</h2>
           <p className="text-sm text-muted-foreground mb-4">Signaux à traiter dès que possible.</p>
           <AlertList items={alerts} />
@@ -326,7 +326,7 @@ const AdminDashboard = () => {
 
       {/* Activité récente + aperçu opérationnel */}
       <div className="grid lg:grid-cols-3 gap-6 lg:items-start">
-        <div className="lg:col-span-2 bg-card rounded-2xl border-2 border-border p-5 sm:p-6">
+        <div className="lg:col-span-2 bg-card rounded-2xl border border-border p-5 sm:p-6 shadow-[var(--shadow-card)]">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-foreground">Activité récente</h2>
             <span className="text-xs text-muted-foreground font-medium">Dernières actions</span>
@@ -335,7 +335,7 @@ const AdminDashboard = () => {
         </div>
 
         <div className="space-y-6">
-          <div className="bg-card rounded-2xl border-2 border-border p-5 sm:p-6">
+          <div className="bg-card rounded-2xl border border-border p-5 sm:p-6 shadow-[var(--shadow-card)]">
             <h3 className="text-sm font-bold text-foreground mb-3">Réservations par statut</h3>
             <div className="space-y-2">
               {bookingStatusRows.map(({ key, label }) => (
@@ -347,7 +347,7 @@ const AdminDashboard = () => {
             </div>
           </div>
 
-          <div className="bg-card rounded-2xl border-2 border-border p-5 sm:p-6">
+          <div className="bg-card rounded-2xl border border-border p-5 sm:p-6 shadow-[var(--shadow-card)]">
             <h3 className="text-sm font-bold text-foreground mb-3">Statut système</h3>
             <div className="space-y-2">
               {[

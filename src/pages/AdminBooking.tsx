@@ -260,11 +260,10 @@ const AdminBookings = () => {
     [bookings]
   );
 
-  // Distingués uniquement par la luminosité (clair → foncé), jamais par la teinte.
   const statusDot: Record<Booking['status'], string> = {
-    pending: 'bg-foreground/40',
-    confirmed: 'bg-foreground/70',
-    completed: 'bg-foreground',
+    pending: 'bg-warning',
+    confirmed: 'bg-primary',
+    completed: 'bg-success',
     cancelled: 'bg-muted-foreground/30',
   };
 
@@ -333,7 +332,7 @@ const AdminBookings = () => {
         }`}
         actions={
           <>
-            <div className="flex items-center gap-1 rounded-xl border-2 border-border bg-card p-1">
+            <div className="flex items-center gap-1 rounded-xl border border-border bg-card p-1">
               <button
                 onClick={() => setViewMode('list')}
                 aria-pressed={viewMode === 'list'}
@@ -354,7 +353,7 @@ const AdminBookings = () => {
               onClick={() => fetchBookings(true)}
               disabled={refreshing}
               aria-label="Actualiser la liste des réservations"
-              className="px-4 py-2.5 rounded-xl bg-card border-2 border-border hover:bg-muted/40 font-bold text-sm transition-colors flex items-center gap-2 disabled:opacity-50"
+              className="px-4 py-2.5 rounded-xl bg-card border border-border hover:bg-muted/40 font-bold text-sm transition-colors flex items-center gap-2 disabled:opacity-50"
             >
               <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
               <span className="hidden sm:inline">Actualiser</span>
@@ -374,7 +373,7 @@ const AdminBookings = () => {
       />
 
       {/* Filters & Search */}
-      <div className="bg-card rounded-2xl border-2 border-border p-4">
+      <div className="bg-card rounded-2xl border border-border p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           {/* Search */}
           <div className="flex-1 relative">
@@ -384,7 +383,7 @@ const AdminBookings = () => {
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); updateParams(e.target.value, statusFilter); }}
               placeholder="Rechercher une réservation..."
-              className="w-full pl-11 pr-4 py-3 rounded-xl border-2 border-border bg-muted/40 focus:border-primary focus:bg-card outline-none transition-all font-medium text-sm"
+              className="w-full pl-11 pr-4 py-3 rounded-xl border border-border bg-muted/40 focus:border-primary focus:bg-card outline-none transition-all font-medium text-sm"
             />
           </div>
 
@@ -410,7 +409,7 @@ const AdminBookings = () => {
           <select
             value={proFilter}
             onChange={(e) => setProFilter(e.target.value)}
-            className="px-3 py-2 rounded-xl border-2 border-border bg-muted/40 focus:border-primary outline-none font-bold text-xs text-foreground/80"
+            className="px-3 py-2 rounded-xl border border-border bg-muted/40 focus:border-primary outline-none font-bold text-xs text-foreground/80"
           >
             <option value="all">Tous les pros</option>
             {proOptions.map(([id, name]) => (
@@ -434,7 +433,7 @@ const AdminBookings = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.05 }}
-            className="bg-card rounded-2xl border-2 border-border p-4 hover:border-primary/20 transition-all"
+            className="bg-card rounded-2xl border border-border p-4 hover:border-primary/20 transition-all"
           >
             <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">{stat.label}</p>
             <p className="text-3xl font-black text-foreground">{stat.value}</p>
@@ -448,7 +447,7 @@ const AdminBookings = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setCalendarMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
-              className="w-9 h-9 rounded-lg border-2 border-border flex items-center justify-center hover:bg-muted/40"
+              className="w-9 h-9 rounded-lg border border-border flex items-center justify-center hover:bg-muted/40"
             >
               <ChevronLeft size={16} />
             </button>
@@ -457,13 +456,13 @@ const AdminBookings = () => {
             </span>
             <button
               onClick={() => setCalendarMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
-              className="w-9 h-9 rounded-lg border-2 border-border flex items-center justify-center hover:bg-muted/40"
+              className="w-9 h-9 rounded-lg border border-border flex items-center justify-center hover:bg-muted/40"
             >
               <ChevronRight size={16} />
             </button>
             <button
               onClick={() => setCalendarMonth(new Date())}
-              className="px-3 py-1.5 rounded-lg border-2 border-border text-xs font-bold hover:bg-muted/40"
+              className="px-3 py-1.5 rounded-lg border border-border text-xs font-bold hover:bg-muted/40"
             >
               Aujourd'hui
             </button>
@@ -529,7 +528,7 @@ const AdminBookings = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: Math.min(index, 20) * 0.03 }}
               whileHover={{ y: -4 }}
-              className="bg-card rounded-2xl border-2 border-border hover:border-primary/30 hover:shadow-xl transition-all group overflow-hidden"
+              className="bg-card rounded-2xl border border-border hover:border-primary/30 hover:shadow-xl transition-all group overflow-hidden"
             >
               {/* Header */}
               <div className="p-5 border-b border-border">
@@ -639,7 +638,7 @@ const AdminBookings = () => {
                       required
                       value={formData.client_id}
                       onChange={(e) => setFormData({...formData, client_id: e.target.value})}
-                      className="w-full px-4 py-3 rounded-xl border-2 border-border focus:border-primary bg-card outline-none transition-all font-medium"
+                      className="w-full px-4 py-3 rounded-xl border border-border focus:border-primary bg-card outline-none transition-all font-medium"
                       placeholder="1"
                     />
                   </div>
@@ -650,7 +649,7 @@ const AdminBookings = () => {
                       required
                       value={formData.pro_id}
                       onChange={(e) => setFormData({...formData, pro_id: e.target.value})}
-                      className="w-full px-4 py-3 rounded-xl border-2 border-border focus:border-primary bg-card outline-none transition-all font-medium"
+                      className="w-full px-4 py-3 rounded-xl border border-border focus:border-primary bg-card outline-none transition-all font-medium"
                       placeholder="2"
                     />
                   </div>
@@ -661,7 +660,7 @@ const AdminBookings = () => {
                       required
                       value={formData.prestation_id}
                       onChange={(e) => setFormData({...formData, prestation_id: e.target.value})}
-                      className="w-full px-4 py-3 rounded-xl border-2 border-border focus:border-primary bg-card outline-none transition-all font-medium"
+                      className="w-full px-4 py-3 rounded-xl border border-border focus:border-primary bg-card outline-none transition-all font-medium"
                       placeholder="1"
                     />
                   </div>
@@ -675,7 +674,7 @@ const AdminBookings = () => {
                       required
                       value={formData.start_datetime}
                       onChange={(e) => setFormData({...formData, start_datetime: e.target.value})}
-                      className="w-full px-4 py-3 rounded-xl border-2 border-border focus:border-primary bg-card outline-none transition-all font-medium"
+                      className="w-full px-4 py-3 rounded-xl border border-border focus:border-primary bg-card outline-none transition-all font-medium"
                     />
                   </div>
                   <div>
@@ -685,7 +684,7 @@ const AdminBookings = () => {
                       required
                       value={formData.end_datetime}
                       onChange={(e) => setFormData({...formData, end_datetime: e.target.value})}
-                      className="w-full px-4 py-3 rounded-xl border-2 border-border focus:border-primary bg-card outline-none transition-all font-medium"
+                      className="w-full px-4 py-3 rounded-xl border border-border focus:border-primary bg-card outline-none transition-all font-medium"
                     />
                   </div>
                 </div>
@@ -699,7 +698,7 @@ const AdminBookings = () => {
                       step="0.01"
                       value={formData.price}
                       onChange={(e) => setFormData({...formData, price: e.target.value})}
-                      className="w-full px-4 py-3 rounded-xl border-2 border-border focus:border-primary bg-card outline-none transition-all font-medium"
+                      className="w-full px-4 py-3 rounded-xl border border-border focus:border-primary bg-card outline-none transition-all font-medium"
                       placeholder="50.00"
                     />
                   </div>
@@ -710,7 +709,7 @@ const AdminBookings = () => {
                       required
                       value={formData.status}
                       onChange={(e) => setFormData({...formData, status: e.target.value as any})}
-                      className="w-full px-4 py-3 rounded-xl border-2 border-border focus:border-primary bg-card outline-none transition-all font-medium"
+                      className="w-full px-4 py-3 rounded-xl border border-border focus:border-primary bg-card outline-none transition-all font-medium"
                     >
                       <option value="pending">En attente</option>
                       <option value="confirmed">Confirmée</option>
@@ -726,7 +725,7 @@ const AdminBookings = () => {
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => setIsModalOpen(false)}
-                    className="flex-1 px-6 py-3.5 rounded-xl border-2 border-border font-bold hover:bg-muted/40 transition-all"
+                    className="flex-1 px-6 py-3.5 rounded-xl border border-border font-bold hover:bg-muted/40 transition-all"
                   >
                     Annuler
                   </motion.button>

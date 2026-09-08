@@ -197,6 +197,38 @@
       hsl(330 35% 12%) 14px 28px
     );
   }
+
+  /* Carte standard — nuit prune, bord fin, ombre douce profonde. */
+  .admin-card {
+    background-color: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 1rem;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Entrée en cascade des enfants directs (grilles de cartes, listes).
+     L'anim ne joue qu'une fois, respecte prefers-reduced-motion. */
+  .admin-stagger > * {
+    animation: admin-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .admin-stagger > *:nth-child(1) { animation-delay: 0.02s; }
+  .admin-stagger > *:nth-child(2) { animation-delay: 0.06s; }
+  .admin-stagger > *:nth-child(3) { animation-delay: 0.10s; }
+  .admin-stagger > *:nth-child(4) { animation-delay: 0.14s; }
+  .admin-stagger > *:nth-child(5) { animation-delay: 0.18s; }
+  .admin-stagger > *:nth-child(6) { animation-delay: 0.22s; }
+  .admin-stagger > *:nth-child(7) { animation-delay: 0.26s; }
+  .admin-stagger > *:nth-child(8) { animation-delay: 0.30s; }
+  .admin-stagger > *:nth-child(n + 9) { animation-delay: 0.34s; }
+}
+
+@keyframes admin-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-stagger > * { animation: none; }
 }
 
 @layer utilities {

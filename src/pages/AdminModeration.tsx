@@ -116,7 +116,7 @@ const AdminModeration = () => {
       />
 
       {/* KPI rapide sur la vue courante */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="admin-stagger grid grid-cols-1 sm:grid-cols-2 gap-4">
         <KpiCard icon={Star} label="Avis signalés" value={domain === "reviews" ? total : "—"} />
         <KpiCard icon={MessageSquare} label="Conversations signalées" value={domain === "messages" ? total : "—"} />
       </div>
@@ -176,7 +176,7 @@ const AdminModeration = () => {
         ) : (
           <div className="space-y-3">
             {reviews.map((review) => (
-              <div key={review.id} className="bg-card rounded-2xl border-2 border-border p-4 flex flex-col gap-2">
+              <div key={review.id} className="bg-card rounded-2xl border border-border p-4 flex flex-col gap-2">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold text-foreground text-sm">
@@ -227,7 +227,7 @@ const AdminModeration = () => {
             <button
               key={thread.id}
               onClick={() => setOpenThread(thread)}
-              className="w-full text-left bg-card rounded-2xl border-2 border-border p-4 flex flex-col gap-2 hover:border-foreground/30 transition-colors"
+              className="w-full text-left bg-card rounded-2xl border border-border p-4 flex flex-col gap-2 hover:border-foreground/30 transition-colors"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
