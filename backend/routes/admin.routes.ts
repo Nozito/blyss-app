@@ -257,7 +257,7 @@ router.get(
         SELECT id, first_name, last_name, email, phone_number, birth_date, role,
                is_admin, is_active, created_at, activity_name, city,
                instagram_account, profile_photo, banner_photo, pro_status, bio,
-               profile_visibility, is_verified
+               profile_visibility
         FROM users WHERE id = ?
       `, [userId]);
 
@@ -741,13 +741,13 @@ router.post(
       const [insertRows] = await db.query(
         `INSERT INTO users (
           first_name, last_name, phone_number, email, birth_date, password_hash,
-          is_verified, role, is_admin, created_at, activity_name, city,
+          role, is_admin, created_at, activity_name, city,
           instagram_account, profile_photo, banner_photo,
           accept_online_payment, pro_status, bio, profile_visibility
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
         [
           first_name, last_name, phone_number, email, formattedBirthDate, password_hash,
-          0, role, is_admin ? 1 : 0,
+          role, is_admin ? 1 : 0,
           activity_name || null, city || null, instagram_account || null,
           profile_photo || null, banner_photo || null,
           accept_online_payment ? 1 : 0, pro_status || "inactive",
@@ -782,7 +782,7 @@ router.put(
         first_name, last_name, phone_number, email, birth_date, role, is_admin,
         activity_name, city, instagram_account, profile_photo, banner_photo,
         accept_online_payment, pro_status,
-        bio, profile_visibility, is_verified,
+        bio, profile_visibility,
       } = req.body;
 
       const db = getDb();
@@ -810,7 +810,7 @@ router.put(
           birth_date = ?, role = ?, is_admin = ?, activity_name = ?,
           city = ?, instagram_account = ?, profile_photo = ?, banner_photo = ?,
           accept_online_payment = ?, pro_status = ?, bio = ?,
-          profile_visibility = ?, is_verified = ?
+          profile_visibility = ?
         WHERE id = ?`,
         [
           first_name, last_name, phone_number, email, formattedBirthDate,
@@ -819,7 +819,7 @@ router.put(
           profile_photo || null, banner_photo || null,
           accept_online_payment ? 1 : 0, pro_status || "inactive",
           bio || null, profile_visibility || "public",
-          is_verified ? 1 : 0, userId,
+          userId,
         ]
       );
 
