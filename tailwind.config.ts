@@ -77,7 +77,6 @@ export default {
       },
       fontFamily: {
         display: ["Helvetica Neue", "Helvetica", "-apple-system", "BlinkMacSystemFont", "sans-serif"],
-        serif: ["Instrument Serif", "Times New Roman", "Georgia", "serif"],
         sans: ["Helvetica Neue", "Helvetica", "-apple-system", "BlinkMacSystemFont", "sans-serif"],
       },
       borderRadius: {
