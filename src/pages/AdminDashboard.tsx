@@ -33,7 +33,14 @@ interface Changes {
   users: number | null;
   revenue: number | null;
   bookings: number | null;
+  subscriptions?: number | null;
 }
+
+const PLAN_LABEL: Record<string, string> = {
+  start: "Start",
+  serenite: "Sérénité",
+  signature: "Signature",
+};
 
 interface Stats {
   totalUsers: number;
@@ -45,6 +52,13 @@ interface Stats {
   monthRevenue: number;
   activeUsers: number;
   newUsersThisMonth: number;
+  /** Le vrai CA plateforme : abonnements pros. */
+  subsActive?: number;
+  subsThisMonth?: number;
+  subMrr?: number;
+  /** Montant réellement encaissé via Stripe dans l'app ce mois (acomptes/soldes). */
+  collectedThisMonth?: number;
+  subsByPlan?: { start: number; serenite: number; signature: number };
   bookingsByStatus: Record<string, number>;
   changes: Changes;
   // Optionnel : une réponse mise en cache par React Query avant ce champ
@@ -245,8 +259,10 @@ const AdminDashboard = () => {
 
   const now = new Date();
   const greeting = now.getHours() < 6 ? "Bonne nuit" : now.getHours() < 18 ? "Bonjour" : "Bonsoir";
-  const monthChange = changes.revenue;
+  const subChange = changes.subscriptions;
   const adminName = (user?.first_name ?? "").trim();
+  const subsByPlan = stats?.subsByPlan ?? { start: 0, serenite: 0, signature: 0 };
+  const subsTotal = subsByPlan.start + subsByPlan.serenite + subsByPlan.signature;
 
   return (
     <div className="space-y-8">
@@ -267,30 +283,30 @@ const AdminDashboard = () => {
         />
       </header>
 
-      {/* ── Métrique phare : CA du mois — aplat rose plein largeur ──────── */}
+      {/* ── Métrique phare : revenu abonnements (le vrai CA plateforme) ──── */}
       <section className="admin-field-rose relative overflow-hidden rounded-[1.25rem] p-7 sm:p-10">
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em]">
-              <DollarSign size={13} /> Chiffre d'affaires du mois
+              <DollarSign size={13} /> Revenu mensuel · abonnements pros
             </p>
             <p className="admin-display mt-3 text-[4rem] leading-[0.85] sm:text-[6rem]">
-              {(stats?.monthRevenue ?? 0).toLocaleString("fr-FR")}
+              {(stats?.subMrr ?? 0).toLocaleString("fr-FR")}
               <span className="ml-2 align-top text-[1.8rem]">€</span>
             </p>
-            {monthChange != null && (
+            {subChange != null && (
               <p className="mt-3 inline-flex items-center gap-1.5 text-sm font-black">
-                {monthChange >= 0 ? <TrendingUp size={14} /> : <TrendingUp size={14} className="rotate-180" />}
-                {monthChange > 0 ? "+" : ""}
-                {monthChange}% vs mois dernier
+                {subChange >= 0 ? <TrendingUp size={14} /> : <TrendingUp size={14} className="rotate-180" />}
+                {subChange > 0 ? "+" : ""}
+                {subChange}% d'abos pris vs mois dernier
               </p>
             )}
           </div>
           <dl className="grid grid-cols-3 gap-x-8 gap-y-1 text-right">
             {[
-              { k: "Total encaissé", v: `${(stats?.totalRevenue ?? 0).toLocaleString("fr-FR")} €` },
-              { k: "RDV aujourd'hui", v: stats?.todayBookings ?? 0 },
-              { k: "Réservations", v: stats?.totalBookings ?? 0 },
+              { k: "Abos actifs", v: stats?.subsActive ?? 0 },
+              { k: "Pris ce mois", v: stats?.subsThisMonth ?? 0 },
+              { k: "Encaissé dans l'app", v: `${(stats?.collectedThisMonth ?? 0).toLocaleString("fr-FR")} €` },
             ].map((s) => (
               <div key={s.k}>
                 <dd className="admin-display text-[1.8rem] leading-none">{s.v}</dd>
@@ -302,7 +318,15 @@ const AdminDashboard = () => {
       </section>
 
       {/* KPI secondaires */}
-      <div className="admin-stagger grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="admin-stagger grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <KpiCard
+          icon={CreditCard}
+          label="Abos pris (mois)"
+          value={stats?.subsThisMonth ?? 0}
+          change={subChange}
+          changeLabel="vs mois dernier"
+          emphasis
+        />
         <KpiCard
           icon={Users}
           label="Utilisateurs"
@@ -321,19 +345,47 @@ const AdminDashboard = () => {
         />
       </div>
 
+      {/* Répartition des abonnements actifs */}
+      <div className="bg-card rounded-2xl border border-border p-5 sm:p-6 shadow-[var(--shadow-card)]">
+        <div className="flex items-baseline justify-between mb-4">
+          <h2 className="text-lg font-bold text-foreground">Répartition des abonnements</h2>
+          <span className="text-sm font-bold text-muted-foreground">{subsTotal} actifs</span>
+        </div>
+        <div className="space-y-3">
+          {(["signature", "serenite", "start"] as const).map((plan) => {
+            const count = subsByPlan[plan];
+            const pct = subsTotal > 0 ? Math.round((count / subsTotal) * 100) : 0;
+            return (
+              <div key={plan} className="flex items-center gap-4">
+                <span className="w-24 shrink-0 text-sm font-semibold text-foreground/85">{PLAN_LABEL[plan]}</span>
+                <span className="flex-1 h-2.5 rounded-full bg-muted overflow-hidden">
+                  <span
+                    className="block h-full rounded-full bg-primary"
+                    style={{ width: `${pct}%` }}
+                  />
+                </span>
+                <span className="w-16 text-right text-sm font-bold text-foreground tabular-nums">
+                  {count} <span className="text-muted-foreground font-medium">· {pct}%</span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Activité principale + alertes */}
-      <div className="grid lg:grid-cols-3 gap-6 lg:items-start">
+      <div className="grid lg:grid-cols-3 gap-6 lg:items-stretch">
         <ChartCard
           className="lg:col-span-2"
           icon={TrendingUp}
-          title="Chiffre d'affaires"
-          description="Réservations confirmées et terminées — 30 derniers jours."
+          title="Encaissé dans l'app"
+          description="Acomptes et soldes réglés par les clientes — 30 derniers jours. (≠ ton CA abonnements.)"
           loading={revenueLoading}
           error={revenueError}
           onRetry={() => refetchRevenue()}
           isEmpty={revenueIsEmpty}
-          emptyTitle="Pas encore de revenus ce mois-ci"
-          emptyDescription="Le graphique apparaîtra dès les premières réservations payées."
+          emptyTitle="Rien d'encaissé ce mois-ci"
+          emptyDescription="Le graphique apparaîtra dès les premiers paiements en ligne."
         >
           <ChartContainer config={revenueChartConfig} className="h-56 w-full">
             <AreaChart data={revenueData} accessibilityLayer aria-label="Évolution du chiffre d'affaires sur 30 jours">
@@ -353,10 +405,12 @@ const AdminDashboard = () => {
           </ChartContainer>
         </ChartCard>
 
-        <div className="bg-card rounded-2xl border border-border p-5 sm:p-6 shadow-[var(--shadow-card)]">
+        <div className="flex flex-col bg-card rounded-2xl border border-border p-5 sm:p-6 shadow-[var(--shadow-card)]">
           <h2 className="text-lg font-bold text-foreground mb-1">Nécessite ton attention</h2>
           <p className="text-sm text-muted-foreground mb-4">Signaux à traiter dès que possible.</p>
-          <AlertList items={alerts} />
+          <div className="flex-1 flex flex-col justify-center">
+            <AlertList items={alerts} />
+          </div>
         </div>
       </div>
 

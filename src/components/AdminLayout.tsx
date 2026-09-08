@@ -128,17 +128,6 @@ const AdminLayout = () => {
 
   return (
     <div className="admin-theme min-h-screen flex flex-col bg-background text-foreground">
-      {/* Ruban de marque — balaie une fois à chaque changement de page */}
-      {!reduceMotion && (
-        <motion.div
-          key={`ribbon-${location.pathname}`}
-          aria-hidden="true"
-          className="admin-ribbon pointer-events-none fixed inset-y-0 left-0 z-50 w-[45vw] skew-x-[-12deg]"
-          initial={{ x: "-120%" }}
-          animate={{ x: "260%" }}
-          transition={{ duration: 0.6, ease: [0.7, 0, 0.2, 1] }}
-        />
-      )}
       <main className="flex-1 overflow-y-auto pb-24 sm:pb-28">
         <motion.div
           key={location.pathname}

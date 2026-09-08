@@ -313,7 +313,6 @@ const AdminAnalytics = () => {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Backoffice · Pilotage"
         title="Finances"
         description={
           tab === "overview"

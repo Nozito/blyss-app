@@ -130,6 +130,14 @@ const AdminUsers = () => {
     }
   };
 
+  // "06 12 34 56 79" — chiffres groupés par 2, +33 ramené à 0.
+  const formatPhone = (raw: string | undefined | null): string => {
+    if (!raw) return "";
+    let d = raw.replace(/\D/g, "");
+    if (d.startsWith("33") && d.length >= 11) d = "0" + d.slice(2);
+    return d.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
+  };
+
   const formatDate = (dateString: string | undefined | null) => {
     if (!dateString) return null;
     try {
@@ -294,7 +302,6 @@ const AdminUsers = () => {
     <div className="space-y-6">
       {/* Header */}
       <PageHeader
-        eyebrow="Backoffice · Gestion"
         title="Utilisateurs"
         description={`${filteredUsers.length} utilisateur${filteredUsers.length > 1 ? 's' : ''}${
           roleFilter !== 'all' ? ` · ${roleFilter === 'pro' ? 'Professionnels' : 'Clients'}` : ''
@@ -411,11 +418,11 @@ const AdminUsers = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: Math.min(index, 20) * 0.02 }}
-            className="bg-card rounded-2xl border border-border hover:border-foreground/20 transition-colors duration-200 group overflow-hidden"
+            className="flex h-full flex-col bg-card rounded-2xl border border-border hover:border-foreground/20 transition-colors duration-200 group overflow-hidden"
           >
 
             {/* Header Compact */}
-            <div className="relative p-5">
+            <div className="relative flex-1 p-5">
               {/* Badges top-right */}
               {!!(user.is_verified || user.is_admin || !user.is_active || user.is_vigilant || user.is_abusive_reporter) && (
                 <div className="absolute top-3 right-3 flex gap-1.5">
@@ -487,6 +494,7 @@ const AdminUsers = () => {
                       {user.role === 'pro' ? <Briefcase size={10} aria-hidden="true" /> : <User size={10} aria-hidden="true" />}
                       {user.role === 'pro' ? 'Pro' : 'Client'}
                     </span>
+                    <span className="font-mono text-[10px] font-semibold text-muted-foreground">#{user.id}</span>
                   </div>
                 </div>
               </div>
@@ -507,7 +515,7 @@ const AdminUsers = () => {
                     <div className="w-6 h-6 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
                       <Phone size={12} className="text-muted-foreground" aria-hidden="true" />
                     </div>
-                    <span className="font-medium text-xs">{user.phone_number}</span>
+                    <span className="font-medium text-xs tabular-nums">{formatPhone(user.phone_number)}</span>
                   </div>
                 )}
 

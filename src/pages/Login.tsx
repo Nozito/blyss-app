@@ -240,18 +240,18 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
   return (
     <div className="mercury-wrapper" ref={ref}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;800&family=Space+Mono&display=swap');
-
         .mercury-wrapper {
-          --bg: #050505;
-          --mercury: #e0e0e0;
-          --accent: #ffffff;
-          --text-dim: rgba(255, 255, 255, 0.5);
-          --filter-goo: url('#gooey');
+          --bg: #140A10;
+          --accent: #FE5D9D;
+          --ink: #F6E9EE;
+          --text-dim: rgba(246, 233, 238, 0.5);
 
           background-color: var(--bg);
-          color: var(--accent);
-          font-family: 'Inter', sans-serif;
+          background-image:
+            radial-gradient(ellipse 70% 40% at 8% -6%, rgba(254,93,157,0.16), transparent 60%),
+            linear-gradient(180deg, #1c0e17 0%, #140a10 60%, #0f0810 100%);
+          color: var(--ink);
+          font-family: 'Archivo', -apple-system, 'Helvetica Neue', sans-serif;
           min-height: 100vh;
           width: 100%;
           overflow: hidden;
@@ -261,277 +261,111 @@ const Login = forwardRef<HTMLDivElement>((_, ref) => {
           position: relative;
         }
 
-        .mercury-wrapper * {
-          box-sizing: border-box;
-          -webkit-font-smoothing: antialiased;
-        }
+        .mercury-wrapper * { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
 
-        .mercury-wrapper .stage {
-          position: absolute;
-          width: 100%;
-          height: 100%;
-          z-index: 0;
-          filter: var(--filter-goo);
-          opacity: 0.6;
-        }
+        .mercury-wrapper .stage { position: absolute; inset: 0; z-index: 0; overflow: hidden; }
 
+        /* Blocs plats qui dérivent avec la souris — brutalist, zéro blur. */
         .mercury-wrapper .blob {
           position: absolute;
-          background: linear-gradient(135deg, var(--mercury), #888);
-          border-radius: 50%;
-          filter: blur(20px);
-          animation: mercuryFloat 20s infinite alternate ease-in-out;
-          box-shadow: inset -10px -10px 20px rgba(0,0,0,0.5),
-                      10px 10px 30px rgba(255,255,255,0.2);
-          transition: margin 0.1s ease-out;
+          background: var(--accent);
+          opacity: 0.14;
+          transition: margin 0.15s ease-out;
         }
-
-        @keyframes mercuryFloat {
-          0% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(10vw, 20vh) scale(1.2); }
-          66% { transform: translate(-5vw, 10vh) scale(0.8); }
-          100% { transform: translate(5vw, -10vh) scale(1.1); }
-        }
+        .mercury-wrapper .blob:nth-child(even) { background: #3D1F2C; opacity: 0.5; }
 
         .mercury-wrapper .auth-container {
-          position: relative;
-          z-index: 10;
-          width: 100%;
-          max-width: 440px;
-          padding: 40px;
+          position: relative; z-index: 10; width: 100%; max-width: 440px; padding: 40px;
         }
 
-        .mercury-wrapper .header {
-          margin-bottom: 48px;
-          text-align: left;
-        }
+        .mercury-wrapper .header { margin-bottom: 44px; text-align: left; }
 
         .mercury-wrapper .brand-id {
           font-family: 'Space Mono', monospace;
-          font-size: 10px;
-          letter-spacing: 4px;
-          text-transform: uppercase;
-          color: var(--text-dim);
-          margin-bottom: 8px;
-          display: block;
+          font-size: 10px; letter-spacing: 4px; text-transform: uppercase;
+          color: var(--text-dim); margin-bottom: 14px; display: block;
         }
 
         .mercury-wrapper .header h1 {
-          font-weight: 800;
-          font-size: 3rem;
-          line-height: 0.9;
-          letter-spacing: -2px;
-          margin-left: -4px;
-          margin-top: 0;
+          font-weight: 900; font-size: 3.6rem; line-height: 0.86;
+          letter-spacing: -0.045em; text-transform: uppercase;
+          margin: 0; color: var(--ink);
         }
 
-        .mercury-wrapper .form-group {
-          position: relative;
-          margin-bottom: 30px;
-          transition: transform 0.4s cubic-bezier(0.2, 1, 0.3, 1);
-        }
-
-        .mercury-wrapper .form-group:focus-within {
-          transform: translateX(10px);
-        }
+        .mercury-wrapper .form-group { position: relative; margin-bottom: 28px; }
 
         .mercury-wrapper .form-group label {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-family: 'Space Mono', monospace;
-          font-size: 11px;
-          color: var(--text-dim);
-          margin-bottom: 12px;
-          text-transform: uppercase;
+          display: flex; align-items: center; gap: 6px;
+          font-size: 11px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase;
+          color: var(--text-dim); margin-bottom: 10px;
         }
 
-        .mercury-wrapper .field-error {
-          color: #ff6b6b;
-          text-transform: none;
-          font-family: 'Inter', sans-serif;
-          font-size: 11px;
-        }
+        .mercury-wrapper .field-error { color: #ff8686; text-transform: none; font-weight: 700; font-size: 11px; }
 
-        .mercury-wrapper .field-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
+        .mercury-wrapper .field-row { display: flex; align-items: center; justify-content: space-between; }
 
         .mercury-wrapper .forgot-link {
-          background: none;
-          border: none;
-          padding: 0;
-          font-family: 'Space Mono', monospace;
-          font-size: 10px;
-          text-transform: uppercase;
-          letter-spacing: 1px;
-          color: var(--text-dim);
-          cursor: pointer;
-          transition: color 0.3s;
+          background: none; border: none; padding: 0;
+          font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px;
+          color: var(--text-dim); cursor: pointer; transition: color 0.2s;
         }
+        .mercury-wrapper .forgot-link:hover { color: var(--accent); }
 
-        .mercury-wrapper .forgot-link:hover {
-          color: var(--accent);
-        }
-
-        .mercury-wrapper .input-row {
-          position: relative;
-        }
+        .mercury-wrapper .input-row { position: relative; }
 
         .mercury-wrapper .form-group input {
-          width: 100%;
-          background: transparent;
-          border: none;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-          color: var(--accent);
-          padding: 12px 0;
-          font-size: 18px;
-          outline: none;
-          transition: border-color 0.4s;
+          width: 100%; background: transparent; border: none;
+          border-bottom: 1.5px solid rgba(246,233,238,0.2);
+          color: var(--ink); padding: 12px 0; font-size: 17px; font-weight: 600;
+          outline: none; transition: border-color 0.3s;
         }
-
-        .mercury-wrapper .form-group input:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .mercury-wrapper .input-row input {
-          padding-right: 32px;
-        }
+        .mercury-wrapper .form-group input:disabled { opacity: 0.5; cursor: not-allowed; }
+        .mercury-wrapper .input-row input { padding-right: 32px; }
 
         .mercury-wrapper .input-glow {
-          position: absolute;
-          bottom: 0;
-          left: 0;
-          width: 0%;
-          height: 2px;
-          background: var(--mercury);
-          transition: width 0.6s cubic-bezier(0.2, 1, 0.3, 1);
-          box-shadow: 0 0 15px var(--mercury);
+          position: absolute; bottom: -1.5px; left: 0; width: 0%; height: 2px;
+          background: var(--accent); transition: width 0.4s cubic-bezier(0.2, 1, 0.3, 1);
         }
-
-        .mercury-wrapper .form-group input:focus + .input-glow {
-          width: 100%;
-        }
+        .mercury-wrapper .form-group input:focus + .input-glow { width: 100%; }
 
         .mercury-wrapper .pw-toggle {
-          position: absolute;
-          right: 0;
-          top: 50%;
-          transform: translateY(-50%);
-          background: none;
-          border: none;
-          color: var(--text-dim);
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          padding: 4px;
+          position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+          background: none; border: none; color: var(--text-dim); cursor: pointer;
+          display: flex; align-items: center; padding: 4px;
         }
+        .mercury-wrapper .pw-toggle:hover { color: var(--accent); }
 
-        .mercury-wrapper .pw-toggle:hover {
-          color: var(--accent);
-        }
-
-        .mercury-wrapper .submit-wrap {
-          margin-top: 46px;
-          position: relative;
-          filter: var(--filter-goo);
-        }
+        .mercury-wrapper .submit-wrap { margin-top: 42px; position: relative; }
 
         .mercury-wrapper .btn-base {
-          background: var(--accent);
-          color: #000;
-          border: none;
-          padding: 20px 40px;
-          font-size: 14px;
-          font-weight: 800;
-          text-transform: uppercase;
-          letter-spacing: 2px;
-          cursor: pointer;
-          width: 100%;
-          position: relative;
-          z-index: 2;
-          transition: letter-spacing 0.3s, opacity 0.3s;
+          background: var(--accent); color: #14070C; border: none;
+          padding: 20px 40px; font-size: 13px; font-weight: 900;
+          text-transform: uppercase; letter-spacing: 2px; cursor: pointer;
+          width: 100%; position: relative; z-index: 2;
+          transition: letter-spacing 0.25s, opacity 0.25s, transform 0.1s;
         }
+        .mercury-wrapper .btn-base:disabled { opacity: 0.55; cursor: not-allowed; }
+        .mercury-wrapper .btn-base:not(:disabled):hover { letter-spacing: 4px; }
+        .mercury-wrapper .btn-base:not(:disabled):active { transform: translateY(1px); }
 
-        .mercury-wrapper .btn-base:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        .mercury-wrapper .btn-base:not(:disabled):hover {
-          letter-spacing: 4px;
-        }
-
-        .mercury-wrapper .mercury-drop {
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          width: 100%;
-          height: 100%;
-          background: var(--mercury);
-          transform: translate(-50%, -50%);
-          z-index: 1;
-          border-radius: 50px;
-          transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
-
-        .mercury-wrapper .submit-wrap:hover .mercury-drop {
-          transform: translate(-50%, -50%) scale(1.05, 1.2);
-          filter: brightness(1.2);
-        }
+        .mercury-wrapper .mercury-drop { display: none; }
 
         .mercury-wrapper .footer-nav {
-          margin-top: 36px;
-          display: flex;
-          justify-content: space-between;
-          font-family: 'Space Mono', monospace;
-          font-size: 10px;
+          margin-top: 34px; display: flex; justify-content: space-between;
+          font-family: 'Space Mono', monospace; font-size: 10px;
         }
-
         .mercury-wrapper .footer-nav a,
         .mercury-wrapper .footer-nav button {
-          background: none;
-          border: none;
-          padding: 0;
-          color: var(--text-dim);
-          text-decoration: none;
-          cursor: pointer;
-          font-family: 'Space Mono', monospace;
-          font-size: 10px;
-          text-transform: uppercase;
-          letter-spacing: 1px;
-          transition: color 0.3s;
+          background: none; border: none; padding: 0; color: var(--text-dim);
+          text-decoration: none; cursor: pointer;
+          font-family: 'Space Mono', monospace; font-size: 10px;
+          text-transform: uppercase; letter-spacing: 1px; transition: color 0.2s;
         }
-
         .mercury-wrapper .footer-nav a:hover,
-        .mercury-wrapper .footer-nav button:hover {
-          color: var(--accent);
-        }
+        .mercury-wrapper .footer-nav button:hover { color: var(--accent); }
 
-        .svg-filter-hidden {
-          position: absolute;
-          width: 0;
-          height: 0;
-        }
+        .svg-filter-hidden { display: none; }
       `}</style>
-
-      <svg className="svg-filter-hidden">
-        <defs>
-          <filter id="gooey">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="12" result="blur" />
-            <feColorMatrix
-              in="blur"
-              mode="matrix"
-              values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 19 -9"
-              result="goo"
-            />
-            <feComposite in="SourceGraphic" in2="goo" operator="atop" />
-          </filter>
-        </defs>
-      </svg>
 
       <div className="stage">
         {blobsData.map((data, index) => (

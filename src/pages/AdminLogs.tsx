@@ -185,7 +185,6 @@ const AdminLogs = () => {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Backoffice · Système"
         title="Logs d'audit"
         description={`${filtered.length} action${filtered.length > 1 ? "s" : ""} admin — suppressions, désactivations, accès admin, remboursements`}
         actions={

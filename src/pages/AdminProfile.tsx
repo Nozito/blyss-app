@@ -310,9 +310,8 @@ const AdminProfile = () => {
   const accountTypeLabel = user?.role === "pro" ? "Professionnel" : "Client";
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="space-y-6">
       <PageHeader
-        eyebrow="Backoffice · Compte"
         title="Profil"
         description="Gère les informations, la sécurité et les préférences de ton compte administrateur."
       />

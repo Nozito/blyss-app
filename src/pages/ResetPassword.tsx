@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Lock, Eye, EyeOff, ChevronLeft, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
+import { Eye, EyeOff, ChevronLeft, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
 import MobileLayout from "@/components/MobileLayout";
 import { toast } from "sonner";
 
@@ -21,13 +21,12 @@ const ResetPassword = () => {
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // If no token in URL, redirect immediately
   useEffect(() => {
     if (!token) navigate("/forgot-password", { replace: true });
   }, [token, navigate]);
 
   const passwordError = password && !PASSWORD_REGEX.test(password)
-    ? "Au moins 8 caractères, une majuscule, une minuscule et un chiffre"
+    ? "8 caractères min., une majuscule, une minuscule, un chiffre"
     : null;
 
   const confirmError = confirm && password !== confirm
@@ -69,133 +68,79 @@ const ResetPassword = () => {
 
   return (
     <MobileLayout>
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12 bg-gradient-to-b from-background to-muted/20">
-        <div className="w-full max-w-md space-y-8">
+      <div className="auth-choc">
+        <div className="box">
           {!done && (
-            <button
-              onClick={() => navigate("/login")}
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ChevronLeft size={16} />
+            <button className="back" onClick={() => navigate("/login")}>
+              <ChevronLeft size={13} strokeWidth={3} />
               Retour à la connexion
             </button>
           )}
 
           {done ? (
-            <div className="text-center space-y-4">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-4">
-                <CheckCircle2 size={28} className="text-primary" />
-              </div>
-              <h1 className="text-2xl font-bold text-foreground">Mot de passe mis à jour</h1>
-              <p className="text-sm text-muted-foreground">
-                Tu peux maintenant te connecter avec ton nouveau mot de passe.
-              </p>
-              <button
-                onClick={() => navigate("/login", { replace: true })}
-                className="w-full h-12 rounded-xl bg-blyss-pink text-white font-semibold text-sm shadow-lg shadow-blyss-pink/30 hover:bg-blyss-pink/90 transition-all active:scale-[0.98] mt-4"
-              >
-                Se connecter
-              </button>
-            </div>
+            <>
+              <span className="brand">Blyss · Console admin</span>
+              <div className="tick"><CheckCircle2 size={26} strokeWidth={2.6} /></div>
+              <h1>Mot de passe<br />à jour</h1>
+              <p>Tu peux te connecter avec ton nouveau mot de passe.</p>
+              <button className="btn" onClick={() => navigate("/login", { replace: true })}>Se connecter</button>
+            </>
           ) : (
             <>
-              <div className="text-center space-y-2">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-4">
-                  <Lock size={28} className="text-primary" />
-                </div>
-                <h1 className="text-2xl font-bold text-foreground">Nouveau mot de passe</h1>
-                <p className="text-sm text-muted-foreground">
-                  Choisis un mot de passe sécurisé pour ton compte.
-                </p>
-              </div>
+              <span className="brand">Blyss · Console admin</span>
+              <h1>Nouveau<br />mot de passe</h1>
+              <p>Choisis un mot de passe sécurisé pour ton compte admin.</p>
 
               {error && (
-                <div className="flex items-center gap-3 p-4 rounded-2xl bg-destructive/10 border border-destructive/20">
-                  <AlertCircle size={18} className="text-destructive flex-shrink-0" />
-                  <p className="text-sm text-destructive font-medium">{error}</p>
+                <div className="alert">
+                  <AlertCircle size={16} className="shrink-0" />
+                  {error}
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Password */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Nouveau mot de passe
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      autoComplete="new-password"
-                      className={`w-full h-12 pl-4 pr-11 rounded-xl border-2 bg-background text-sm focus:outline-none focus:ring-4 transition-all ${
-                        passwordError
-                          ? "border-destructive focus:ring-destructive/10"
-                          : password
-                          ? "border-primary focus:ring-primary/10"
-                          : "border-border focus:border-primary focus:ring-primary/10"
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((v) => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                  {passwordError && (
-                    <p className="text-xs text-destructive">{passwordError}</p>
-                  )}
+              <form onSubmit={handleSubmit} style={{ marginTop: 32 }}>
+                <label htmlFor="rp-pw">Nouveau mot de passe</label>
+                <div className="field">
+                  <input
+                    id="rp-pw"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="new-password"
+                    className={passwordError ? "err" : ""}
+                  />
+                  <button type="button" className="toggle" onClick={() => setShowPassword((v) => !v)} aria-label={showPassword ? "Masquer" : "Afficher"}>
+                    {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                  </button>
                 </div>
+                {passwordError && <p className="hint err">{passwordError}</p>}
 
-                {/* Confirm */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Confirmer le mot de passe
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showConfirm ? "text" : "password"}
-                      value={confirm}
-                      onChange={(e) => setConfirm(e.target.value)}
-                      autoComplete="new-password"
-                      className={`w-full h-12 pl-4 pr-11 rounded-xl border-2 bg-background text-sm focus:outline-none focus:ring-4 transition-all ${
-                        confirmError
-                          ? "border-destructive focus:ring-destructive/10"
-                          : confirm
-                          ? "border-primary focus:ring-primary/10"
-                          : "border-border focus:border-primary focus:ring-primary/10"
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirm((v) => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                  {confirmError && (
-                    <p className="text-xs text-destructive">{confirmError}</p>
-                  )}
+                <div style={{ height: 24 }} />
+
+                <label htmlFor="rp-confirm">Confirmer</label>
+                <div className="field">
+                  <input
+                    id="rp-confirm"
+                    type={showConfirm ? "text" : "password"}
+                    value={confirm}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    autoComplete="new-password"
+                    className={confirmError ? "err" : ""}
+                  />
+                  <button type="button" className="toggle" onClick={() => setShowConfirm((v) => !v)} aria-label={showConfirm ? "Masquer" : "Afficher"}>
+                    {showConfirm ? <EyeOff size={17} /> : <Eye size={17} />}
+                  </button>
                 </div>
+                {confirmError && <p className="hint err">{confirmError}</p>}
 
-                <button
-                  type="submit"
-                  disabled={!canSubmit || isSaving}
-                  className="flex items-center justify-center gap-2 w-full h-12 rounded-xl bg-blyss-pink text-white font-semibold text-sm shadow-lg shadow-blyss-pink/30 hover:bg-blyss-pink/90 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <button type="submit" className="btn" disabled={!canSubmit || isSaving}>
                   {isSaving ? (
                     <>
-                      <Loader2 size={16} className="animate-spin" />
-                      Enregistrement...
+                      <Loader2 size={15} className="animate-spin" />
+                      Enregistrement…
                     </>
                   ) : (
-                    <>
-                      <Lock size={16} />
-                      Enregistrer le nouveau mot de passe
-                    </>
+                    "Enregistrer"
                   )}
                 </button>
               </form>
