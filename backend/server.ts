@@ -278,36 +278,53 @@ app.post(
         [event.id, event.type]
       );
 
+      // Effets à jouer APRÈS le commit : les push (un APNs/WS lent ne doit pas
+      // tenir la transaction et ses verrous) et les appels Stripe (remboursement).
+      const pushQueue: Array<{ userId: number; payload: Record<string, unknown> }> = [];
+      let latePayment:
+        | { reservationId: number; piId: string; amount: number; reservationStatus: string }
+        | null = null;
+
       switch (event.type) {
         case "payment_intent.succeeded": {
           const pi = event.data.object as Stripe.PaymentIntent;
+          // Ne pas réanimer un paiement déjà remboursé (event rejoué / hors ordre).
           await connection.execute(
-            `UPDATE payments SET status = 'succeeded', updated_at = NOW() WHERE stripe_payment_intent_id = ?`,
+            `UPDATE payments SET status = 'succeeded', updated_at = NOW()
+             WHERE stripe_payment_intent_id = ? AND status <> 'refunded'`,
             [pi.id]
           );
-          // Get payment info to update reservation
           const [paymentRows] = await connection.query(
-            `SELECT reservation_id, amount, type FROM payments WHERE stripe_payment_intent_id = ?`,
+            `SELECT p.reservation_id, p.amount, p.type, r.status AS reservation_status
+             FROM payments p
+             JOIN reservations r ON r.id = p.reservation_id
+             WHERE p.stripe_payment_intent_id = ?`,
             [pi.id]
           );
           const payment = (paymentRows as any[])[0];
           if (payment) {
-            const newStatus = payment.type === "deposit" ? "deposit_paid" : "fully_paid";
-            await connection.execute(
-              `UPDATE reservations SET payment_status = ?, total_paid = total_paid + ? WHERE id = ?`,
-              [newStatus, payment.amount, payment.reservation_id]
-            );
-            // Une réservation en ligne reste 'pending' jusqu'au paiement : ce
-            // webhook est le seul point qui la confirme une fois l'acompte/solde
-            // encaissé. (WHERE status = 'pending' : ne touche pas un RDV déjà
-            // confirmé ou annulé entre-temps.)
-            await connection.execute(
-              `UPDATE reservations SET status = 'confirmed' WHERE id = ? AND status = 'pending'`,
-              [payment.reservation_id]
-            );
+            const active =
+              payment.reservation_status === "pending" || payment.reservation_status === "confirmed";
 
-            // Notify the pro that a payment/deposit landed (best-effort)
-            try {
+            if (active) {
+              const newStatus = payment.type === "deposit" ? "deposit_paid" : "fully_paid";
+              // INVARIANT : une réservation annulée ne devient jamais payée via un
+              // paiement tardif. Le crédit est conditionné au statut.
+              await connection.execute(
+                `UPDATE reservations
+                 SET payment_status = ?, total_paid = total_paid + ?
+                 WHERE id = ? AND status IN ('pending', 'confirmed')`,
+                [newStatus, payment.amount, payment.reservation_id]
+              );
+              // Une réservation en ligne reste 'pending' jusqu'au paiement : ce
+              // webhook est le seul point qui la confirme une fois l'acompte/solde
+              // encaissé.
+              await connection.execute(
+                `UPDATE reservations SET status = 'confirmed' WHERE id = ? AND status = 'pending'`,
+                [payment.reservation_id]
+              );
+
+              // Notif pro — persistée dans la transaction, push après le commit.
               const [resaRows] = await connection.query(
                 `SELECT r.pro_id, r.start_datetime, u.first_name, u.last_name
                  FROM reservations r
@@ -316,33 +333,44 @@ app.post(
                 [payment.reservation_id]
               );
               const resa = (resaRows as any[])[0];
-              const proId = resa?.pro_id;
-              if (proId) {
+              if (resa?.pro_id) {
                 const amountLabel = formatEuros(Number(payment.amount) || 0);
                 const title = payment.type === "deposit" ? "Acompte encaissé" : "Paiement encaissé";
                 const clientName = resa.first_name ? `${resa.first_name} ${resa.last_name}` : "Une cliente";
-                const when = resa.start_datetime ? ` pour le RDV du ${formatRdvWhen(new Date(resa.start_datetime))}` : "";
+                const when = resa.start_datetime
+                  ? ` pour le RDV du ${formatRdvWhen(new Date(resa.start_datetime))}`
+                  : "";
                 const message = `${clientName} a réglé ${amountLabel} €${payment.type === "deposit" ? " d'acompte" : ""}${when}.`;
                 const [notifRows] = await connection.query(
                   `INSERT INTO notifications (user_id, type, title, message, data)
                    VALUES (?, 'payment_received', ?, ?, ?)
                    RETURNING id, created_at`,
-                  [proId, title, message, JSON.stringify({ reservation_id: payment.reservation_id })]
+                  [resa.pro_id, title, message, JSON.stringify({ reservation_id: payment.reservation_id })]
                 );
                 const notif = (notifRows as any[])[0];
                 if (notif) {
-                  await sendNotificationToUser(proId, {
-                    id: notif.id,
-                    type: "payment_received",
-                    title,
-                    message,
-                    data: { reservation_id: payment.reservation_id },
-                    created_at: notif.created_at,
+                  pushQueue.push({
+                    userId: resa.pro_id,
+                    payload: {
+                      id: notif.id,
+                      type: "payment_received",
+                      title,
+                      message,
+                      data: { reservation_id: payment.reservation_id },
+                      created_at: notif.created_at,
+                    },
                   });
                 }
               }
-            } catch (notifErr) {
-              log.warn("/api/webhooks/stripe", "payment_received notification error (non-fatal)", { piId: pi.id });
+            } else {
+              // Réservation cancelled / completed / no_show : paiement tardif.
+              // On ne crédite RIEN. Remboursement + alerte après le commit.
+              latePayment = {
+                reservationId: payment.reservation_id,
+                piId: pi.id,
+                amount: Number(payment.amount) || 0,
+                reservationStatus: payment.reservation_status,
+              };
             }
           }
           break;
@@ -350,38 +378,36 @@ app.post(
         case "payment_intent.payment_failed": {
           const pi = event.data.object as Stripe.PaymentIntent;
           await connection.execute(
-            `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE stripe_payment_intent_id = ?`,
+            `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE stripe_payment_intent_id = ? AND status = 'pending'`,
             [pi.id]
           );
-          // Notify client that payment failed so they can retry
           const [failedPayRows] = await connection.query(
             `SELECT client_id, reservation_id, amount FROM payments WHERE stripe_payment_intent_id = ?`,
             [pi.id]
           );
           const failedPay = (failedPayRows as any[])[0];
           if (failedPay) {
-            try {
-              const failedAmount = formatEuros(Number(failedPay.amount) || 0);
-              const failedMessage = `Ton paiement de ${failedAmount} € a été refusé. Réessaie avec une autre carte.`;
-              const [notifRows] = await connection.query(
-                `INSERT INTO notifications (user_id, type, title, message, data)
-                 VALUES (?, 'payment_failed', 'Paiement échoué', ?, ?)
-                 RETURNING id, created_at`,
-                [failedPay.client_id, failedMessage, JSON.stringify({ reservation_id: failedPay.reservation_id })]
-              );
-              const notif = (notifRows as any[])[0];
-              if (notif) {
-                await sendNotificationToUser(failedPay.client_id, {
+            const failedAmount = formatEuros(Number(failedPay.amount) || 0);
+            const failedMessage = `Ton paiement de ${failedAmount} € a été refusé. Réessaie avec une autre carte.`;
+            const [notifRows] = await connection.query(
+              `INSERT INTO notifications (user_id, type, title, message, data)
+               VALUES (?, 'payment_failed', 'Paiement échoué', ?, ?)
+               RETURNING id, created_at`,
+              [failedPay.client_id, failedMessage, JSON.stringify({ reservation_id: failedPay.reservation_id })]
+            );
+            const notif = (notifRows as any[])[0];
+            if (notif) {
+              pushQueue.push({
+                userId: failedPay.client_id,
+                payload: {
                   id: notif.id,
                   type: "payment_failed",
                   title: "Paiement échoué",
                   message: failedMessage,
                   data: { reservation_id: failedPay.reservation_id },
                   created_at: notif.created_at,
-                });
-              }
-            } catch (notifErr) {
-              log.warn("/api/webhooks/stripe", "payment_failed notification error (non-fatal)", { piId: pi.id });
+                },
+              });
             }
           }
           break;
@@ -390,55 +416,69 @@ app.post(
           const charge = event.data.object as Stripe.Charge;
           const piId = charge.payment_intent as string;
           if (piId) {
-            // Mark payment as refunded (may already be set by initiateRefundsForReservation, idempotent)
+            // Source de vérité = les montants Stripe. Un remboursement peut être
+            // PARTIEL (geste co, frais d'annulation retenus) ou multiple.
+            const capturedEur = (charge.amount_captured ?? charge.amount ?? 0) / 100;
+            const refundedEur = (charge.amount_refunded ?? 0) / 100;
+            const fullyRefunded = refundedEur >= capturedEur - 0.005;
+
+            // refund_amount = ce que Stripe a réellement remboursé (pas le montant
+            // du paiement). status='refunded' seulement si intégralement remboursé,
+            // sinon on garde 'succeeded' pour pouvoir rembourser le reliquat.
             await connection.execute(
               `UPDATE payments
-               SET status = 'refunded', refund_amount = COALESCE(refund_amount, amount), updated_at = NOW()
-               WHERE stripe_payment_intent_id = ? AND status != 'refunded'`,
-              [piId]
+               SET refund_amount = ?, updated_at = NOW(),
+                   status = CASE WHEN ?::boolean THEN 'refunded' ELSE status END
+               WHERE stripe_payment_intent_id = ?`,
+              [refundedEur, fullyRefunded, piId]
             );
-            // Check if all payments for the reservation are now refunded → reset payment_status
+
             const [chargePayRows] = await connection.query(
-              `SELECT reservation_id, client_id FROM payments WHERE stripe_payment_intent_id = ?`,
+              `SELECT p.reservation_id, p.client_id, r.price, r.payment_status
+               FROM payments p JOIN reservations r ON r.id = p.reservation_id
+               WHERE p.stripe_payment_intent_id = ?`,
               [piId]
             );
             const chargePay = (chargePayRows as any[])[0];
-            if (chargePay) {
-              const [pendingRows] = await connection.query(
-                `SELECT COUNT(*) AS cnt FROM payments
-                 WHERE reservation_id = ? AND status = 'succeeded'`,
+            if (chargePay && chargePay.payment_status !== "paid_on_site") {
+              // total_paid net = Σ encaissé − Σ remboursé, sur toute la réservation.
+              const [aggRows] = await connection.query(
+                `SELECT
+                   COALESCE(SUM(amount) FILTER (WHERE status IN ('succeeded', 'refunded')), 0) AS gross,
+                   COALESCE(SUM(refund_amount), 0) AS refunded
+                 FROM payments WHERE reservation_id = ?`,
                 [chargePay.reservation_id]
               );
-              const remainingSucceeded = Number((pendingRows as any[])[0]?.cnt ?? 0);
-              if (remainingSucceeded === 0) {
-                await connection.execute(
-                  `UPDATE reservations SET payment_status = 'unpaid', total_paid = 0 WHERE id = ?`,
-                  [chargePay.reservation_id]
-                );
-              }
-              // Notify client of the refund (best-effort)
-              try {
-                const refundAmount = formatEuros((charge.amount_refunded ?? 0) / 100);
-                const refundMessage = `Ton remboursement de ${refundAmount} € a été initié. Il apparaîtra sous 5 à 10 jours ouvrés.`;
-                const [notifRows] = await connection.query(
-                  `INSERT INTO notifications (user_id, type, title, message, data)
-                   VALUES (?, 'payment_refunded', 'Remboursement initié', ?, ?)
-                   RETURNING id, created_at`,
-                  [chargePay.client_id, refundMessage, JSON.stringify({ reservation_id: chargePay.reservation_id })]
-                );
-                const notif = (notifRows as any[])[0];
-                if (notif) {
-                  await sendNotificationToUser(chargePay.client_id, {
+              const agg = (aggRows as any[])[0];
+              const netPaid = Math.max(0, Number(agg.gross) - Number(agg.refunded));
+              const price = Number(chargePay.price) || 0;
+              const newPaymentStatus =
+                netPaid <= 0.005 ? "unpaid" : netPaid >= price - 0.005 ? "fully_paid" : "deposit_paid";
+              await connection.execute(
+                `UPDATE reservations SET payment_status = ?, total_paid = ? WHERE id = ?`,
+                [newPaymentStatus, netPaid, chargePay.reservation_id]
+              );
+
+              const refundMessage = `Ton remboursement de ${formatEuros(refundedEur)} € a été initié. Il apparaîtra sous 5 à 10 jours ouvrés.`;
+              const [notifRows] = await connection.query(
+                `INSERT INTO notifications (user_id, type, title, message, data)
+                 VALUES (?, 'payment_refunded', 'Remboursement initié', ?, ?)
+                 RETURNING id, created_at`,
+                [chargePay.client_id, refundMessage, JSON.stringify({ reservation_id: chargePay.reservation_id })]
+              );
+              const notif = (notifRows as any[])[0];
+              if (notif) {
+                pushQueue.push({
+                  userId: chargePay.client_id,
+                  payload: {
                     id: notif.id,
                     type: "payment_refunded",
                     title: "Remboursement initié",
                     message: refundMessage,
                     data: { reservation_id: chargePay.reservation_id },
                     created_at: notif.created_at,
-                  });
-                }
-              } catch (notifErr) {
-                log.warn("/api/webhooks/stripe", "charge.refunded notification error (non-fatal)", { piId });
+                  },
+                });
               }
             }
           }
@@ -449,6 +489,42 @@ app.post(
       }
 
       await connection.commit();
+
+      // ── Effets hors transaction ───────────────────────────────────────────
+      for (const p of pushQueue) {
+        try {
+          await sendNotificationToUser(p.userId, p.payload as never);
+        } catch {
+          log.warn("/api/webhooks/stripe", "push notification non-fatal", { userId: p.userId });
+        }
+      }
+
+      if (latePayment) {
+        // Paiement encaissé alors que la réservation n'est plus active : jamais
+        // de crédit, on rembourse (idempotent, ne double-rembourse pas) + alerte.
+        await sendAlert("critical", "Paiement Stripe réussi sur une réservation non active — remboursement auto", {
+          reservationId: latePayment.reservationId,
+          paymentIntent: latePayment.piId,
+          amount: latePayment.amount,
+          reservationStatus: latePayment.reservationStatus,
+        }).catch(() => {});
+        try {
+          const rr = await initiateRefundsForReservation(latePayment.reservationId, "requested_by_customer");
+          log.warn("/api/webhooks/stripe", "late-payment auto-refund", {
+            reservationId: latePayment.reservationId,
+            refunded: rr.refunded,
+            totalRefunded: rr.totalRefunded,
+            errors: rr.errors,
+          });
+        } catch (refundErr) {
+          log.error(
+            "/api/webhooks/stripe",
+            "late-payment auto-refund failed",
+            refundErr instanceof Error ? refundErr.stack : String(refundErr)
+          );
+        }
+      }
+
       return res.status(200).json({ received: true });
     } catch (error) {
       if (connection) {
