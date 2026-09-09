@@ -1267,253 +1267,9 @@ app.get("/api/pro/:proId/availability", async (req: AuthenticatedRequest, res: R
   return handleAvailability(req, res, proId, "pro");
 });
 
-// GET: Récupérer les créneaux disponibles pour un pro sur une date donnée
-app.get(
-  "/api/slots/available/:proId/:date",
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const proId = parseParamToInt(req.params.proId);
-      const dateStr = req.params.date; // Format: YYYY-MM-DD
-
-      // Récupérer les slots disponibles pour la date (comparaison date locale stockée)
-      const [availableSlots] = await db.query(
-        `SELECT s.id, TO_CHAR(s.start_datetime, 'HH24:MI') AS time, s.duration,
-                s.start_datetime, s.end_datetime
-         FROM slots s
-         JOIN users u ON u.id = s.pro_id
-         WHERE s.pro_id = ?
-         AND s.status = 'available'
-         AND s.start_datetime::date = ?::date
-         AND s.start_datetime > NOW()
-         AND u.pro_status = 'active'
-         AND u.is_active = TRUE
-         ORDER BY s.start_datetime ASC`,
-        [proId, dateStr]
-      );
-
-      const formattedSlots = availableSlots as any[];
-
-      res.json({ success: true, data: formattedSlots });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-// GET: Récupérer tous les slots d'un pro (pour gestion côté pro)
-app.get(
-  "/api/slots/pro/:proId",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const proId = parseParamToInt(req.params.proId);
-
-      // Vérifier que c'est bien le pro qui demande ses slots
-      if (req.user?.id !== proId) {
-        return res.status(403).json({
-          success: false,
-          message: "Accès non autorisé"
-        });
-      }
-
-      const [slots] = await db.query(
-        `SELECT id, start_datetime, end_datetime, status, duration
-         FROM slots
-         WHERE pro_id = ?
-         AND start_datetime >= NOW()
-         ORDER BY start_datetime ASC`,
-        [proId]
-      );
-
-      res.json({ success: true, data: slots });
-    } catch (error) {
-      console.error("Error fetching pro slots:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
-    }
-  }
-);
-
-// POST: Créer des slots (génération automatique ou manuelle)
-app.post(
-  "/api/slots/create",
-  authenticateToken,
-  validate(slotCreateSchema),
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const proId = req.user?.id;
-      if (!proId || !(await guardLegacySlotWrite(proId, res))) return;
-      const { start_datetime, end_datetime, duration } = req.body;
-
-      // Insérer le slot
-      const [slotRows] = await db.query(
-        `INSERT INTO slots (pro_id, start_datetime, end_datetime, duration, status)
-         VALUES (?, ?, ?, ?, 'available') RETURNING id`,
-        [proId, start_datetime, end_datetime, duration ?? 60]
-      );
-
-      res.json({
-        success: true,
-        message: "Créneau créé",
-        data: { id: (slotRows as any[])[0]?.id }
-      });
-    } catch (error) {
-      console.error("Error creating slot:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
-    }
-  }
-);
-
-// PATCH: Bloquer un slot
-app.patch(
-  "/api/slots/:slotId/block",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const slotId = parseParamToInt(req.params.slotId);
-      const proId = req.user?.id;
-
-      // Vérifier que le slot appartient au pro
-      const [slots] = await db.query(
-        `SELECT pro_id FROM slots WHERE id = ?`,
-        [slotId]
-      );
-
-      if ((slots as any[]).length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "Créneau introuvable"
-        });
-      }
-
-      if ((slots as any[])[0].pro_id !== proId) {
-        return res.status(403).json({
-          success: false,
-          message: "Accès non autorisé"
-        });
-      }
-
-      // Bloquer le slot
-      await db.query(
-        `UPDATE slots SET status = 'blocked' WHERE id = ?`,
-        [slotId]
-      );
-
-      res.json({
-        success: true,
-        message: "Créneau bloqué"
-      });
-    } catch (error) {
-      console.error("Error blocking slot:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
-    }
-  }
-);
-
-// DELETE: Supprimer un slot
-app.delete(
-  "/api/slots/:slotId",
-  authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const slotId = parseParamToInt(req.params.slotId);
-      const proId = req.user?.id;
-
-      // Vérifier que le slot appartient au pro
-      const [slots] = await db.query(
-        `SELECT pro_id FROM slots WHERE id = ?`,
-        [slotId]
-      );
-
-      if ((slots as any[]).length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "Créneau introuvable"
-        });
-      }
-
-      if ((slots as any[])[0].pro_id !== proId) {
-        return res.status(403).json({
-          success: false,
-          message: "Accès non autorisé"
-        });
-      }
-
-      // Supprimer le slot
-      await db.query(`DELETE FROM slots WHERE id = ?`, [slotId]);
-
-      res.json({
-        success: true,
-        message: "Créneau supprimé"
-      });
-    } catch (error) {
-      console.error("Error deleting slot:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
-    }
-  }
-);
-
-// GET: Récupérer les dates avec au moins un slot disponible pour un pro dans un mois donné
-app.get(
-  "/api/slots/available-dates/:proId/:month",
-  async (req: Request, res: Response) => {
-    try {
-      const proIdParam = req.params.proId;
-      const monthParam = req.params.month;
-
-      if (typeof proIdParam !== 'string' || typeof monthParam !== 'string') {
-        return res.status(400).json({
-          success: false,
-          message: "Paramètres invalides"
-        });
-      }
-
-      const proId = parseInt(proIdParam, 10);
-
-      if (isNaN(proId) || proId <= 0) {
-        return res.status(400).json({
-          success: false,
-          message: "ID invalide"
-        });
-      }
-
-      if (!/^\d{4}-\d{2}$/.test(monthParam)) {
-        return res.status(400).json({
-          success: false,
-          message: "Format mois invalide (attendu: YYYY-MM)"
-        });
-      }
-
-      const [yearStr, monthStr] = monthParam.split('-');
-      const year = parseInt(yearStr, 10);
-      const monthNumber = parseInt(monthStr, 10);
-
-      const [result] = await db.query(
-        `SELECT DISTINCT TO_CHAR(s.start_datetime, 'YYYY-MM-DD') as available_date
-         FROM slots s
-         JOIN users u ON u.id = s.pro_id
-         WHERE s.pro_id = ?
-         AND s.status = 'available'
-         AND s.start_datetime > NOW()
-         AND EXTRACT(YEAR FROM s.start_datetime) = ?
-         AND EXTRACT(MONTH FROM s.start_datetime) = ?
-         AND u.pro_status = 'active'
-         AND u.is_active = TRUE
-         ORDER BY available_date ASC`,
-        [proId, year, monthNumber]
-      );
-
-      const dates = (result as any[]).map((row: any) => row.available_date);
-
-      res.json({ success: true, data: dates });
-    } catch (error) {
-      console.error("❌ Erreur:", error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur serveur"
-      });
-    }
-  }
-);
+// Créneaux précréés (table `slots`) — SUPPRIMÉ (chantier 4.6c / #31).
+// Toutes les pros actives sont sur le moteur de disponibilités : la dispo
+// est calculée depuis `working_hours` (GET /api/availability/:proId).
 
 
 
@@ -2309,19 +2065,6 @@ app.get("/api/pro/finance/performance", authenticateToken, async (req: any, res)
     const { revenue: windowRevenue, count: windowCount } = await getRevenueStats(db, userId, windowStartStr, todayStr);
     const avgBasket = windowCount > 0 ? Math.round((windowRevenue / windowCount) * 100) / 100 : 0;
 
-    // Taux de remplissage (créneaux réservés / créneaux ouverts, 90 derniers jours)
-    const [[fillRow]]: any = await db.query(
-      `SELECT
-         COUNT(*) FILTER (WHERE status IN ('available', 'booked')) AS total,
-         COUNT(*) FILTER (WHERE status = 'booked') AS booked
-       FROM slots
-       WHERE pro_id = ? AND start_datetime::date BETWEEN ? AND ?`,
-      [userId, windowStartStr, todayStr]
-    );
-    const totalSlots = Number(fillRow?.total) || 0;
-    const bookedSlots = Number(fillRow?.booked) || 0;
-    const fillRate = totalSlots > 0 ? Math.round((bookedSlots / totalSlots) * 100) : 0;
-
     // Nouvelles vs clientes fidèles — parmi les clientes vues sur la
     // fenêtre, celles qui ont plus d'une résa au total (toutes périodes)
     // avec cette pro sont "fidèles", les autres "nouvelles".
@@ -2365,7 +2108,6 @@ app.get("/api/pro/finance/performance", authenticateToken, async (req: any, res)
         bestDay,
         bestHour,
         avgBasket,
-        fillRate,
         newClients,
         returningClients,
         monthlyEvolution,
@@ -3740,7 +3482,6 @@ app.get(
         [weekStatsRows],
         [todayRows],
         [upcomingRows],
-        [slotStatsRows],
         [clientsWeekRows],
         [topServicesRows],
         [indexedRevenueRows],
@@ -3787,18 +3528,7 @@ app.get(
           LIMIT 3`,
           [proId]
         ),
-        // 4. Taux de remplissage (total + booked fusionnés en 1 requête)
-        db.query(
-          `SELECT
-            COUNT(*) FILTER (WHERE status IN ('available', 'booked')) AS total_slots,
-            COUNT(*) FILTER (WHERE status = 'booked') AS booked_slots
-          FROM slots
-          WHERE pro_id = ?
-            AND start_datetime >= CURRENT_DATE
-            AND start_datetime < CURRENT_DATE + INTERVAL '7 days'`,
-          [proId]
-        ),
-        // 5. Clientes de la semaine
+        // 4. Clientes de la semaine
         db.query(
           `SELECT COUNT(DISTINCT client_id) AS count
           FROM reservations
@@ -3807,7 +3537,7 @@ app.get(
             AND DATE_TRUNC('week', start_datetime) = DATE_TRUNC('week', CURRENT_DATE)`,
           [proId]
         ),
-        // 6. Top prestations (30j)
+        // 5. Top prestations (30j)
         db.query(
           `SELECT
             p.name AS prestation_name,
@@ -3822,7 +3552,7 @@ app.get(
           LIMIT 5`,
           [proId]
         ),
-        // 7. Revenus hebdomadaires — le dimanche est exclu explicitement
+        // 6. Revenus hebdomadaires — le dimanche est exclu explicitement
         // (jamais bookable via l'app) plutôt que de compter sur l'absence
         // de données : une réservation insérée manuellement un dimanche ne
         // doit jamais apparaître dans ce graphe.
@@ -3845,7 +3575,7 @@ app.get(
           ORDER BY jour`,
           [proId]
         ),
-      ]) as [any, any, any, any, any, any, any];
+      ]) as [any, any, any, any, any, any];
 
       // ── Calcul weeklyStats ──────────────────────────────────────────────────
       const servicesThisWeek = Number(weekStatsRows[0]?.this_week ?? 0);
@@ -3884,11 +3614,6 @@ app.get(
         };
       });
 
-      // ── Taux de remplissage ─────────────────────────────────────────────────
-      const totalSlots = Number(slotStatsRows[0]?.total_slots ?? 0);
-      const bookedSlots = Number(slotStatsRows[0]?.booked_slots ?? 0);
-      const fillRate = totalSlots > 0 ? Math.round((bookedSlots / totalSlots) * 100) : 0;
-
       // ── Clientes de la semaine ──────────────────────────────────────────────
       const clientsThisWeek = Number(clientsWeekRows[0]?.count ?? 0);
 
@@ -3911,7 +3636,6 @@ app.get(
         todayForecast,
         todayAppointmentsCount,
         upcomingClients,
-        fillRate,
         clientsThisWeek,
         topServices,
         weeklyRevenue,
@@ -4775,232 +4499,11 @@ app.put(
 );
 
 // ==========================================
-// SLOTS MANAGEMENT
+// SLOTS MANAGEMENT — SUPPRIMÉ (chantier 4.6c / #31)
 // ==========================================
-
-/**
- * Chantier 4.6 — la création de slots précréés est dépréciée. Pour une pro
- * migrée (uses_availability_engine), c'est une erreur (410) : ses créneaux
- * découlent des working_hours. Pour une pro legacy, on laisse passer mais on
- * marque la réponse (header Deprecation + log) le temps de la bascule.
- *
- * SLOTS_HARD_DEPRECATION=true (à activer une fois toutes les pros basculées) :
- * 410 pour TOUT LE MONDE, la route est alors morte côté serveur avant sa
- * suppression complète en 4.6b.
- */
-const SLOTS_HARD_DEPRECATION = process.env.SLOTS_HARD_DEPRECATION === "true";
-
-async function guardLegacySlotWrite(proId: number, res: Response): Promise<boolean> {
-  if (SLOTS_HARD_DEPRECATION) {
-    res.status(410).json({
-      success: false,
-      error: "SLOTS_DEPRECATED",
-      message: "Les créneaux précréés ne sont plus utilisés — gère tes disponibilités via tes horaires d'ouverture.",
-    });
-    return false;
-  }
-  const [rows] = await db.query(`SELECT uses_availability_engine FROM users WHERE id = ?`, [proId]);
-  if ((rows as any[])[0]?.uses_availability_engine) {
-    res.status(410).json({
-      success: false,
-      error: "SLOTS_DEPRECATED",
-      message: "Les créneaux précréés ne sont plus utilisés — gère tes disponibilités via tes horaires d'ouverture.",
-    });
-    return false;
-  }
-  res.setHeader("Deprecation", "true");
-  log.warn("[SLOTS]", "legacy slot write (deprecated, chantier 4.6)", { proId });
-  return true;
-}
-
-/* CREATE SLOT */
-app.post(
-  "/api/pro/slots",
-  authMiddleware,
-  async (req: AuthenticatedRequest, res: Response) => {
-    let connection;
-    try {
-      const proId = getProId(req);
-      if (!(await guardLegacySlotWrite(proId, res))) return;
-      const { date, time, duration = 60 } = req.body;
-
-      if (!date || !time) {
-        return res.status(400).json({
-          success: false,
-          error: "Date et heure requises"
-        });
-      }
-
-      const startDatetime = `${date} ${time}:00`;
-      const dur = Math.abs(parseInt(String(duration), 10)) || 60;
-
-      connection = await db.getConnection();
-
-      await connection.query(
-        `INSERT INTO slots (pro_id, start_datetime, end_datetime, duration, status, created_at)
-         VALUES (?, ?::timestamptz, ?::timestamptz + (? * INTERVAL '1 minute'), ?, 'available', NOW())`,
-        [proId, startDatetime, startDatetime, dur, dur]
-      );
-
-      res.json({ success: true, message: "Créneau créé" });
-    } catch (err) {
-      console.error("[CREATE SLOT] error =", err);
-      res.status(500).json({ success: false, error: "Erreur serveur" });
-    } finally {
-      if (connection) connection.release();
-    }
-  }
-);
-
-/* GET SLOTS */
-app.get(
-  "/api/pro/slots",
-  authMiddleware,
-  async (req: AuthenticatedRequest, res: Response) => {
-    let connection;
-    try {
-      const proId = getProId(req);
-      const { date } = req.query as { date?: string };
-
-      if (!date) {
-        return res.status(400).json({ success: false, error: "Date requise" });
-      }
-
-      connection = await db.getConnection();
-
-      const [rows] = await connection.query(
-        `
-        SELECT
-          id,
-          TO_CHAR(start_datetime AT TIME ZONE 'Europe/Paris', 'HH24:MI') AS time,
-          duration,
-          CASE
-            WHEN start_datetime + (ABS(duration) * INTERVAL '1 minute') < NOW() THEN 'past'
-            ELSE status
-          END AS computed_status,
-          status AS original_status,
-          CASE
-            WHEN start_datetime + (ABS(duration) * INTERVAL '1 minute') < NOW() THEN 0
-            WHEN status = 'available' THEN 1
-            ELSE 0
-          END AS is_active,
-          CASE
-            WHEN start_datetime + (ABS(duration) * INTERVAL '1 minute') < NOW() THEN 0
-            WHEN status = 'available' THEN 1
-            WHEN status = 'booked' THEN 0
-            ELSE 1
-          END AS is_available
-        FROM slots
-        WHERE pro_id = ?
-          AND start_datetime::date = ?
-        ORDER BY start_datetime ASC
-        `,
-        [proId, date]
-      );
-
-      res.json({ success: true, data: rows });
-    } catch (err) {
-      console.error("[GET SLOTS] error =", err);
-      res.status(500).json({ success: false, error: "Erreur serveur" });
-    } finally {
-      if (connection) connection.release();
-    }
-  }
-);
-
-/* UPDATE SLOT */
-app.patch(
-  "/api/pro/slots/:id",
-  authMiddleware,
-  async (req: AuthenticatedRequest, res: Response) => {
-    let connection;
-    try {
-      const proId = getProId(req);
-      if (!(await guardLegacySlotWrite(proId, res))) return;
-      const slotId = parseInt(String(req.params.id));
-      const { status, date, time, duration } = req.body;
-
-      connection = await db.getConnection();
-
-      // Vérifier que le créneau existe, appartient au pro, et n'est pas passé
-      const [slotRows] = await connection.query(
-        `SELECT id FROM slots WHERE id = ? AND pro_id = ? AND start_datetime + (ABS(duration) * INTERVAL '1 minute') > NOW()`,
-        [slotId, proId]
-      );
-      if ((slotRows as any[]).length === 0) {
-        return res.status(400).json({ success: false, error: "Ce créneau est passé ou n'existe pas" });
-      }
-
-      if (time && date) {
-        // Modification de l'heure/durée
-        const dur = Math.abs(parseInt(String(duration), 10)) || 60;
-        const newStart = `${date} ${time}:00`;
-        await connection.query(
-          `UPDATE slots
-           SET start_datetime = ?::timestamptz,
-               end_datetime   = ?::timestamptz + (? * INTERVAL '1 minute'),
-               duration       = ?
-           WHERE id = ? AND pro_id = ?`,
-          [newStart, newStart, dur, dur, slotId, proId]
-        );
-      } else if (status && ['available', 'blocked'].includes(status)) {
-        // Modification du statut uniquement
-        await connection.query(
-          `UPDATE slots SET status = ? WHERE id = ? AND pro_id = ?`,
-          [status, slotId, proId]
-        );
-      } else {
-        return res.status(400).json({ success: false, error: "Paramètres invalides" });
-      }
-
-      res.json({ success: true, message: "Créneau mis à jour" });
-    } catch (err) {
-      console.error("[UPDATE SLOT] error =", err);
-      res.status(500).json({ success: false, error: "Erreur serveur" });
-    } finally {
-      if (connection) connection.release();
-    }
-  }
-);
-
-/* DELETE SLOT */
-app.delete(
-  "/api/pro/slots/:id",
-  authMiddleware,
-  async (req: AuthenticatedRequest, res: Response) => {
-    let connection;
-    try {
-      const proId = getProId(req);
-      const slotId = parseInt(String(req.params.id));
-
-      connection = await db.getConnection();
-
-      // Refuser la suppression d'un créneau réservé
-      const [slotCheck] = await connection.query(
-        `SELECT status FROM slots WHERE id = ? AND pro_id = ?`,
-        [slotId, proId]
-      );
-      if ((slotCheck as any[]).length === 0) {
-        return res.status(404).json({ success: false, error: "Créneau introuvable" });
-      }
-      if ((slotCheck as any[])[0].status === 'booked') {
-        return res.status(400).json({ success: false, error: "Impossible de supprimer un créneau réservé" });
-      }
-
-      await connection.query(
-        `DELETE FROM slots WHERE id = ? AND pro_id = ?`,
-        [slotId, proId]
-      );
-
-      res.json({ success: true, message: "Créneau supprimé" });
-    } catch (err) {
-      console.error("[DELETE SLOT] error =", err);
-      res.status(500).json({ success: false, error: "Erreur serveur" });
-    } finally {
-      if (connection) connection.release();
-    }
-  }
-);
+// Les créneaux précréés (POST/GET/PATCH/DELETE /api/pro/slots) ne sont plus
+// exposés : les pros gèrent leurs disponibilités via leurs horaires
+// d'ouverture (working_hours) + le moteur de disponibilités.
 
 // ==========================================
 // PRO - UPDATE RESERVATION STATUS

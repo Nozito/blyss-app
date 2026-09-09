@@ -157,7 +157,6 @@ describe("POST /api/reservations — logique métier", () => {
   const token = makeClientToken();
   beforeEach(() => {
     vi.clearAllMocks();
-    // Modèle `slots` legacy : l'endpoint fait un UPDATE best-effort si slot_id.
     mockQuery.mockResolvedValue([[], []]);
   });
 

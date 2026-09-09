@@ -287,7 +287,7 @@ export async function acceptRescheduleRequest({ requestId, clientId }: ClientAct
     // proposition devient indicatif.
     await connection.query(
       `UPDATE reservations
-         SET start_datetime = ?, end_datetime = ?, prestation_id = ?, price = ?, slot_id = NULL,
+         SET start_datetime = ?, end_datetime = ?, prestation_id = ?, price = ?,
              service_duration_minutes = ?, buffer_before_minutes = ?, buffer_after_minutes = ?,
              blocked_start_datetime = ?, blocked_end_datetime = ?
        WHERE id = ?`,
