@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Flag, MessageSquare, Star, ShieldCheck, RotateCcw, Trash2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -98,14 +98,6 @@ const AdminModeration = () => {
       setReviewSubmitting(false);
     }
   };
-
-  const kpis = useMemo(
-    () => ({
-      flaggedReviews: domain === "reviews" && subView === "flagged" ? reviews.length : null,
-      flaggedThreads: domain === "messages" && subView === "flagged" ? threads.length : null,
-    }),
-    [domain, subView, reviews, threads]
-  );
 
   return (
     <div className="space-y-6">

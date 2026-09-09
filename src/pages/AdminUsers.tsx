@@ -46,7 +46,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { EmptyState } from "@/components/admin/EmptyState";
-import { ErrorState } from "@/components/admin/ErrorState";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
@@ -138,17 +137,6 @@ const AdminUsers = () => {
     let d = raw.replace(/\D/g, "");
     if (d.startsWith("33") && d.length >= 11) d = "0" + d.slice(2);
     return d.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
-  };
-
-  const formatDate = (dateString: string | undefined | null) => {
-    if (!dateString) return null;
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return null;
-      return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    } catch {
-      return null;
-    }
   };
 
   const openEditModal = (user: User) => {

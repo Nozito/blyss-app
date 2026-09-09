@@ -14,7 +14,6 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
-import crypto from "crypto";
 
 // ─── 1. Mocks hoistés ─────────────────────────────────────────────────────
 const { mockExecute } = vi.hoisted(() => {

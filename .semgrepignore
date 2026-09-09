@@ -15,6 +15,9 @@ backend/__tests__/
 tests/e2e/fixtures/
 supabase/seed.sql
 supabase/seed-*.sql
+# Dump DML historique (import MySQL one-shot, 100 % écrasé par le TRUNCATE du
+# seed) : hash bcrypt de comptes de démo, pas des secrets de prod.
+supabase/migrations/20260313000001_migrate_data.sql
 
 # Rapports générés
 loadtest/reports/

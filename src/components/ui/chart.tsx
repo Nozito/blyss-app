@@ -74,8 +74,7 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
         __html: Object.entries(THEMES)
           .map(
             ([theme, prefix]) => {
-              const safeTheme  = theme.replace(/[^a-z0-9-_]/gi, "");
-              const safePrefix = prefix.replace(/[^a-z0-9-. _]/gi, "");
+                      const safePrefix = prefix.replace(/[^a-z0-9-. _]/gi, "");
               return `
 ${safePrefix} [data-chart=${id}] {
 ${colorConfig

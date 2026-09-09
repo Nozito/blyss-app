@@ -1,6 +1,6 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
-import { Rate, Trend } from "k6/metrics";
+import { Rate } from "k6/metrics";
 
 // ─────────────────────────────────────────────────────────────────────────
 // FAMILLE 2/2 — "Product mix réaliste" : SESSION/TOKEN RÉUTILISÉ après une
