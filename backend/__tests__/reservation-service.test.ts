@@ -34,7 +34,7 @@ vi.mock("../lib/notifications", () => ({
   sendNotificationToUser: vi.fn().mockResolvedValue(true),
 }));
 
-import { createReservation, ReservationServiceError, SLOT_NO_LONGER_AVAILABLE } from "../services/reservation.service";
+import { createReservation, SLOT_NO_LONGER_AVAILABLE } from "../services/reservation.service";
 import { RESERVATION_LOCK_NS } from "../lib/locks";
 
 const MON_9_18 = [{ weekday: 1, start_time: "09:00:00", end_time: "18:00:00" }];

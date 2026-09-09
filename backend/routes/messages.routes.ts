@@ -289,10 +289,15 @@ router.post(
       let attachmentUrl: string | null = null;
       let attachmentThumbnail: string | null = null;
       if (req.file) {
-        const base = `chat_${threadId}_${Date.now()}`;
+        // `threadId` = parseParamToInt (entier, throw sinon) + vérifié en base
+        // ci-dessus (membre du thread) → pas d'entrée contrôlée par l'appelant
+        // dans le nom de fichier. `Number()` explicite pour le SAST.
+        const base = `chat_${Number(threadId)}_${Date.now()}`;
         const fullFilename = `${base}.webp`;
         const thumbFilename = `${base}_thumb.webp`;
+        // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal
         await sharp(req.file.buffer).resize(1280, 1280, { fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toFile(path.join(uploadChatDir, fullFilename));
+        // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal
         await sharp(req.file.buffer).resize(300, 300, { fit: "cover", position: "center" }).webp({ quality: 75 }).toFile(path.join(uploadChatDir, thumbFilename));
         attachmentUrl = `/uploads/chat/${fullFilename}`;
         attachmentThumbnail = `/uploads/chat/${thumbFilename}`;

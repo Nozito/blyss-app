@@ -121,7 +121,9 @@ router.post(
 
       const trimmedEmail = email.trim().toLowerCase();
 
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      // Borne la longueur avant le regex (RFC 5321 : 254 max) — évite tout
+      // risque de ReDoS polynomial sur une entrée pathologique très longue.
+      if (trimmedEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
         return res.status(400).json({
           success: false,
           message: "Invalid email format",

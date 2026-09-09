@@ -39,17 +39,6 @@ export const prestationSchema = z.object({
   active: z.boolean().optional().default(true),
 });
 
-export const slotCreateSchema = z
-  .object({
-    start_datetime: z.string().datetime("start_datetime doit être une date ISO valide"),
-    end_datetime: z.string().datetime("end_datetime doit être une date ISO valide"),
-    duration: z.number().int().positive().max(480).optional(),
-  })
-  .refine((d) => new Date(d.start_datetime) < new Date(d.end_datetime), {
-    message: "start_datetime doit être antérieur à end_datetime",
-    path: ["start_datetime"],
-  });
-
 export const userUpdateSchema = z.object({
   first_name: z.string().min(1, "Prénom trop court").max(50, "Prénom trop long").optional(),
   last_name: z.string().min(1, "Nom trop court").max(50, "Nom trop long").optional(),

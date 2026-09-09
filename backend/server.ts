@@ -85,7 +85,7 @@ import {
   nailTechWriteLimiter,
   onboardingLimiter,
 } from "./middleware/rate-limits";
-import { validate, userUpdateSchema, financeObjectiveSchema, prestationSchema, prestationPatchSchema, slotCreateSchema, reservationSchema, reviewSchema, depositSchema, paymentIntentSchema, favoriteSchema, unavailabilitySchema, reservationStatusSchema, liveActivityTokenSchema, liveActivitySettingsSchema, proAppointmentSchema, proAppointmentUpdateSchema } from "./middleware/validate";
+import { validate, userUpdateSchema, financeObjectiveSchema, prestationSchema, prestationPatchSchema, reservationSchema, reviewSchema, depositSchema, paymentIntentSchema, favoriteSchema, unavailabilitySchema, reservationStatusSchema, liveActivityTokenSchema, liveActivitySettingsSchema, proAppointmentSchema, proAppointmentUpdateSchema } from "./middleware/validate";
 import { sendLiveActivityEnd, sendLiveActivityUpdate } from "./lib/apns";
 import { applyLiveActivityPrivacy } from "./lib/liveActivityPrivacy";
 import authRouter from "./routes/auth.routes";
