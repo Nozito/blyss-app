@@ -142,7 +142,6 @@ export const reservationSchema = z
     // depuis prestations.price. Champ gardé optionnel le temps que les
     // clients en circulation arrêtent de l'envoyer.
     price: z.number().positive().optional(),
-    slot_id: z.number().int().positive().optional(),
     payment_method: z.enum(["online", "on_site"], {
       message: "payment_method doit être 'online' ou 'on_site'",
     }).default("on_site"),
@@ -168,8 +167,7 @@ export const reservationSchema = z
 
 // RDV créé manuellement par la pro pour l'une de ses clientes (walk-in,
 // téléphone) — mêmes contraintes légales que reservationSchema (art.
-// L221-18), mais pas de payment_method/slot_id : ces RDV sont toujours
-// "sur place" et jamais rattachés à un créneau.
+// L221-18), mais pas de payment_method : ces RDV sont toujours "sur place".
 export const proAppointmentSchema = z
   .object({
     client_id: z.number("client_id doit être un nombre").int().positive(),

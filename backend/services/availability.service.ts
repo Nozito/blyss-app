@@ -29,9 +29,10 @@ export const DEFAULT_SLOT_STEP_MINUTES = 15;
 export const DEFAULT_TIMEZONE = "Europe/Paris";
 
 /**
- * Kill-switch global (chantier 4) : force TOUTES les pros à se comporter comme
- * "non migrées" (getAvailability lit les slots précréés), sans toucher au flag
- * `users.uses_availability_engine`. Rollback d'urgence sans migration.
+ * Kill-switch global (chantier 4) : force TOUTES les pros en mode dégradé —
+ * les horaires d'ouverture ne sont plus enforced, seules les réservations et
+ * indisponibilités bloquent. Sans toucher au flag `users.uses_availability_engine`.
+ * Rollback d'urgence sans migration.
  */
 export function isAvailabilityEngineForcedOff(): boolean {
   return process.env.AVAILABILITY_ENGINE_FORCE_OFF === "true";
@@ -147,7 +148,7 @@ interface BlockedReservationRow {
 
 interface ProContext {
   timezone: string;
-  /** false ⇒ pro non migrée : getAvailability lit les slots précréés (adaptateur). */
+  /** false ⇒ horaires d'ouverture non enforced (pro sans working_hours ou kill-switch). */
   engineEnabled: boolean;
   services: Array<{
     id: number;
@@ -175,7 +176,7 @@ async function loadProContext(
 
   // Flow public : une pro désactivée, suspendue ou en profil privé ne doit pas
   // exposer ses horaires ni ses créneaux occupés/libres à un appelant anonyme
-  // (cf. revue sécurité — parité avec GET /api/slots/available/:proId/:date).
+  // (cf. revue sécurité — filtrage au niveau du contexte pro).
   // Flow "pro" : aucun filtre — une pro voit toujours son propre planning, même
   // compte désactivé (l'ownership est déjà vérifié en amont sur la route).
   const publicGate =
@@ -448,12 +449,9 @@ export async function getAvailability(input: GetAvailabilityInput): Promise<Avai
   const blocking = resolveServiceBlocking(ctx.services);
   const limits = resolveEffectiveLimits(ctx);
 
-  // Pro non migrée (chantier 4) : on ne calcule pas depuis working_hours, on
-  // expose les créneaux `slots` précréés via un adaptateur — même contrat de
-  // réponse, `NewAppointmentSheet` et le flow client fonctionnent à l'identique.
-  if (!ctx.engineEnabled) {
-    return getAvailabilityFromSlots(input, ctx, blocking, now);
-  }
+  // Le modèle des créneaux précréés (`slots`) a été retiré (#31) : la dispo est
+  // toujours calculée depuis working_hours. Une pro sans working_hours n'a
+  // simplement aucun créneau (`days` renvoyés vides, contrat stable côté mobile).
 
   const { unavailabilities, blockedReservations } = await loadBlockingInputs(
     input.proId,
@@ -510,98 +508,6 @@ export async function getAvailability(input: GetAvailabilityInput): Promise<Avai
   }
 
   // Émet un jour par date de la plage (même vide) pour un contrat stable côté mobile.
-  const days: AvailabilityResponse["days"] = [];
-  let d = DateTime.fromISO(input.fromDate, { zone: tz }).startOf("day");
-  const last = DateTime.fromISO(input.toDate, { zone: tz }).startOf("day");
-  for (; d <= last; d = d.plus({ days: 1 })) {
-    const isoDate = d.toISODate()!;
-    days.push({ date: isoDate, slots: byDate.get(isoDate) ?? [] });
-  }
-
-  return {
-    timezone: tz,
-    requested_duration_minutes: blocking.serviceDurationMinutes,
-    total_blocked_minutes: blocking.totalBlockedMinutes,
-    days,
-  };
-}
-
-// ── Adaptateur legacy : slots précréés → AvailabilityResponse ──────────────
-
-/**
- * Pro non migrée (chantier 4) : les créneaux réservables sont les lignes
- * `slots` (status='available', futures), moins celles qui chevauchent une
- * réservation bloquante ou une indisponibilité. On préserve la sémantique
- * legacy : un slot EST un créneau réservable, sa durée est celle du slot.
- */
-async function getAvailabilityFromSlots(
-  input: GetAvailabilityInput,
-  ctx: ProContext,
-  blocking: ServiceBlocking,
-  now: Date
-): Promise<AvailabilityResponse> {
-  const tz = ctx.timezone;
-  const limits = resolveEffectiveLimits(ctx);
-  const nowDt = DateTime.fromJSDate(now, { zone: tz });
-  const earliestStart =
-    input.requestedByRole === "public" ? nowDt.plus({ minutes: limits.leadTimeMinutes }) : nowDt;
-  const latestStart =
-    input.requestedByRole === "public" ? nowDt.plus({ days: limits.horizonDays }) : nowDt.plus({ years: 2 });
-
-  const [slotRows] = await db.query(
-    `SELECT TO_CHAR(start_datetime AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS start,
-            TO_CHAR(end_datetime   AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS "end"
-     FROM slots
-     WHERE pro_id = ?
-       AND status = 'available'
-       AND start_datetime >= ?::date
-       AND start_datetime <  (?::date + INTERVAL '1 day')
-       AND start_datetime > NOW()
-     ORDER BY start_datetime`,
-    [input.proId, input.fromDate, input.toDate]
-  );
-
-  const { unavailabilities, blockedReservations } = await loadBlockingInputs(
-    input.proId,
-    tz,
-    input.fromDate,
-    input.toDate
-  );
-
-  const blockers: Interval<boolean>[] = [];
-  for (const r of blockedReservations) {
-    const itv = Interval.fromDateTimes(toDT(r.blocked_start_datetime, tz), toDT(r.blocked_end_datetime, tz));
-    if (itv.isValid) blockers.push(itv);
-  }
-  for (const u of unavailabilities) {
-    if (u.start_time && u.end_time) {
-      const day = DateTime.fromISO(u.start_date, { zone: tz }).startOf("day");
-      const s = parseHms(u.start_time);
-      const e = parseHms(u.end_time);
-      const itv = Interval.fromDateTimes(day.set({ hour: s.hour, minute: s.minute }), day.set({ hour: e.hour, minute: e.minute }));
-      if (itv.isValid) blockers.push(itv);
-    } else {
-      const itv = Interval.fromDateTimes(
-        DateTime.fromISO(u.start_date, { zone: tz }).startOf("day"),
-        DateTime.fromISO(u.end_date, { zone: tz }).plus({ days: 1 }).startOf("day")
-      );
-      if (itv.isValid) blockers.push(itv);
-    }
-  }
-
-  const byDate = new Map<string, AvailabilitySlot[]>();
-  for (const row of slotRows as { start: string; end: string }[]) {
-    const startDt = DateTime.fromISO(row.start, { zone: tz });
-    const endDt = DateTime.fromISO(row.end, { zone: tz });
-    if (!startDt.isValid || !endDt.isValid) continue;
-    if (startDt < earliestStart || startDt > latestStart) continue;
-    const slotItv = Interval.fromDateTimes(startDt, endDt);
-    if (blockers.some((b) => b.overlaps(slotItv))) continue;
-    const isoDate = startDt.toISODate()!;
-    if (!byDate.has(isoDate)) byDate.set(isoDate, []);
-    byDate.get(isoDate)!.push({ start: startDt.toUTC().toISO()!, end: endDt.toUTC().toISO()! });
-  }
-
   const days: AvailabilityResponse["days"] = [];
   let d = DateTime.fromISO(input.fromDate, { zone: tz }).startOf("day");
   const last = DateTime.fromISO(input.toDate, { zone: tz }).startOf("day");

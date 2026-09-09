@@ -17,7 +17,6 @@ TRUNCATE TABLE
   notifications,
   reviews,
   reservations,
-  slots,
   prestations,
   refresh_tokens,
   users
@@ -285,93 +284,6 @@ INSERT INTO prestations (pro_id, name, description, price, duration_minutes, act
   (19, 'Semi-permanent',            'Pose semi-permanent + soin cuticules.',               48.00,  60, TRUE),
   (19, 'Gel naturel débutantes',    'Idéal pour essayer le gel pour la 1ère fois.',        60.00,  75, TRUE);
 
--- ============================================================
--- Slots (futures dates)
--- ============================================================
-INSERT INTO slots (pro_id, start_datetime, end_datetime, duration, status) VALUES
-  -- Camille (2)
-  (2, NOW() + INTERVAL '1 day'  + TIME '09:00', NOW() + INTERVAL '1 day'  + TIME '10:00', 60, 'available'),
-  (2, NOW() + INTERVAL '1 day'  + TIME '10:30', NOW() + INTERVAL '1 day'  + TIME '11:30', 60, 'available'),
-  (2, NOW() + INTERVAL '2 days' + TIME '14:00', NOW() + INTERVAL '2 days' + TIME '15:30', 90, 'booked'),
-  (2, NOW() + INTERVAL '3 days' + TIME '11:00', NOW() + INTERVAL '3 days' + TIME '12:00', 60, 'available'),
-  (2, NOW() + INTERVAL '5 days' + TIME '09:00', NOW() + INTERVAL '5 days' + TIME '10:00', 60, 'available'),
-  -- Lucas (3)
-  (3, NOW() + INTERVAL '1 day'  + TIME '10:00', NOW() + INTERVAL '1 day'  + TIME '10:45', 45, 'available'),
-  (3, NOW() + INTERVAL '1 day'  + TIME '11:00', NOW() + INTERVAL '1 day'  + TIME '13:00', 120,'available'),
-  (3, NOW() + INTERVAL '2 days' + TIME '15:00', NOW() + INTERVAL '2 days' + TIME '15:45', 45, 'booked'),
-  (3, NOW() + INTERVAL '4 days' + TIME '09:30', NOW() + INTERVAL '4 days' + TIME '10:15', 45, 'available'),
-  -- Emma (4)
-  (4, NOW() + INTERVAL '1 day'  + TIME '13:00', NOW() + INTERVAL '1 day'  + TIME '13:45', 45, 'available'),
-  (4, NOW() + INTERVAL '2 days' + TIME '10:00', NOW() + INTERVAL '2 days' + TIME '11:15', 75, 'available'),
-  (4, NOW() + INTERVAL '3 days' + TIME '14:00', NOW() + INTERVAL '3 days' + TIME '15:30', 90, 'booked'),
-  -- Inès (8)
-  (8, NOW() + INTERVAL '1 day'  + TIME '11:00', NOW() + INTERVAL '1 day'  + TIME '12:15', 75, 'available'),
-  (8, NOW() + INTERVAL '3 days' + TIME '10:00', NOW() + INTERVAL '3 days' + TIME '11:30', 90, 'available'),
-  (8, NOW() + INTERVAL '5 days' + TIME '14:00', NOW() + INTERVAL '5 days' + TIME '15:15', 75, 'available'),
-  -- Marine (9)
-  (9, NOW() + INTERVAL '2 days' + TIME '09:00', NOW() + INTERVAL '2 days' + TIME '11:00', 120,'available'),
-  (9, NOW() + INTERVAL '4 days' + TIME '13:00', NOW() + INTERVAL '4 days' + TIME '14:15', 75, 'available'),
-  -- Yasmine (10)
-  (10, NOW() + INTERVAL '1 day' + TIME '09:30', NOW() + INTERVAL '1 day' + TIME '10:30', 60, 'available'),
-  (10, NOW() + INTERVAL '2 days'+ TIME '14:00', NOW() + INTERVAL '2 days'+ TIME '15:00', 60, 'available'),
-  -- Chloé (11)
-  (11, NOW() + INTERVAL '1 day' + TIME '10:00', NOW() + INTERVAL '1 day' + TIME '11:00', 60, 'available'),
-  (11, NOW() + INTERVAL '3 days'+ TIME '15:00', NOW() + INTERVAL '3 days'+ TIME '16:15', 75, 'available'),
-  -- Anaïs (12)
-  (12, NOW() + INTERVAL '2 days'+ TIME '09:00', NOW() + INTERVAL '2 days'+ TIME '10:30', 90, 'available'),
-  (12, NOW() + INTERVAL '4 days'+ TIME '11:00', NOW() + INTERVAL '4 days'+ TIME '12:40', 100,'available'),
-  -- Pauline (13)
-  (13, NOW() + INTERVAL '1 day' + TIME '14:00', NOW() + INTERVAL '1 day' + TIME '15:50', 110,'available'),
-  (13, NOW() + INTERVAL '5 days'+ TIME '10:00', NOW() + INTERVAL '5 days'+ TIME '11:40', 100,'available'),
-  -- Léonie (14)
-  (14, NOW() + INTERVAL '1 day' + TIME '09:00', NOW() + INTERVAL '1 day' + TIME '09:50', 50, 'available'),
-  (14, NOW() + INTERVAL '3 days'+ TIME '13:00', NOW() + INTERVAL '3 days'+ TIME '14:20', 80, 'available'),
-  -- Sonia (15) — planning avril-mai 2026
-  (15, NOW() + INTERVAL '1 day'  + TIME '09:00', NOW() + INTERVAL '1 day'  + TIME '10:25', 85, 'available'),
-  (15, NOW() + INTERVAL '1 day'  + TIME '11:00', NOW() + INTERVAL '1 day'  + TIME '12:00', 60, 'available'),
-  (15, NOW() + INTERVAL '2 days' + TIME '10:00', NOW() + INTERVAL '2 days' + TIME '11:25', 85, 'available'),
-  (15, NOW() + INTERVAL '2 days' + TIME '14:00', NOW() + INTERVAL '2 days' + TIME '15:00', 60, 'available'),
-  (15, NOW() + INTERVAL '3 days' + TIME '09:00', NOW() + INTERVAL '3 days' + TIME '10:25', 85, 'available'),
-  (15, NOW() + INTERVAL '3 days' + TIME '11:00', NOW() + INTERVAL '3 days' + TIME '12:25', 85, 'available'),
-  (15, NOW() + INTERVAL '4 days' + TIME '14:00', NOW() + INTERVAL '4 days' + TIME '15:00', 60, 'available'),
-  (15, NOW() + INTERVAL '4 days' + TIME '15:30', NOW() + INTERVAL '4 days' + TIME '16:55', 85, 'available'),
-  (15, NOW() + INTERVAL '5 days' + TIME '10:00', NOW() + INTERVAL '5 days' + TIME '11:00', 60, 'available'),
-  (15, NOW() + INTERVAL '6 days' + TIME '09:00', NOW() + INTERVAL '6 days' + TIME '10:00', 60, 'available'),
-  (15, NOW() + INTERVAL '6 days' + TIME '10:30', NOW() + INTERVAL '6 days' + TIME '11:55', 85, 'available'),
-  (15, NOW() + INTERVAL '7 days' + TIME '14:00', NOW() + INTERVAL '7 days' + TIME '15:25', 85, 'available'),
-  (15, NOW() + INTERVAL '8 days' + TIME '09:00', NOW() + INTERVAL '8 days' + TIME '10:00', 60, 'available'),
-  (15, NOW() + INTERVAL '8 days' + TIME '11:00', NOW() + INTERVAL '8 days' + TIME '12:25', 85, 'available'),
-  (15, NOW() + INTERVAL '9 days' + TIME '10:00', NOW() + INTERVAL '9 days' + TIME '11:00', 60, 'available'),
-  (15, NOW() + INTERVAL '9 days' + TIME '14:00', NOW() + INTERVAL '9 days' + TIME '15:00', 60, 'available'),
-  (15, NOW() + INTERVAL '10 days'+ TIME '09:00', NOW() + INTERVAL '10 days'+ TIME '10:25', 85, 'available'),
-  (15, NOW() + INTERVAL '11 days'+ TIME '10:00', NOW() + INTERVAL '11 days'+ TIME '11:00', 60, 'available'),
-  (15, NOW() + INTERVAL '11 days'+ TIME '14:00', NOW() + INTERVAL '11 days'+ TIME '15:25', 85, 'available'),
-  (15, NOW() + INTERVAL '12 days'+ TIME '09:00', NOW() + INTERVAL '12 days'+ TIME '10:00', 60, 'available'),
-  (15, NOW() + INTERVAL '13 days'+ TIME '11:00', NOW() + INTERVAL '13 days'+ TIME '12:25', 85, 'available'),
-  (15, NOW() + INTERVAL '14 days'+ TIME '09:00', NOW() + INTERVAL '14 days'+ TIME '10:00', 60, 'available'),
-  (15, NOW() + INTERVAL '14 days'+ TIME '10:30', NOW() + INTERVAL '14 days'+ TIME '11:55', 85, 'available'),
-  (15, NOW() + INTERVAL '15 days'+ TIME '14:00', NOW() + INTERVAL '15 days'+ TIME '15:00', 60, 'available'),
-  (15, NOW() + INTERVAL '16 days'+ TIME '10:00', NOW() + INTERVAL '16 days'+ TIME '11:25', 85, 'available'),
-  (15, NOW() + INTERVAL '17 days'+ TIME '09:00', NOW() + INTERVAL '17 days'+ TIME '10:00', 60, 'available'),
-  (15, NOW() + INTERVAL '18 days'+ TIME '11:00', NOW() + INTERVAL '18 days'+ TIME '12:00', 60, 'available'),
-  (15, NOW() + INTERVAL '19 days'+ TIME '14:00', NOW() + INTERVAL '19 days'+ TIME '15:25', 85, 'available'),
-  (15, NOW() + INTERVAL '20 days'+ TIME '09:00', NOW() + INTERVAL '20 days'+ TIME '10:25', 85, 'available'),
-  (15, NOW() + INTERVAL '21 days'+ TIME '10:00', NOW() + INTERVAL '21 days'+ TIME '11:00', 60, 'available'),
-  -- Océane (16)
-  (16, NOW() + INTERVAL '1 day' + TIME '11:00', NOW() + INTERVAL '1 day' + TIME '12:00', 60, 'available'),
-  (16, NOW() + INTERVAL '3 days'+ TIME '09:00', NOW() + INTERVAL '3 days'+ TIME '10:30', 90, 'available'),
-  -- Clara (17)
-  (17, NOW() + INTERVAL '2 days'+ TIME '10:00', NOW() + INTERVAL '2 days'+ TIME '11:35', 95, 'available'),
-  (17, NOW() + INTERVAL '5 days'+ TIME '13:00', NOW() + INTERVAL '5 days'+ TIME '14:20', 80, 'available'),
-  -- Lucie (18)
-  (18, NOW() + INTERVAL '1 day' + TIME '14:00', NOW() + INTERVAL '1 day' + TIME '15:50', 110,'available'),
-  (18, NOW() + INTERVAL '4 days'+ TIME '10:00', NOW() + INTERVAL '4 days'+ TIME '11:20', 80, 'available'),
-  -- Sofia (19)
-  (19, NOW() + INTERVAL '1 day' + TIME '09:00', NOW() + INTERVAL '1 day' + TIME '09:45', 45, 'available'),
-  (19, NOW() + INTERVAL '2 days'+ TIME '15:00', NOW() + INTERVAL '2 days'+ TIME '16:00', 60, 'available'),
-  (19, NOW() + INTERVAL '4 days'+ TIME '11:00', NOW() + INTERVAL '4 days'+ TIME '12:15', 75, 'available');
-
--- ============================================================
 -- Réservations
 -- ============================================================
 INSERT INTO reservations (
