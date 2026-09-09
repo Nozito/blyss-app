@@ -337,7 +337,8 @@ describe("POST /api/admin/payments/:id/refund", () => {
       .set("Authorization", `Bearer ${adminToken}`);
 
     expect(mockRefundCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ payment_intent: "pi_123" })
+      expect.objectContaining({ payment_intent: "pi_123" }),
+      expect.objectContaining({ idempotencyKey: expect.stringContaining("blyss_refund_payment_") })
     );
     expect(res.status).toBe(200);
     expect(res.body.data.stripe_refund_id).toBe("re_123");

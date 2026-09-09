@@ -19,13 +19,27 @@
 import { getDb } from "../lib/db";
 import { log } from "../lib/logger";
 import { getStripe } from "../lib/stripe";
+import { sendAlert } from "../lib/alerts";
+import { initiateRefundsForReservation } from "../lib/refunds";
 
 const ROUTE = "/cron/payment-cleanup";
 const UNPAID_TIMEOUT_MINUTES = 30;
 const INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
+// Statuts Stripe qui signifient "un paiement est en cours ou abouti" : on ne
+// doit PAS annuler la réservation tant que le PaymentIntent est dans un de
+// ces états — le webhook (ou un cycle suivant) tranchera.
+const PI_IN_FLIGHT = new Set([
+  "succeeded",
+  "processing",
+  "requires_capture",
+  "requires_action",
+  "requires_confirmation",
+]);
+
 async function cancelUnpaidReservations(): Promise<number> {
   const db = getDb();
+  const stripe = getStripe();
 
   // Fetch all online-payment reservations still unpaid for too long. These
   // sit in 'pending' (never confirmed without payment) — older rows created
@@ -37,28 +51,62 @@ async function cancelUnpaidReservations(): Promise<number> {
   // 30 minutes after being made, which is not the intent of this cron
   // (it exists to catch abandoned online-checkout attempts, not on-site
   // bookings that were never supposed to be paid up front).
+  //
+  // On récupère aussi le dernier PaymentIntent connu : avant d'annuler, on
+  // vérifie chez Stripe qu'aucun paiement n'est en cours/abouti — sinon on
+  // laisse la réservation tranquille (le webhook la confirmera, ou un cycle
+  // suivant l'annulera si le paiement échoue vraiment).
   const [rows] = await db.query(
-    `SELECT id
-     FROM reservations
-     WHERE payment_status = 'unpaid'
-       AND status IN ('pending', 'confirmed')
-       AND paid_online = TRUE
-       AND created_at < NOW() - MAKE_INTERVAL(mins => $1)`,
+    `SELECT r.id,
+            (SELECT p.stripe_payment_intent_id
+             FROM payments p
+             WHERE p.reservation_id = r.id AND p.stripe_payment_intent_id IS NOT NULL
+             ORDER BY p.created_at DESC
+             LIMIT 1) AS last_pi
+     FROM reservations r
+     WHERE r.payment_status = 'unpaid'
+       AND r.status IN ('pending', 'confirmed')
+       AND r.paid_online = TRUE
+       AND r.created_at < NOW() - MAKE_INTERVAL(mins => $1)`,
     [UNPAID_TIMEOUT_MINUTES]
   );
 
-  const reservations = rows as Array<{ id: number }>;
+  const reservations = rows as Array<{ id: number; last_pi: string | null }>;
   if (reservations.length === 0) return 0;
 
+  let cancelled = 0;
   for (const r of reservations) {
     try {
+      if (r.last_pi) {
+        let piStatus: string | null = null;
+        try {
+          const pi = await stripe.paymentIntents.retrieve(r.last_pi);
+          piStatus = pi.status;
+        } catch (err) {
+          // PI introuvable / erreur transitoire — on préfère NE PAS annuler
+          // ce cycle-ci et retenter au suivant plutôt que risquer d'annuler
+          // une réservation dont le paiement aboutit.
+          log.warn(ROUTE, "Could not retrieve PaymentIntent — skipping cancel this cycle", {
+            reservationId: r.id,
+          });
+          continue;
+        }
+        if (piStatus && PI_IN_FLIGHT.has(piStatus)) {
+          log.warn(ROUTE, "Payment in flight — not cancelling reservation", {
+            reservationId: r.id,
+            piStatus,
+          });
+          continue;
+        }
+      }
+
       await db.execute(
         `UPDATE reservations
          SET status = 'cancelled', cancelled_by = 'system', updated_at = NOW()
-         WHERE id = ?`,
+         WHERE id = ? AND status IN ('pending', 'confirmed')`,
         [r.id]
       );
-
+      cancelled++;
       log.warn(ROUTE, "Auto-cancelled unpaid reservation", { reservationId: r.id });
     } catch (err) {
       log.error(
@@ -69,7 +117,58 @@ async function cancelUnpaidReservations(): Promise<number> {
     }
   }
 
-  return reservations.length;
+  return cancelled;
+}
+
+/**
+ * Filet de sécurité pour la race cron↔webhook : une réservation annulée
+ * (timeout, annulation) dont un paiement a malgré tout abouti ensuite. Le
+ * webhook `payment_intent.succeeded` déclenche déjà un remboursement auto,
+ * mais s'il n'a pas pu (process tué juste après le commit, event non rejoué
+ * car déjà dans `stripe_events`), cette passe le rattrape.
+ *
+ * `initiateRefundsForReservation` est idempotent (`stripe_refund_id IS NULL`
+ * + verrou `FOR UPDATE`) : sans effet si le remboursement a déjà eu lieu.
+ */
+async function refundCancelledButPaid(): Promise<number> {
+  const db = getDb();
+
+  const [rows] = await db.query(
+    `SELECT DISTINCT p.reservation_id
+     FROM payments p
+     JOIN reservations r ON r.id = p.reservation_id
+     WHERE p.status = 'succeeded'
+       AND p.stripe_payment_intent_id IS NOT NULL
+       AND p.stripe_refund_id IS NULL
+       AND r.status = 'cancelled'`
+  );
+  const reservationIds = (rows as Array<{ reservation_id: number }>).map((x) => x.reservation_id);
+  if (reservationIds.length === 0) return 0;
+
+  let refunded = 0;
+  for (const reservationId of reservationIds) {
+    try {
+      await sendAlert("critical", "Réservation annulée avec un paiement encaissé — remboursement de rattrapage", {
+        reservationId,
+        source: "payment-cleanup/reconcile",
+      }).catch(() => {});
+      const rr = await initiateRefundsForReservation(reservationId, "requested_by_customer");
+      if (rr.refunded) refunded++;
+      log.warn(ROUTE, "Reconcile refund", {
+        reservationId,
+        refunded: rr.refunded,
+        totalRefunded: rr.totalRefunded,
+        errors: rr.errors,
+      });
+    } catch (err) {
+      log.error(
+        ROUTE,
+        `Reconcile refund failed for reservation ${reservationId}`,
+        err instanceof Error ? err.stack : String(err)
+      );
+    }
+  }
+  return refunded;
 }
 
 async function expireStalePendingPayments(): Promise<number> {
@@ -140,6 +239,19 @@ export async function runPaymentCleanup(): Promise<void> {
     log.error(
       ROUTE,
       "Pending payment expiry cycle failed",
+      err instanceof Error ? err.stack : String(err)
+    );
+  }
+
+  try {
+    const refunded = await refundCancelledButPaid();
+    if (refunded > 0) {
+      log.warn(ROUTE, `Reconciled ${refunded} cancelled-but-paid reservation(s)`);
+    }
+  } catch (err) {
+    log.error(
+      ROUTE,
+      "Cancelled-but-paid reconcile cycle failed",
       err instanceof Error ? err.stack : String(err)
     );
   }

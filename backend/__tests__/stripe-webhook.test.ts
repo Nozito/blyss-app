@@ -26,6 +26,7 @@ vi.mock("stripe", () => ({
   default: class MockStripe {
     webhooks = { constructEvent: mockConstructEvent };
     paymentIntents = { create: vi.fn(), retrieve: vi.fn() };
+    refunds = { create: vi.fn().mockResolvedValue({ id: "re_test_123" }) };
     accounts = { retrieve: vi.fn() };
     accountLinks = { create: vi.fn() };
   },
@@ -88,16 +89,16 @@ describe("POST /api/webhooks/stripe", () => {
     mockQuery.mockResolvedValue([[], []]);
   });
 
-  it("payment_intent.succeeded → UPDATE payments + UPDATE reservations", async () => {
+  it("payment_intent.succeeded (résa active) → crédite + confirme la réservation", async () => {
     const piId = "pi_test_succeeded_123";
     mockConstructEvent.mockReturnValueOnce({
       type: "payment_intent.succeeded",
       id: "evt_1",
       data: { object: { id: piId } },
     });
-    // SELECT payment rows
+    // SELECT payment + reservation status
     mockQuery.mockResolvedValueOnce([
-      [{ reservation_id: 42, amount: 150, type: "deposit" }],
+      [{ reservation_id: 42, amount: 150, type: "deposit", reservation_status: "pending" }],
       [],
     ]);
 
@@ -111,8 +112,41 @@ describe("POST /api/webhooks/stripe", () => {
     expect(paymentsCall).toBeDefined();
     expect(paymentsCall?.[1]).toContain(piId);
 
-    const reservationsCall = calls.find((a) => sqlIncludes(a, "UPDATE reservations"));
-    expect(reservationsCall).toBeDefined();
+    // Le crédit est conditionné au statut (invariant anti-paiement-tardif).
+    const creditCall = calls.find((a) =>
+      sqlIncludes(a, "UPDATE reservations", "total_paid", "status IN ('pending', 'confirmed')")
+    );
+    expect(creditCall).toBeDefined();
+    const confirmCall = calls.find((a) => sqlIncludes(a, "UPDATE reservations", "status = 'confirmed'"));
+    expect(confirmCall).toBeDefined();
+  });
+
+  it("payment_intent.succeeded sur une résa ANNULÉE → aucun crédit, alerte + remboursement", async () => {
+    const piId = "pi_test_late_999";
+    mockConstructEvent.mockReturnValueOnce({
+      type: "payment_intent.succeeded",
+      id: "evt_late",
+      data: { object: { id: piId } },
+    });
+    mockQuery.mockResolvedValueOnce([
+      [{ reservation_id: 77, amount: 40, type: "deposit", reservation_status: "cancelled" }],
+      [],
+    ]);
+    // initiateRefundsForReservation : 1 paiement succeeded à rembourser
+    mockQuery.mockResolvedValueOnce([[{ id: 558 }], []]);
+
+    const res = await sendStripeWebhook();
+    expect(res.status).toBe(200);
+
+    const calls = mockExecute.mock.calls as unknown[][];
+    // Aucun crédit de réservation
+    const creditCall = calls.find((a) => sqlIncludes(a, "UPDATE reservations", "total_paid"));
+    expect(creditCall).toBeUndefined();
+    // Le remboursement idempotent a été tenté (SELECT des paiements à rembourser)
+    const refundLookup = (mockQuery.mock.calls as unknown[][]).find((a) =>
+      sqlIncludes(a, "FROM payments", "stripe_refund_id IS NULL")
+    );
+    expect(refundLookup).toBeDefined();
   });
 
   it("payment_intent.payment_failed → UPDATE payments SET status='failed'", async () => {
@@ -133,22 +167,54 @@ describe("POST /api/webhooks/stripe", () => {
     expect(failedCall?.[1]).toContain(piId);
   });
 
-  it("charge.refunded → UPDATE payments SET status='refunded'", async () => {
+  it("charge.refunded intégral → payment refunded + réservation à jour", async () => {
     const piId = "pi_test_refunded_789";
     mockConstructEvent.mockReturnValueOnce({
       type: "charge.refunded",
       id: "evt_3",
-      data: { object: { id: "ch_123", payment_intent: piId } },
+      data: { object: { id: "ch_123", payment_intent: piId, amount: 5000, amount_captured: 5000, amount_refunded: 5000 } },
     });
+    mockQuery.mockResolvedValueOnce([
+      [{ reservation_id: 9, client_id: 3, price: 50, payment_status: "fully_paid" }],
+      [],
+    ]);
+    mockQuery.mockResolvedValueOnce([[{ gross: 50, refunded: 50 }], []]);
 
     const res = await sendStripeWebhook();
-
     expect(res.status).toBe(200);
 
     const calls = mockExecute.mock.calls as unknown[][];
-    const refundedCall = calls.find((a) => sqlIncludes(a, "UPDATE payments", "refunded"));
+    const refundedCall = calls.find((a) => sqlIncludes(a, "UPDATE payments", "refund_amount"));
     expect(refundedCall).toBeDefined();
     expect(refundedCall?.[1]).toContain(piId);
+    // refund_amount = montant réellement remboursé chez Stripe (50 €), fullyRefunded=true
+    expect((refundedCall?.[1] as unknown[])?.[0]).toBe(50);
+    expect((refundedCall?.[1] as unknown[])?.[1]).toBe(true);
+  });
+
+  it("charge.refunded PARTIEL → refund_amount partiel, payment pas 'refunded'", async () => {
+    const piId = "pi_test_partial_555";
+    mockConstructEvent.mockReturnValueOnce({
+      type: "charge.refunded",
+      id: "evt_partial",
+      data: { object: { id: "ch_555", payment_intent: piId, amount: 8000, amount_captured: 8000, amount_refunded: 3000 } },
+    });
+    mockQuery.mockResolvedValueOnce([
+      [{ reservation_id: 12, client_id: 4, price: 80, payment_status: "fully_paid" }],
+      [],
+    ]);
+    mockQuery.mockResolvedValueOnce([[{ gross: 80, refunded: 30 }], []]);
+
+    const res = await sendStripeWebhook();
+    expect(res.status).toBe(200);
+
+    const calls = mockExecute.mock.calls as unknown[][];
+    const refundCall = calls.find((a) => sqlIncludes(a, "UPDATE payments", "refund_amount"));
+    expect((refundCall?.[1] as unknown[])?.[0]).toBe(30); // 30 € remboursés, pas 80
+    expect((refundCall?.[1] as unknown[])?.[1]).toBe(false); // fullyRefunded = false
+    // total_paid recalculé = 80 - 30 = 50
+    const resaCall = calls.find((a) => sqlIncludes(a, "UPDATE reservations", "total_paid"));
+    expect((resaCall?.[1] as unknown[])?.[1]).toBe(50);
   });
 
   it("signature invalide → 400 { error: 'Invalid signature' }", async () => {

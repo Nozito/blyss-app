@@ -120,11 +120,19 @@ export async function initiateClientCancellationRefunds(
 
       const amountCents = Math.round(refundAmount * 100);
 
-      const refund = await stripe.refunds.create({
-        payment_intent: payment.stripe_payment_intent_id,
-        amount: amountCents,
-        reason: "requested_by_customer",
-      });
+      // Clé d'idempotence Stripe (24 h) : 2ᵉ garde-fou en plus du `FOR UPDATE` +
+      // `stripe_refund_id IS NULL`. Si l'appel Stripe aboutit mais que le commit
+      // DB échoue (connexion coupée), le rollback libère le lock et un retry
+      // reprendrait le même `payment` — la clé garantit alors que Stripe renvoie
+      // le remboursement existant au lieu d'en créer un second.
+      const refund = await stripe.refunds.create(
+        {
+          payment_intent: payment.stripe_payment_intent_id,
+          amount: amountCents,
+          reason: "requested_by_customer",
+        },
+        { idempotencyKey: `blyss_refund_payment_${payment.id}` }
+      );
       stripeRefundId = refund.id;
 
       await connection.execute(
@@ -235,10 +243,11 @@ export async function initiateRefundsForReservation(
 
       amount = Number(payment.amount);
 
-      const refund = await stripe.refunds.create({
-        payment_intent: payment.stripe_payment_intent_id,
-        reason,
-      });
+      // Clé d'idempotence Stripe (24 h) — cf. initiateClientCancellationRefunds.
+      const refund = await stripe.refunds.create(
+        { payment_intent: payment.stripe_payment_intent_id, reason },
+        { idempotencyKey: `blyss_refund_payment_${payment.id}` }
+      );
       stripeRefundId = refund.id;
 
       await connection.execute(
@@ -346,10 +355,11 @@ export async function refundPaymentById(
 
     amount = Number(payment.amount);
 
-    const refund = await stripe.refunds.create({
-      payment_intent: payment.stripe_payment_intent_id,
-      reason,
-    });
+    // Clé d'idempotence Stripe (24 h) — cf. initiateClientCancellationRefunds.
+    const refund = await stripe.refunds.create(
+      { payment_intent: payment.stripe_payment_intent_id, reason },
+      { idempotencyKey: `blyss_refund_payment_${payment.id}` }
+    );
     stripeRefundId = refund.id;
 
     await connection.execute(
