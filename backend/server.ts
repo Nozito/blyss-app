@@ -895,6 +895,12 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
     const productId: string = event.product_id ?? "";
     const entitlementIds: string[] = Array.isArray(event.entitlement_ids) ? event.entitlement_ids : [];
     const expirationAtMs: number | null = event.expiration_at_ms ?? null;
+    // Montant réellement facturé, dans la devise d'achat (ex. 39.99 EUR).
+    // `event.price` est normalisé en USD par RC (analytics) — on préfère
+    // `price_in_purchased_currency`.
+    const purchasedPrice: number = Number(
+      event.price_in_purchased_currency ?? event.price ?? 0
+    ) || 0;
 
     if (!eventId) {
       log.warn("/api/webhooks/revenuecat", "Event sans id — rejeté");
@@ -966,10 +972,14 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
           `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
           [userId]
         );
+        // Montant : mensuel → monthly_price ; annuel (one_time) → total_price +
+        // monthly_price = total / 12 (pour que le MRR admin reste comparable).
+        const monthlyPrice = billingType === "monthly" ? purchasedPrice : Math.round((purchasedPrice / 12) * 100) / 100;
+        const totalPrice = billingType === "one_time" ? purchasedPrice : null;
         await connection.execute(
           `INSERT INTO subscriptions (client_id, plan, billing_type, monthly_price, total_price, commitment_months, start_date, end_date, status, payment_id)
-           VALUES (?, ?, ?, 0, NULL, NULL, ?, ?, 'active', ?)`,
-          [userId, plan, billingType, startDate, endDate, `rc_${eventId}`]
+           VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'active', ?)`,
+          [userId, plan, billingType, monthlyPrice, totalPrice, startDate, endDate, `rc_${eventId}`]
         );
         await connection.execute(
           `UPDATE users SET pro_status = 'active' WHERE id = ?`,

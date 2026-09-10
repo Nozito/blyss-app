@@ -585,7 +585,9 @@ router.get(
               COUNT(*) FILTER (WHERE status = 'active')                                                       AS subs_active,
               COUNT(*) FILTER (WHERE created_at >= (SELECT d FROM this_month))                                 AS subs_this,
               COUNT(*) FILTER (WHERE created_at >= (SELECT d FROM last_month_start) AND created_at < (SELECT d FROM this_month)) AS subs_last,
-              COALESCE(SUM(monthly_price) FILTER (WHERE status = 'active' AND billing_type = 'monthly'), 0)    AS sub_mrr,
+              -- MRR = mensuels (monthly_price) + annuels amortis (total/12, déjà
+              -- stocké dans monthly_price par le webhook RC).
+              COALESCE(SUM(monthly_price) FILTER (WHERE status = 'active'), 0)                                AS sub_mrr,
               COUNT(*) FILTER (WHERE status = 'active' AND plan = 'start')                                     AS plan_start,
               COUNT(*) FILTER (WHERE status = 'active' AND plan = 'serenite')                                  AS plan_serenite,
               COUNT(*) FILTER (WHERE status = 'active' AND plan = 'signature')                                 AS plan_signature
@@ -2527,6 +2529,123 @@ router.delete(
         return res.status(404).json({ success: false, message: "Tâche introuvable ou non supprimable" });
       }
       res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ── Abonnements pros ──────────────────────────────────────────────────────
+/* GET /subscriptions — vue admin : agrégats + liste.
+ * ?status=active|cancelled|all (défaut active) · ?plan=start|serenite|signature
+ * · ?page&limit. `source` dérivée du payment_id :
+ *   rc_*            → App Store / Play (RevenueCat)
+ *   admin_grant     → offert (bouton admin)
+ *   admin_internal  → interne / partenariat
+ *   sub_seed_*      → seed
+ */
+router.get(
+  "/subscriptions",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const db = getDb();
+      const status = (req.query.status as string) || "active";
+      const plan = req.query.plan as string | undefined;
+      const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10) || 50));
+      const offset = (page - 1) * limit;
+
+      const conds: string[] = [];
+      const params: unknown[] = [];
+      if (status !== "all") { conds.push("s.status = ?"); params.push(status); }
+      if (plan && ["start", "serenite", "signature"].includes(plan)) { conds.push("s.plan = ?"); params.push(plan); }
+      const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+
+      const SOURCE_SQL = `
+        CASE
+          WHEN s.payment_id LIKE 'rc_%'          THEN 'store'
+          WHEN s.payment_id = 'admin_grant'      THEN 'granted'
+          WHEN s.payment_id = 'admin_internal'   THEN 'internal'
+          WHEN s.payment_id LIKE 'sub_seed%'     THEN 'seed'
+          ELSE 'other'
+        END`;
+
+      // ── Agrégats (toujours calculés sur l'ensemble, indépendants du filtre) ──
+      const [[summary]]: any = await db.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'active')                                                   AS active_count,
+          COUNT(*) FILTER (WHERE status = 'active' AND ${SOURCE_SQL.replace(/s\./g, "subscriptions.")} = 'store')   AS active_store,
+          COUNT(*) FILTER (WHERE status = 'active' AND ${SOURCE_SQL.replace(/s\./g, "subscriptions.")} IN ('granted','internal')) AS active_free,
+          COALESCE(SUM(monthly_price) FILTER (WHERE status = 'active'), 0)                             AS mrr,
+          COUNT(*) FILTER (WHERE status = 'active' AND plan = 'start')                                 AS plan_start,
+          COUNT(*) FILTER (WHERE status = 'active' AND plan = 'serenite')                              AS plan_serenite,
+          COUNT(*) FILTER (WHERE status = 'active' AND plan = 'signature')                             AS plan_signature,
+          COUNT(*) FILTER (WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE))                      AS new_this_month,
+          COUNT(*) FILTER (WHERE status = 'cancelled' AND updated_at >= DATE_TRUNC('month', CURRENT_DATE)) AS cancelled_this_month,
+          COUNT(*) FILTER (WHERE status = 'active' AND end_date IS NOT NULL AND end_date <= CURRENT_DATE + INTERVAL '7 days') AS expiring_7d
+        FROM subscriptions
+      `);
+
+      const [countRows]: any = await db.query(
+        `SELECT COUNT(*) AS total FROM subscriptions s ${where}`,
+        params
+      );
+
+      const [rows]: any = await db.query(`
+        SELECT
+          s.id, s.client_id, s.plan, s.billing_type, s.monthly_price, s.total_price,
+          s.status, s.start_date, s.end_date, s.payment_id, s.created_at, s.updated_at,
+          ${SOURCE_SQL} AS source,
+          (s.payment_id = 'admin_grant' OR s.monthly_price = 0) AS is_granted,
+          u.first_name, u.last_name, u.email, u.activity_name, u.city, u.profile_photo, u.pro_status
+        FROM subscriptions s
+        JOIN users u ON u.id = s.client_id
+        ${where}
+        ORDER BY (s.status = 'active') DESC, s.created_at DESC
+        LIMIT ? OFFSET ?
+      `, [...params, limit, offset]);
+
+      const mrr = Number(summary?.mrr ?? 0);
+      res.json({
+        success: true,
+        data: {
+          summary: {
+            activeCount: Number(summary?.active_count ?? 0),
+            activeStore: Number(summary?.active_store ?? 0),
+            activeFree: Number(summary?.active_free ?? 0),
+            mrr,
+            arr: Math.round(mrr * 12 * 100) / 100,
+            byPlan: {
+              start: Number(summary?.plan_start ?? 0),
+              serenite: Number(summary?.plan_serenite ?? 0),
+              signature: Number(summary?.plan_signature ?? 0),
+            },
+            newThisMonth: Number(summary?.new_this_month ?? 0),
+            cancelledThisMonth: Number(summary?.cancelled_this_month ?? 0),
+            expiring7d: Number(summary?.expiring_7d ?? 0),
+          },
+          items: (rows as any[]).map((r) => ({
+            id: r.id,
+            proId: r.client_id,
+            proName: r.activity_name || `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim(),
+            email: r.email,
+            city: r.city,
+            profilePhoto: r.profile_photo,
+            proStatus: r.pro_status,
+            plan: r.plan,
+            billingType: r.billing_type,
+            monthlyPrice: Number(r.monthly_price),
+            totalPrice: r.total_price != null ? Number(r.total_price) : null,
+            status: r.status,
+            startDate: r.start_date,
+            endDate: r.end_date,
+            source: r.source,
+            isGranted: Boolean(r.is_granted),
+            createdAt: r.created_at,
+          })),
+          meta: { page, limit, total: Number(countRows[0]?.total ?? 0) },
+        },
+      });
     } catch (error) {
       next(error);
     }
