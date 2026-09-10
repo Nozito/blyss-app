@@ -48,7 +48,7 @@ interface SubItem {
   id: number; proId: number; proName: string; email: string; city: string | null;
   profilePhoto: string | null; proStatus: string;
   plan: string; billingType: "monthly" | "one_time";
-  monthlyPrice: number; totalPrice: number | null;
+  monthlyPrice: number; totalPrice: number | null; priceSource?: "store" | "catalog";
   status: "active" | "cancelled" | "pending";
   startDate: string | null; endDate: string | null; source: string; isGranted: boolean;
 }
@@ -376,7 +376,10 @@ export default function AdminSubscriptions() {
                     {s.billingType === "monthly" ? eur(s.monthlyPrice) : eur(s.totalPrice)}
                     <span className="text-[11px] font-medium text-muted-foreground">{s.billingType === "monthly" ? "/mois" : "/an"}</span>
                   </p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">{s.isGranted ? "Offert" : SOURCE_LABELS[s.source] ?? s.source}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    {s.isGranted ? "Offert" : SOURCE_LABELS[s.source] ?? s.source}
+                    {s.priceSource === "catalog" && <span className="ml-1 opacity-70" title="Prix de référence du catalogue Blyss (pas un montant facturé — abo offert, interne ou seed).">· tarif catalogue</span>}
+                  </p>
                 </div>
 
                 <div className="hidden shrink-0 text-right md:block">

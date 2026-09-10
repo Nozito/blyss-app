@@ -284,6 +284,19 @@ d'events produit (funnel haut, DAU/WAU/MAU réels) et **CAC / LTV par canal**
   l'onglet « Santé data » liste le statut `real` / `computed` / `estimated` /
   `unavailable` de chaque métrique et les prérequis manquants.
 
+**Prix des abonnements (2026-09-10)** : `subscriptions.monthly_price` /
+`total_price` ne sont fiables que pour un vrai achat App Store (webhook RC).
+Pour seed / `admin_grant` / `admin_internal` / achat sandbox → valeurs fausses
+(99 €, 358,80 €, 0 €). RevenueCat **n'expose pas** les prix App Store via son API
+serveur (`rc products list` = identifiants seulement). → `backend/lib/subscription-catalog.ts` :
+grille canonique Blyss (`start` 29,99/299,99 · `serenite` 39,99/399,99 ·
+`signature` 49,99/499,99), alignée sur l'offering RC « Blyss » et `constants/plans.ts`.
+`resolveSubscriptionPricing()` (par ligne) + `resolvedMonthlyPriceSQL()` (agrégats
+MRR/ARR/mix/séries) : catalogue partout, sauf vrai achat store avec montant > 0.
+`GET /api/admin/analytics/v2/subscriptions/catalog` renvoie la grille +
+`verifyCatalogAgainstRevenueCat()` (contrôle que les identifiants produits
+existent toujours ; `REVENUECAT_PROJECT_ID` requis, sinon ignoré).
+
 **Retiré après revue (2026-09-10)** : les **funnels d'activation** (cliente & pro,
 endpoints `clients/funnel` + `pros/funnel` + composant UI) — trop dépendants de
 tables peu remplies (`client_onboarding`, `favorites`), barres quasi plates. À

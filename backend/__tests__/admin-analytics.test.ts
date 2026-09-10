@@ -56,6 +56,7 @@ const ENDPOINTS = [
   "/api/admin/analytics/v2/marketplace",
   "/api/admin/analytics/v2/segments",
   "/api/admin/analytics/v2/subscriptions/deep",
+  "/api/admin/analytics/v2/subscriptions/catalog",
   "/api/admin/analytics/v2/data-health",
 ];
 
