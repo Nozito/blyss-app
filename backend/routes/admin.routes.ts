@@ -1740,8 +1740,10 @@ router.get(
         SELECT
           COALESCE(SUM(amount) FILTER (WHERE status = 'succeeded'), 0) AS total_revenue,
           COALESCE(SUM(amount) FILTER (WHERE status = 'succeeded'
-            AND EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE)
-            AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)), 0) AS month_revenue,
+            AND created_at >= DATE_TRUNC('month', CURRENT_DATE)), 0) AS month_revenue,
+          COALESCE(SUM(amount) FILTER (WHERE status = 'succeeded'
+            AND created_at >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 month'
+            AND created_at <  DATE_TRUNC('month', CURRENT_DATE)), 0) AS prev_month_revenue,
           COUNT(*) FILTER (WHERE status = 'succeeded') AS successful_payments,
           COUNT(*) FILTER (WHERE status = 'refunded') AS refunded_payments
         FROM payments
@@ -1767,10 +1769,17 @@ router.get(
         FROM reservations
       `);
 
+      const rev: any = (revenueRows as any[])[0] ?? {};
+      const monthRev = Number(rev.month_revenue ?? 0);
+      const prevMonthRev = Number(rev.prev_month_revenue ?? 0);
+      const growth = prevMonthRev > 0
+        ? Math.round(((monthRev - prevMonthRev) / prevMonthRev) * 1000) / 10
+        : null;
+
       res.json({
         success: true,
         data: {
-          revenue: (revenueRows as any[])[0] ?? {},
+          revenue: { ...rev, growth },
           users: (userRows as any[])[0] ?? {},
           bookings: (bookingRows as any[])[0] ?? {},
         },
@@ -1781,30 +1790,53 @@ router.get(
   }
 );
 
-/* GET /analytics/revenue */
+/* Séries temporelles admin (revenue / users / bookings) — buckets CONTINUS,
+ * remplis à zéro via generate_series, pilotés par ?period :
+ *   week  → 7 jours   (bucket jour)
+ *   month → 30 jours  (bucket jour)   [défaut]
+ *   year  → 12 mois   (bucket mois)
+ *   all   → depuis le 1er enregistrement (bucket mois)
+ * `dateCol` = colonne à bucketiser, `sinceTable` = table pour trouver le
+ * MIN(date) quand period=all. */
+function analyticsSeriesSql(
+  period: string,
+  dateCol: string,
+  sinceTable: string
+): { bucket: "day" | "month"; seriesCte: string; joinOn: string } {
+  const p = ["week", "month", "year", "all"].includes(period) ? period : "month";
+  let bucket: "day" | "month" = "day";
+  let startExpr = "DATE_TRUNC('day', NOW()) - INTERVAL '29 days'";
+  if (p === "week") startExpr = "DATE_TRUNC('day', NOW()) - INTERVAL '6 days'";
+  else if (p === "year") { bucket = "month"; startExpr = "DATE_TRUNC('month', NOW()) - INTERVAL '11 months'"; }
+  else if (p === "all") {
+    bucket = "month";
+    startExpr = `DATE_TRUNC('month', COALESCE((SELECT MIN(created_at) FROM ${sinceTable}), NOW()))`;
+  }
+  const seriesCte = `series AS (
+    SELECT generate_series(${startExpr}, DATE_TRUNC('${bucket}', NOW()), INTERVAL '1 ${bucket}') AS period
+  )`;
+  const joinOn = `DATE_TRUNC('${bucket}', t.${dateCol}) = s.period`;
+  return { bucket, seriesCte, joinOn };
+}
+
+/* GET /analytics/revenue?period=week|month|year|all */
 router.get(
   "/analytics/revenue",
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const period = (req.query.period as string) || "month";
       const db = getDb();
-
-      let interval = "INTERVAL '30 days'";
-      let truncUnit = "day";
-      if (period === "week") { interval = "INTERVAL '7 days'"; truncUnit = "day"; }
-      else if (period === "year") { interval = "INTERVAL '365 days'"; truncUnit = "month"; }
-
+      const { seriesCte, joinOn } = analyticsSeriesSql(String(req.query.period ?? "month"), "created_at", "payments");
       const [rows] = await db.query(`
+        WITH ${seriesCte}
         SELECT
-          DATE_TRUNC('${truncUnit}', created_at) AS period,
-          COALESCE(SUM(amount) FILTER (WHERE status = 'succeeded'), 0) AS revenue,
-          COUNT(*) FILTER (WHERE status = 'succeeded') AS transactions
-        FROM payments
-        WHERE created_at >= CURRENT_TIMESTAMP - ${interval}
-        GROUP BY DATE_TRUNC('${truncUnit}', created_at)
-        ORDER BY period ASC
+          s.period,
+          COALESCE(SUM(t.amount) FILTER (WHERE t.status = 'succeeded'), 0) AS revenue,
+          COUNT(t.*) FILTER (WHERE t.status = 'succeeded') AS transactions
+        FROM series s
+        LEFT JOIN payments t ON ${joinOn}
+        GROUP BY s.period
+        ORDER BY s.period ASC
       `);
-
       res.json({ success: true, data: rows });
     } catch (error) {
       next(error);
@@ -1812,31 +1844,25 @@ router.get(
   }
 );
 
-/* GET /analytics/users */
+/* GET /analytics/users?period=week|month|year|all */
 router.get(
   "/analytics/users",
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const period = (req.query.period as string) || "month";
       const db = getDb();
-
-      let interval = "INTERVAL '30 days'";
-      let truncUnit = "day";
-      if (period === "week") { interval = "INTERVAL '7 days'"; truncUnit = "day"; }
-      else if (period === "year") { interval = "INTERVAL '365 days'"; truncUnit = "month"; }
-
+      const { seriesCte, joinOn } = analyticsSeriesSql(String(req.query.period ?? "month"), "created_at", "users");
       const [rows] = await db.query(`
+        WITH ${seriesCte}
         SELECT
-          DATE_TRUNC('${truncUnit}', created_at) AS period,
-          COUNT(*) AS new_users,
-          COUNT(*) FILTER (WHERE role = 'pro') AS new_pros,
-          COUNT(*) FILTER (WHERE role = 'client') AS new_clients
-        FROM users
-        WHERE created_at >= CURRENT_TIMESTAMP - ${interval}
-        GROUP BY DATE_TRUNC('${truncUnit}', created_at)
-        ORDER BY period ASC
+          s.period,
+          COUNT(t.*) AS new_users,
+          COUNT(t.*) FILTER (WHERE t.role = 'pro') AS new_pros,
+          COUNT(t.*) FILTER (WHERE t.role = 'client') AS new_clients
+        FROM series s
+        LEFT JOIN users t ON ${joinOn}
+        GROUP BY s.period
+        ORDER BY s.period ASC
       `);
-
       res.json({ success: true, data: rows });
     } catch (error) {
       next(error);
@@ -1844,32 +1870,26 @@ router.get(
   }
 );
 
-/* GET /analytics/bookings */
+/* GET /analytics/bookings?period=week|month|year|all */
 router.get(
   "/analytics/bookings",
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const period = (req.query.period as string) || "month";
       const db = getDb();
-
-      let interval = "INTERVAL '30 days'";
-      let truncUnit = "day";
-      if (period === "week") { interval = "INTERVAL '7 days'"; truncUnit = "day"; }
-      else if (period === "year") { interval = "INTERVAL '365 days'"; truncUnit = "month"; }
-
+      const { seriesCte, joinOn } = analyticsSeriesSql(String(req.query.period ?? "month"), "created_at", "reservations");
       const [rows] = await db.query(`
+        WITH ${seriesCte}
         SELECT
-          DATE_TRUNC('${truncUnit}', created_at) AS period,
-          COUNT(*) AS total,
-          COUNT(*) FILTER (WHERE status = 'completed') AS completed,
-          COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled,
-          COALESCE(SUM(price) FILTER (WHERE status IN ('confirmed','completed')), 0) AS revenue
-        FROM reservations
-        WHERE created_at >= CURRENT_TIMESTAMP - ${interval}
-        GROUP BY DATE_TRUNC('${truncUnit}', created_at)
-        ORDER BY period ASC
+          s.period,
+          COUNT(t.*) AS total,
+          COUNT(t.*) FILTER (WHERE t.status = 'completed') AS completed,
+          COUNT(t.*) FILTER (WHERE t.status = 'cancelled') AS cancelled,
+          COALESCE(SUM(t.price) FILTER (WHERE t.status IN ('confirmed','completed')), 0) AS revenue
+        FROM series s
+        LEFT JOIN reservations t ON ${joinOn}
+        GROUP BY s.period
+        ORDER BY s.period ASC
       `);
-
       res.json({ success: true, data: rows });
     } catch (error) {
       next(error);
