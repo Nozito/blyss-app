@@ -390,28 +390,6 @@ export const adminBookingWriteSchema = z.object({
   price: z.number().positive("Le prix doit être positif"),
 });
 
-export const adminCouponCreateSchema = z.object({
-  code: z.string().min(1, "Le code est requis").max(50, "Code trop long"),
-  discount_type: z.enum(["percent", "fixed"], { message: "Type invalide (percent|fixed)" }),
-  discount_value: z.number().positive("Valeur de réduction invalide"),
-  applicable_plans: z.array(z.string()).max(10).optional(),
-  expires_at: z.string().nullable().optional(),
-  max_uses: z.number().int().positive().nullable().optional(),
-});
-
-export const adminCouponPatchSchema = z.object({
-  code: z.string().min(1).max(50).optional(),
-  discount_type: z.enum(["percent", "fixed"]).optional(),
-  discount_value: z.number().positive().optional(),
-  applicable_plans: z.array(z.string()).max(10).optional(),
-  expires_at: z.string().nullable().optional(),
-  max_uses: z.number().int().positive().nullable().optional(),
-});
-
-export const adminCouponToggleSchema = z.object({
-  active: z.boolean(),
-});
-
 export const adminNotificationSendSchema = z.object({
   target: z.enum(["user_id", "all", "pros", "clients"], {
     message: "target invalide (user_id|all|pros|clients)",

@@ -14,9 +14,6 @@ import {
   adminGrantSubscriptionSchema,
   adminBookingStatusSchema,
   adminBookingWriteSchema,
-  adminCouponCreateSchema,
-  adminCouponPatchSchema,
-  adminCouponToggleSchema,
   adminNotificationSendSchema,
   adminTaskSchema,
   adminTaskStatusSchema,
@@ -481,8 +478,55 @@ router.post(
       const db = getDb();
       const endDate = await createAdminGrantSubscription(db, userId, months, plan);
       await db.query("UPDATE users SET pro_status = 'active' WHERE id = ?", [userId]);
+      await logAdminAction(req, req.user!.id, "grant_subscription", "user", String(userId), { plan, months });
 
       res.json({ success: true, data: { id: userId, plan, months, end_date: endDate } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* POST /users/:id/cancel-subscription — résilie l'abo actif d'une pro.
+ * ⚠️ Pour un abo App Store (`payment_id LIKE 'rc_%'`) ça ne fait que couper
+ * l'accès côté Blyss — la facturation Apple continue tant que la pro n'annule
+ * pas dans l'App Store. `wasStoreSub` le signale à l'UI. */
+router.post(
+  "/users/:id/cancel-subscription",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = parseParamToInt(req.params.id);
+      const db = getDb();
+
+      const [rows]: any = await db.query(
+        `SELECT id, plan, payment_id FROM subscriptions WHERE client_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1`,
+        [userId]
+      );
+      const sub = rows[0];
+      if (!sub) {
+        return res.status(404).json({ success: false, message: "Aucun abonnement actif" });
+      }
+
+      await db.execute(
+        `UPDATE subscriptions SET status = 'cancelled', updated_at = NOW() WHERE id = ? AND status = 'active'`,
+        [sub.id]
+      );
+      const [stillActive]: any = await db.query(
+        `SELECT 1 FROM subscriptions WHERE client_id = ? AND status = 'active' LIMIT 1`,
+        [userId]
+      );
+      if (stillActive.length === 0) {
+        await db.execute(`UPDATE users SET pro_status = 'inactive' WHERE id = ?`, [userId]);
+      }
+
+      const wasStoreSub = typeof sub.payment_id === "string" && sub.payment_id.startsWith("rc_");
+      await logAdminAction(req, req.user!.id, "cancel_subscription", "subscription", String(sub.id), {
+        userId,
+        plan: sub.plan,
+        wasStoreSub,
+      });
+
+      res.json({ success: true, data: { subscriptionId: sub.id, wasStoreSub } });
     } catch (error) {
       next(error);
     }
@@ -1584,131 +1628,6 @@ router.post(
   }
 );
 
-// ── Coupons ───────────────────────────────────────────────────────────────────
-
-/* GET /coupons */
-router.get(
-  "/coupons",
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    try {
-      const [rows] = await getDb().query(
-        "SELECT * FROM coupons ORDER BY created_at DESC"
-      );
-      res.json({ success: true, data: rows });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/* POST /coupons */
-router.post(
-  "/coupons",
-  validate(adminCouponCreateSchema),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    try {
-      const { code, discount_type, discount_value, applicable_plans, expires_at, max_uses } = req.body as {
-        code: string;
-        discount_type: "percent" | "fixed";
-        discount_value: number;
-        applicable_plans: string[];
-        expires_at?: string;
-        max_uses?: number;
-      };
-
-      const db = getDb();
-      const [result] = await db.query(
-        `INSERT INTO coupons (code, discount_type, discount_value, applicable_plans, expires_at, max_uses)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [
-          code.trim().toUpperCase(),
-          discount_type,
-          discount_value,
-          JSON.stringify(applicable_plans ?? []),
-          expires_at ?? null,
-          max_uses ?? null,
-        ]
-      );
-
-      res.json({ success: true, data: { id: (result as any).insertId } });
-    } catch (error: any) {
-      if (error?.code === "23505" || error?.code === "ER_DUP_ENTRY") {
-        return res.status(409).json({ success: false, error: "Ce code existe déjà" });
-      }
-      next(error);
-    }
-  }
-);
-
-/* PATCH /coupons/:id */
-router.patch(
-  "/coupons/:id",
-  validate(adminCouponPatchSchema),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    try {
-      const couponId = parseParamToInt(req.params.id);
-      const { code, discount_type, discount_value, applicable_plans, expires_at, max_uses } = req.body as Record<string, any>;
-
-      const sets: string[] = [];
-      const params: unknown[] = [];
-      if (code) { sets.push("code = ?"); params.push(code.trim().toUpperCase()); }
-      if (discount_type) { sets.push("discount_type = ?"); params.push(discount_type); }
-      if (discount_value != null) { sets.push("discount_value = ?"); params.push(discount_value); }
-      if (applicable_plans) { sets.push("applicable_plans = ?"); params.push(JSON.stringify(applicable_plans)); }
-      if (expires_at !== undefined) { sets.push("expires_at = ?"); params.push(expires_at ?? null); }
-      if (max_uses !== undefined) { sets.push("max_uses = ?"); params.push(max_uses ?? null); }
-
-      if (sets.length === 0) {
-        return res.status(400).json({ success: false, error: "Aucun champ à modifier" });
-      }
-      params.push(couponId);
-
-      await getDb().query(`UPDATE coupons SET ${sets.join(", ")} WHERE id = ?`, params);
-      res.json({ success: true, data: { id: couponId } });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/* DELETE /coupons/:id */
-router.delete(
-  "/coupons/:id",
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    try {
-      const couponId = parseParamToInt(req.params.id);
-      const [result] = await getDb().query("DELETE FROM coupons WHERE id = ? RETURNING id", [couponId]);
-
-      if ((result as any[]).length === 0) {
-        return res.status(404).json({ success: false, error: "Coupon introuvable" });
-      }
-      res.json({ success: true, data: { id: couponId } });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/* PATCH /coupons/:id/toggle */
-router.patch(
-  "/coupons/:id/toggle",
-  validate(adminCouponToggleSchema),
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    try {
-      const couponId = parseParamToInt(req.params.id);
-      const { active } = req.body as { active: boolean };
-
-      await getDb().query(
-        "UPDATE coupons SET is_active = ? WHERE id = ?",
-        [active ? 1 : 0, couponId]
-      );
-      res.json({ success: true, data: { id: couponId, is_active: !!active } });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
 // ── Notifications (mass send) ─────────────────────────────────────────────────
 
 /* POST /notifications/send — mass or targeted */
@@ -2644,6 +2563,167 @@ router.get(
             createdAt: r.created_at,
           })),
           meta: { page, limit, total: Number(countRows[0]?.total ?? 0) },
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/* GET /subscriptions/analytics — séries temporelles + métriques stratégiques.
+ * Approximations basées sur created_at / updated_at / start_date / end_date /
+ * status (pas de log d'événements) — un abo est "actif fin de mois M" si
+ * start_date <= M, pas encore fini (end_date), et pas résilié avant M.
+ * ?months=12 (fenêtre, 3..24)
+ */
+router.get(
+  "/subscriptions/analytics",
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const db = getDb();
+      const months = Math.min(24, Math.max(3, parseInt(String(req.query.months ?? "12"), 10) || 12));
+
+      // ── Série mensuelle ──────────────────────────────────────────────────
+      const [seriesRows]: any = await db.query(
+        `
+        WITH months AS (
+          SELECT generate_series(
+            DATE_TRUNC('month', CURRENT_DATE) - MAKE_INTERVAL(months => ?::int - 1),
+            DATE_TRUNC('month', CURRENT_DATE),
+            INTERVAL '1 month'
+          ) AS m
+        )
+        SELECT
+          TO_CHAR(months.m, 'YYYY-MM') AS month,
+          -- actifs à la fin du mois
+          (SELECT COUNT(*) FROM subscriptions s
+             WHERE s.start_date <= (months.m + INTERVAL '1 month' - INTERVAL '1 day')
+               AND (s.end_date IS NULL OR s.end_date > (months.m + INTERVAL '1 month' - INTERVAL '1 day'))
+               AND (s.status = 'active'
+                    OR (s.status = 'cancelled' AND s.updated_at >= (months.m + INTERVAL '1 month')))
+          ) AS active_end,
+          (SELECT COALESCE(SUM(s.monthly_price), 0) FROM subscriptions s
+             WHERE s.start_date <= (months.m + INTERVAL '1 month' - INTERVAL '1 day')
+               AND (s.end_date IS NULL OR s.end_date > (months.m + INTERVAL '1 month' - INTERVAL '1 day'))
+               AND (s.status = 'active'
+                    OR (s.status = 'cancelled' AND s.updated_at >= (months.m + INTERVAL '1 month')))
+          ) AS mrr_end,
+          (SELECT COUNT(*) FROM subscriptions s
+             WHERE DATE_TRUNC('month', s.created_at) = months.m) AS new_subs,
+          (SELECT COUNT(*) FROM subscriptions s
+             WHERE s.status = 'cancelled' AND DATE_TRUNC('month', s.updated_at) = months.m) AS churned
+        FROM months
+        ORDER BY months.m
+        `,
+        [months]
+      );
+
+      const series = (seriesRows as any[]).map((r) => ({
+        month: r.month,
+        activeEnd: Number(r.active_end),
+        mrrEnd: Math.round(Number(r.mrr_end) * 100) / 100,
+        newSubs: Number(r.new_subs),
+        churned: Number(r.churned),
+      }));
+
+      // Taux de churn du mois en cours = résiliés ce mois / actifs début de mois.
+      const cur = series[series.length - 1];
+      const prev = series[series.length - 2];
+      const activeStart = prev ? prev.activeEnd : cur?.activeEnd ?? 0;
+      const churnRate = activeStart > 0 ? Math.round(((cur?.churned ?? 0) / activeStart) * 1000) / 10 : 0;
+      const grossRetention = Math.round((100 - churnRate) * 10) / 10;
+
+      // ── Répartition MRR par formule (actuel) ─────────────────────────────
+      const [[planMix]]: any = await db.query(`
+        SELECT
+          COALESCE(SUM(monthly_price) FILTER (WHERE plan = 'start'), 0)     AS mrr_start,
+          COALESCE(SUM(monthly_price) FILTER (WHERE plan = 'serenite'), 0)  AS mrr_serenite,
+          COALESCE(SUM(monthly_price) FILTER (WHERE plan = 'signature'), 0) AS mrr_signature,
+          COUNT(*) FILTER (WHERE plan = 'start')     AS n_start,
+          COUNT(*) FILTER (WHERE plan = 'serenite')  AS n_serenite,
+          COUNT(*) FILTER (WHERE plan = 'signature') AS n_signature
+        FROM subscriptions WHERE status = 'active'
+      `);
+
+      // ── Durée de vie moyenne + LTV ──────────────────────────────────────
+      const [[lifetime]]: any = await db.query(`
+        SELECT
+          AVG(EXTRACT(EPOCH FROM (COALESCE(end_date::timestamp, updated_at) - start_date::timestamp)) / 2629800)
+            FILTER (WHERE status = 'cancelled')                                   AS avg_lifetime_months,
+          AVG(monthly_price) FILTER (WHERE status = 'active' AND monthly_price > 0) AS arpu
+        FROM subscriptions
+      `);
+      const avgLifetimeMonths = lifetime?.avg_lifetime_months != null ? Math.round(Number(lifetime.avg_lifetime_months) * 10) / 10 : null;
+      const arpu = lifetime?.arpu != null ? Math.round(Number(lifetime.arpu) * 100) / 100 : null;
+      const ltv = avgLifetimeMonths != null && arpu != null ? Math.round(avgLifetimeMonths * arpu * 100) / 100 : null;
+
+      // ── Adoption : pros abonnés / pros actifs ───────────────────────────
+      const [[adoption]]: any = await db.query(`
+        SELECT
+          (SELECT COUNT(*) FROM users WHERE role = 'pro' AND pro_status = 'active')                          AS active_pros,
+          (SELECT COUNT(DISTINCT client_id) FROM subscriptions WHERE status = 'active')                      AS subscribed_pros,
+          (SELECT COUNT(*) FROM subscriptions WHERE status = 'active' AND (payment_id LIKE 'rc_%'))          AS paying_pros,
+          (SELECT COUNT(*) FROM subscriptions WHERE status = 'active' AND payment_id NOT LIKE 'rc_%')        AS free_pros
+      `);
+
+      // ── Cohortes : par mois d'inscription du pro, part encore abonnée ────
+      const [cohortRows]: any = await db.query(
+        `
+        SELECT
+          TO_CHAR(DATE_TRUNC('month', u.created_at), 'YYYY-MM') AS cohort,
+          COUNT(*) AS pros,
+          COUNT(*) FILTER (WHERE EXISTS (
+            SELECT 1 FROM subscriptions s WHERE s.client_id = u.id
+          )) AS ever_subscribed,
+          COUNT(*) FILTER (WHERE EXISTS (
+            SELECT 1 FROM subscriptions s WHERE s.client_id = u.id AND s.status = 'active'
+          )) AS still_active
+        FROM users u
+        WHERE u.role = 'pro'
+          AND u.created_at >= DATE_TRUNC('month', CURRENT_DATE) - MAKE_INTERVAL(months => ?::int - 1)
+        GROUP BY DATE_TRUNC('month', u.created_at)
+        ORDER BY 1
+        `,
+        [months]
+      );
+
+      res.json({
+        success: true,
+        data: {
+          series,
+          current: {
+            mrr: cur?.mrrEnd ?? 0,
+            arr: Math.round((cur?.mrrEnd ?? 0) * 12 * 100) / 100,
+            activeCount: cur?.activeEnd ?? 0,
+            newThisMonth: cur?.newSubs ?? 0,
+            churnedThisMonth: cur?.churned ?? 0,
+            churnRate,
+            grossRetention,
+            arpu,
+            avgLifetimeMonths,
+            ltv,
+          },
+          adoption: {
+            activePros: Number(adoption?.active_pros ?? 0),
+            subscribedPros: Number(adoption?.subscribed_pros ?? 0),
+            payingPros: Number(adoption?.paying_pros ?? 0),
+            freePros: Number(adoption?.free_pros ?? 0),
+            rate: Number(adoption?.active_pros ?? 0) > 0
+              ? Math.round((Number(adoption?.subscribed_pros ?? 0) / Number(adoption.active_pros)) * 1000) / 10
+              : 0,
+          },
+          planMix: {
+            start:     { count: Number(planMix?.n_start ?? 0),     mrr: Math.round(Number(planMix?.mrr_start ?? 0) * 100) / 100 },
+            serenite:  { count: Number(planMix?.n_serenite ?? 0),  mrr: Math.round(Number(planMix?.mrr_serenite ?? 0) * 100) / 100 },
+            signature: { count: Number(planMix?.n_signature ?? 0), mrr: Math.round(Number(planMix?.mrr_signature ?? 0) * 100) / 100 },
+          },
+          cohorts: (cohortRows as any[]).map((c) => ({
+            cohort: c.cohort,
+            pros: Number(c.pros),
+            everSubscribed: Number(c.ever_subscribed),
+            stillActive: Number(c.still_active),
+          })),
         },
       });
     } catch (error) {

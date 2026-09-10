@@ -280,18 +280,6 @@ describe("Validation Zod — autres routes admin", () => {
     expect(res.body.error).toBe("validation_error");
   });
 
-  it("POST /coupons — 400 si discount_type invalide", async () => {
-    mockQuery.mockResolvedValueOnce([[{ is_admin: 1 }]]);
-
-    const res = await request(app)
-      .post("/api/admin/coupons")
-      .set("Authorization", `Bearer ${adminToken}`)
-      .send({ code: "PROMO10", discount_type: "invalid", discount_value: 10 });
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe("validation_error");
-  });
-
   it("POST /notifications/send — 400 si target hors énumération", async () => {
     mockQuery.mockResolvedValueOnce([[{ is_admin: 1 }]]);
 
