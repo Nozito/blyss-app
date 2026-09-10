@@ -6,8 +6,8 @@
  *
  * Toutes les métriques sont calculées en SQL agrégé sur les tables existantes
  * (aucun event produit requis). Ce qui n'est pas calculable sans instrumentation
- * (funnel haut : recherche → vue profil → tunnel de résa, DAU/WAU/MAU au sens
- * session, attribution) n'est PAS exposé ici — cf. docs/analytics-behavior-audit.md.
+ * (funnel de recherche → vue profil → tunnel de résa, sessions / usage réel de
+ * l'app, attribution) n'est PAS exposé ici — cf. docs/analytics-behavior-audit.md.
  *
  * Convention de réponse : { success: true, data: ... }.
  * Chaque valeur porte, quand c'est pertinent, un effectif (`n`) à côté du ratio
@@ -176,54 +176,6 @@ router.get("/clients/kpis", async (req: AuthenticatedRequest, res: Response, nex
   } catch (e) { next(e); }
 });
 
-/* GET /clients/funnel?from&to — funnel bas (états DB uniquement). */
-router.get("/clients/funnel", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  try {
-    const db = getDb();
-    const r = resolveRange(req.query);
-
-    // Cohorte : clientes inscrites dans la fenêtre. On mesure leur progression
-    // lifetime (pas bornée à la fenêtre) — un funnel d'activation.
-    const [[f]]: any = await db.query(`
-      WITH cohort AS (
-        SELECT id FROM users WHERE role='client'
-          AND created_at >= ${r.fromLit} AND created_at < ${end(r.toLit)}
-      )
-      SELECT
-        (SELECT COUNT(*) FROM cohort) AS registered,
-        (SELECT COUNT(*) FROM cohort c WHERE EXISTS (SELECT 1 FROM client_onboarding o WHERE o.client_id=c.id AND o.completed_at IS NOT NULL)) AS onboarded,
-        (SELECT COUNT(*) FROM cohort c WHERE EXISTS (SELECT 1 FROM favorites fv WHERE fv.client_id=c.id)) AS added_favorite,
-        (SELECT COUNT(*) FROM cohort c WHERE EXISTS (SELECT 1 FROM reservations res WHERE res.client_id=c.id)) AS booking_created,
-        (SELECT COUNT(*) FROM cohort c WHERE EXISTS (SELECT 1 FROM reservations res WHERE res.client_id=c.id AND res.status IN ('confirmed','completed'))) AS booking_confirmed,
-        (SELECT COUNT(*) FROM cohort c WHERE EXISTS (SELECT 1 FROM reservations res WHERE res.client_id=c.id AND res.status='completed')) AS appointment_done,
-        (SELECT COUNT(*) FROM cohort c WHERE (SELECT COUNT(*) FROM reservations res WHERE res.client_id=c.id AND res.status<>'cancelled') >= 2) AS repeat_booking
-    `);
-
-    const steps = [
-      { key: "registered", label: "Inscription" },
-      { key: "onboarded", label: "Onboarding terminé" },
-      { key: "added_favorite", label: "Favori ajouté" },
-      { key: "booking_created", label: "Réservation créée" },
-      { key: "booking_confirmed", label: "Réservation confirmée" },
-      { key: "appointment_done", label: "Rendez-vous réalisé" },
-      { key: "repeat_booking", label: "2ᵉ réservation" },
-    ].map((s, i, arr) => {
-      const count = num(f[s.key]);
-      const top = num(f[arr[0].key]);
-      const prevCount = i === 0 ? count : num(f[arr[i - 1].key]);
-      return {
-        ...s,
-        count,
-        pctOfTop: top > 0 ? Math.round((count / top) * 1000) / 10 : 0,
-        stepConversion: prevCount > 0 ? Math.round((count / prevCount) * 1000) / 10 : 0,
-        dropoff: prevCount > 0 ? Math.round(((prevCount - count) / prevCount) * 1000) / 10 : 0,
-      };
-    });
-
-    res.json({ success: true, data: { range: { from: r.from, to: r.to }, note: "Funnel d'activation sur les clientes inscrites dans la période — progression lifetime. Le haut du funnel (recherche, vues) demande une instrumentation d'events.", steps } });
-  } catch (e) { next(e); }
-});
-
 /* GET /clients/cohorts?months=12 — rétention par mois de 1re réservation. */
 router.get("/clients/cohorts", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
@@ -355,77 +307,6 @@ router.get("/pros/kpis", async (req: AuthenticatedRequest, res: Response, next: 
         avgFillRate: fill.avg_fill != null ? Math.round(Number(fill.avg_fill) * 1000) / 10 : null,
       },
     });
-  } catch (e) { next(e); }
-});
-
-/* GET /pros/funnel — funnel d'activation pro (états DB). */
-router.get("/pros/funnel", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  try {
-    const db = getDb();
-    const r = resolveRange(req.query);
-
-    const [[f]]: any = await db.query(`
-      WITH cohort AS (
-        SELECT id, created_at FROM users WHERE role='pro'
-          AND created_at >= ${r.fromLit} AND created_at < ${end(r.toLit)}
-      )
-      SELECT
-        (SELECT COUNT(*) FROM cohort) AS registered,
-        (SELECT COUNT(*) FROM cohort c WHERE EXISTS (SELECT 1 FROM prestations p WHERE p.pro_id=c.id)) AS service_added,
-        (SELECT COUNT(*) FROM cohort c WHERE EXISTS (SELECT 1 FROM working_hours w WHERE w.pro_id=c.id)) AS availability_added,
-        (SELECT COUNT(*) FROM cohort c JOIN users u ON u.id=c.id WHERE u.profile_visibility='public') AS published,
-        (SELECT COUNT(*) FROM cohort c WHERE EXISTS (SELECT 1 FROM reservations res WHERE res.pro_id=c.id)) AS first_booking,
-        (SELECT COUNT(*) FROM cohort c WHERE EXISTS (SELECT 1 FROM reservations res WHERE res.pro_id=c.id AND res.status='completed')) AS first_appointment,
-        (SELECT COUNT(*) FROM cohort c WHERE (SELECT COUNT(*) FROM reservations res WHERE res.pro_id=c.id) >= 5) AS fifth_booking,
-        (SELECT COUNT(*) FROM cohort c WHERE (SELECT COUNT(*) FROM reservations res WHERE res.pro_id=c.id) >= 10) AS tenth_booking,
-        (SELECT COUNT(*) FROM cohort c WHERE EXISTS (SELECT 1 FROM subscriptions s WHERE s.client_id=c.id)) AS subscribed
-    `);
-
-    // Temps médian (jours) inscription → étape, pour les étapes horodatées.
-    const [[t]]: any = await db.query(`
-      WITH cohort AS (
-        SELECT id, created_at FROM users WHERE role='pro'
-          AND created_at >= ${r.fromLit} AND created_at < ${end(r.toLit)}
-      )
-      SELECT
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY d_service) AS median_service,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY d_booking) AS median_booking,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY d_sub) AS median_sub
-      FROM (
-        SELECT
-          EXTRACT(EPOCH FROM ((SELECT MIN(p.created_at) FROM prestations p WHERE p.pro_id=c.id) - c.created_at))/86400 AS d_service,
-          EXTRACT(EPOCH FROM ((SELECT MIN(res.created_at) FROM reservations res WHERE res.pro_id=c.id) - c.created_at))/86400 AS d_booking,
-          EXTRACT(EPOCH FROM ((SELECT MIN(s.created_at) FROM subscriptions s WHERE s.client_id=c.id) - c.created_at))/86400 AS d_sub
-        FROM cohort c
-      ) x
-    `);
-
-    const order = [
-      { key: "registered", label: "Inscription", median: null },
-      { key: "service_added", label: "Prestation ajoutée", median: t.median_service },
-      { key: "availability_added", label: "Disponibilités ajoutées", median: null },
-      { key: "published", label: "Profil publié", median: null },
-      { key: "first_booking", label: "1re réservation reçue", median: t.median_booking },
-      { key: "first_appointment", label: "1er rendez-vous réalisé", median: null },
-      { key: "fifth_booking", label: "5ᵉ réservation", median: null },
-      { key: "tenth_booking", label: "10ᵉ réservation", median: null },
-      { key: "subscribed", label: "Abonnement", median: t.median_sub },
-    ];
-    const top = num(f[order[0].key]);
-    const steps = order.map((s, i) => {
-      const count = num(f[s.key]);
-      const prevCount = i === 0 ? count : num(f[order[i - 1].key]);
-      return {
-        key: s.key,
-        label: s.label,
-        count,
-        pctOfTop: top > 0 ? Math.round((count / top) * 1000) / 10 : 0,
-        stepConversion: prevCount > 0 ? Math.round((count / prevCount) * 1000) / 10 : 0,
-        medianDays: s.median != null ? Math.round(Number(s.median)) : null,
-      };
-    });
-
-    res.json({ success: true, data: { range: { from: r.from, to: r.to }, steps } });
   } catch (e) { next(e); }
 });
 
@@ -1058,12 +939,11 @@ router.get("/data-health", async (_req: AuthenticatedRequest, res: Response, nex
           { metric: "Time-to-First-Booking pro (médiane, percentiles)", status: "real", source: "users + reservations" },
           { metric: "Activité pro, taux de remplissage, score", status: "computed", source: "reservations + working_hours (score = formule documentée)" },
           { metric: "Segments clientes / pros", status: "computed", source: "règles seuillées documentées" },
-          { metric: "Clientes/pros actives (DAU/WAU/MAU)", status: "estimated", source: "proxy transactionnel — activité réelle d'usage indisponible", missing: ["client_app_opened", "pro_app_opened"] },
+          { metric: "Clientes / pros actives sur la période", status: "estimated", source: "proxy transactionnel (a réservé / reçu une résa) — pas une mesure d'usage" },
           { metric: "Marketplace — demande par ville", status: "estimated", source: "client_preferences.city (déclaratif onboarding)", missing: ["client_search_performed"] },
           { metric: "Churn abo par ancienneté / cohortes d'abo", status: "estimated", source: `subscriptions (${num(counts.subscriptions)} lignes, résiliation datée par updated_at)`, missing: ["historisation revenuecat_events", "subscriptions.cancellation_reason"] },
-          { metric: "Funnel haut cliente (recherche → profil → prestation → créneau → booking_started)", status: "unavailable", missing: ["client_search_performed", "pro_profile_viewed", "service_viewed", "availability_viewed", "booking_started"] },
           { metric: "Conversion vue profil → réservation", status: "unavailable", missing: ["pro_profile_viewed"] },
-          { metric: "Sessions, durée de session, jours actifs", status: "unavailable", missing: ["events d'app opened + reconstruction de session"] },
+          { metric: "Sessions & jours actifs (usage réel de l'app)", status: "unavailable", missing: ["events d'app opened + reconstruction de session"] },
           { metric: "CAC / LTV par canal d'acquisition", status: "unavailable", missing: ["attribution technique ou déclarative pro", "table marketing_spend"] },
           { metric: "Filtre iOS / Android / version app", status: "unavailable", missing: ["users.signup_platform", "users.signup_app_version"] },
           { metric: "Motif de résiliation", status: "unavailable", missing: ["écran d'annulation + subscriptions.cancellation_reason"] },

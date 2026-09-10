@@ -55,38 +55,6 @@ function useJson<T>(url: string | null): { data: T | null; loading: boolean; err
   return { data, loading, error, reload: () => setTick((t) => t + 1) };
 }
 
-// ── Funnel ──────────────────────────────────────────────────────────────────
-interface FunnelStep {
-  label: string; count: number; pctOfTop: number; stepConversion: number;
-  dropoff?: number; medianDays?: number | null;
-}
-function Funnel({ steps }: { steps: FunnelStep[] }) {
-  return (
-    <div className="space-y-2">
-      {steps.map((s, i) => (
-        <div key={s.label} className="flex items-center gap-3">
-          <div className="w-40 shrink-0 text-right text-xs text-muted-foreground">{s.label}</div>
-          <div className="relative h-9 flex-1 overflow-hidden rounded-lg bg-muted">
-            <div className="h-full rounded-lg bg-primary/80" style={{ width: `${Math.max(s.pctOfTop, 2)}%` }} />
-            <div className="absolute inset-0 flex items-center gap-2 px-3 text-xs font-bold text-foreground">
-              {nf.format(s.count)}
-              <span className="font-medium text-muted-foreground">{s.pctOfTop}%</span>
-            </div>
-          </div>
-          <div className="w-28 shrink-0 text-xs text-muted-foreground">
-            {i === 0 ? "—" : (
-              <>
-                <span className={s.stepConversion < 60 ? "text-destructive font-semibold" : ""}>{s.stepConversion}%</span>
-                {s.medianDays != null && <span className="ml-1 opacity-70">· {s.medianDays}j</span>}
-              </>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ── Cohort heatmap ──────────────────────────────────────────────────────────
 interface Cohort {
   cohort: string;
@@ -160,7 +128,6 @@ function SectionTitle({ children, hint }: { children: React.ReactNode; hint?: st
 // ════════════════════════════════════════════════════════════════════════════
 function ClientsTab({ qs }: { qs: string }) {
   const kpis = useJson<any>(`${V2}/clients/kpis?${qs}`);
-  const funnel = useJson<any>(`${V2}/clients/funnel?${qs}`);
   const cohorts = useJson<any>(`${V2}/clients/cohorts?months=12`);
 
   return (
@@ -181,12 +148,6 @@ function ClientsTab({ qs }: { qs: string }) {
       )}
 
       <Card className="p-5 sm:p-6">
-        <SectionTitle hint={funnel.data?.note}>Funnel d'activation cliente</SectionTitle>
-        <p className="mt-1 mb-4 text-sm text-muted-foreground">Clientes inscrites sur la période — progression cumulée (lifetime).</p>
-        {funnel.loading ? <Skeleton className="h-64 w-full" /> : funnel.error ? <ErrorState onRetry={funnel.reload} /> : funnel.data && <Funnel steps={funnel.data.steps} />}
-      </Card>
-
-      <Card className="p-5 sm:p-6">
         <SectionTitle hint={cohorts.data?.definition}>Cohortes clientes — rétention</SectionTitle>
         <p className="mt-1 mb-4 text-sm text-muted-foreground">Par mois de 1re réservation. Une cellule = % de la cohorte ayant réservé ce mois-là.</p>
         {cohorts.loading ? <Skeleton className="h-64 w-full" /> : cohorts.error ? <ErrorState onRetry={cohorts.reload} /> : cohorts.data && <CohortGrid cohorts={cohorts.data.cohorts} />}
@@ -203,7 +164,6 @@ const SORT_LABELS: Record<string, string> = { score: "Score", revenue: "CA", boo
 function ProsTab({ qs }: { qs: string }) {
   const [sort, setSort] = useState("score");
   const kpis = useJson<any>(`${V2}/pros/kpis?${qs}`);
-  const funnel = useJson<any>(`${V2}/pros/funnel?${qs}`);
   const activity = useJson<any>(`${V2}/pros/activity?${qs}&sort=${sort}&limit=100`);
   const cohorts = useJson<any>(`${V2}/pros/cohorts?months=12`);
   const services = useJson<any>(`${V2}/pros/services?${qs}`);
@@ -224,12 +184,6 @@ function ProsTab({ qs }: { qs: string }) {
           <KpiCard icon={UsersIcon} label="Pros avec ≥ 1 résa" value={fc ? `${nf.format(fc.withBooking)} / ${nf.format(kpis.data.totalPros)}` : "—"} />
         </div>
       )}
-
-      <Card className="p-5 sm:p-6">
-        <SectionTitle>Funnel d'activation pro</SectionTitle>
-        <p className="mt-1 mb-4 text-sm text-muted-foreground">Pros inscrites sur la période. Colonne de droite : conversion d'étape · délai médian.</p>
-        {funnel.loading ? <Skeleton className="h-64 w-full" /> : funnel.error ? <ErrorState onRetry={funnel.reload} /> : funnel.data && <Funnel steps={funnel.data.steps} />}
-      </Card>
 
       <Card className="p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -571,7 +525,7 @@ export default function AdminBehavior() {
       {tab === "health" && <HealthTab />}
 
       <p className="flex items-center gap-1.5 pt-2 text-xs text-muted-foreground">
-        <ArrowRight size={12} /> Le haut du funnel (recherche, vues de profil, sessions) et l'attribution par canal demandent une instrumentation d'events — voir l'onglet « Santé data ».
+        <ArrowRight size={12} /> Le parcours de recherche (recherche → vue profil → tunnel de résa), l'usage réel de l'app et l'attribution par canal demandent une instrumentation d'events — voir l'onglet « Santé data ».
       </p>
     </div>
   );
