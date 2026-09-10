@@ -26,8 +26,10 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 const nf = new Intl.NumberFormat("fr-FR");
-const eur = (v: number | null | undefined) => (v == null ? "—" : `${nf.format(Math.round(v))} €`);
-const eur2 = (v: number | null | undefined) => (v == null ? "—" : `${v.toFixed(2)} €`);
+// Chiffres financiers — jamais arrondis à l'euro : toujours 2 décimales.
+const moneyFmt = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
+const eur = (v: number | null | undefined) => (v == null ? "—" : moneyFmt.format(v));
+const eur2 = eur;
 const pctS = (v: number | null | undefined) => (v == null ? "—" : `${v} %`);
 const shortMonth = (ym: string) => {
   const [y, m] = ym.split("-").map(Number);

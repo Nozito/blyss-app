@@ -20,7 +20,9 @@ const API_URL = import.meta.env.VITE_API_URL || "";
 const V2 = `${API_URL}/api/admin/analytics/v2`;
 
 const nf = new Intl.NumberFormat("fr-FR");
-const eur = (v: number | null | undefined) => (v == null ? "—" : `${nf.format(Math.round(v))} €`);
+// Chiffres financiers — 2 décimales, jamais arrondis à l'euro.
+const moneyFmt = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
+const eur = (v: number | null | undefined) => (v == null ? "—" : moneyFmt.format(v));
 const pct = (v: number | null | undefined) => (v == null ? "—" : `${v} %`);
 const days = (v: number | null | undefined) => (v == null ? "—" : `${nf.format(v)} j`);
 const isoDaysAgo = (d: number) => new Date(Date.now() - d * 86400_000).toISOString().slice(0, 10);

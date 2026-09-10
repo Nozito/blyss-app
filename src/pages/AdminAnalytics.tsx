@@ -51,6 +51,9 @@ import { EmptyState } from "@/components/admin/EmptyState";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
+// Chiffres financiers — 2 décimales, jamais arrondis à l'euro.
+const eur = (v: number) => new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(v);
+
 type Period = "week" | "month" | "year";
 type Tab = "overview" | "transactions";
 
@@ -383,13 +386,13 @@ const AdminAnalytics = () => {
                 },
                 {
                   title: "Chiffre d'Affaires",
-                  value: `${totalRevenue.toLocaleString("fr-FR")}€`,
+                  value: eur(totalRevenue),
                   growth: revenueGrowth,
                   icon: DollarSign,
                 },
                 {
                   title: "Panier Moyen",
-                  value: `${avgBookingValue.toFixed(2)}€`,
+                  value: eur(avgBookingValue),
                   icon: TrendingUp,
                 },
               ].map((stat, index) => {
@@ -519,7 +522,7 @@ const AdminAnalytics = () => {
                   <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40">
                     <span className="text-sm font-semibold text-foreground/80">CA du mois</span>
                     <span className="text-xl font-black text-foreground">
-                      {(aggregate?.revenue.month_revenue ?? 0).toLocaleString("fr-FR")}€
+                      {eur(aggregate?.revenue.month_revenue ?? 0)}
                     </span>
                   </div>
                   <button
@@ -556,15 +559,14 @@ const AdminAnalytics = () => {
                 <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em]">
                   <DollarSign size={13} /> Revenus encaissés
                 </p>
-                <p className="admin-display mt-3 text-[4rem] leading-[0.85] sm:text-[6rem]">
-                  {paymentStats.totalRevenue.toLocaleString("fr-FR", { maximumFractionDigits: 0 })}
-                  <span className="ml-2 align-top text-[1.8rem]">€</span>
+                <p className="admin-display mt-3 text-[3.4rem] leading-[0.85] sm:text-[5rem]">
+                  {eur(paymentStats.totalRevenue)}
                 </p>
               </div>
               <dl className="grid grid-cols-3 gap-x-8 gap-y-1 text-right">
                 {[
-                  { k: "Frais", v: `${paymentStats.totalFees.toFixed(0)} €` },
-                  { k: "Revenu net", v: `${paymentStats.netRevenue.toFixed(0)} €` },
+                  { k: "Frais", v: eur(paymentStats.totalFees) },
+                  { k: "Revenu net", v: eur(paymentStats.netRevenue) },
                   { k: "En attente", v: paymentStats.pendingCount },
                 ].map((s) => (
                   <div key={s.k}>
