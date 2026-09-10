@@ -12,6 +12,7 @@ import {
   User,
   MoreHorizontal,
   ShieldAlert,
+  Activity,
 } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
@@ -111,6 +112,7 @@ const AdminLayout = () => {
     { icon: Calendar, label: "Réservations", path: "/admin/bookings", badge: counts.totalBookings || null },
     { icon: DollarSign, label: "Finances", path: "/admin/analytics", badge: null },
     { icon: CreditCard, label: "Abonnements", path: "/admin/subscriptions", badge: null },
+    { icon: Activity, label: "Comportement", path: "/admin/behavior", badge: null },
     { icon: ShieldAlert, label: "Modération", path: "/admin/moderation", badge: counts.pendingReports || null },
     { icon: FileText, label: "Logs", path: "/admin/logs", badge: null },
     { icon: ListChecks, label: "Tâches", path: "/admin/tasks", badge: null },

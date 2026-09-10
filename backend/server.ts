@@ -90,6 +90,7 @@ import { sendLiveActivityEnd, sendLiveActivityUpdate } from "./lib/apns";
 import { applyLiveActivityPrivacy } from "./lib/liveActivityPrivacy";
 import authRouter from "./routes/auth.routes";
 import adminRouter from "./routes/admin.routes";
+import adminAnalyticsRouter from "./routes/admin-analytics.routes";
 import cancellationRouter from "./routes/cancellation.routes";
 import rescheduleRouter from "./routes/reschedule.routes";
 import workingHoursRouter from "./routes/working-hours.routes";
@@ -557,6 +558,7 @@ app.use(cookieParser());
 
 // ── Routeurs extraits ──────────────────────────────────────────────────────
 app.use("/api/auth", authRouter);
+app.use("/api/admin/analytics/v2", adminLimiter, adminAnalyticsRouter);
 app.use("/api/admin", adminLimiter, adminRouter);
 
 // ── Guard global sur toutes les routes /api/pro/* ──────────────────────────
@@ -960,6 +962,16 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
         PLAN_PRIORITY.find((p) => entitlementIds.includes(p)) ??
         (productId.includes("signature") ? "signature" : productId.includes("serenite") ? "serenite" : "start");
       const billingType = productId.includes("annual") ? "one_time" : "monthly";
+      // Plateforme de facturation (App Store / Play Store / Stripe / offert).
+      const RC_STORE_MAP: Record<string, string> = {
+        APP_STORE: "app_store",
+        MAC_APP_STORE: "mac_app_store",
+        PLAY_STORE: "play_store",
+        AMAZON: "amazon",
+        STRIPE: "stripe",
+        PROMOTIONAL: "promotional",
+      };
+      const store: string | null = RC_STORE_MAP[String(event.store ?? "").toUpperCase()] ?? null;
 
       const activateEvents = ["INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "PRODUCT_CHANGE"];
       const deactivateEvents = ["CANCELLATION", "EXPIRATION"];
@@ -977,9 +989,9 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
         const monthlyPrice = billingType === "monthly" ? purchasedPrice : Math.round((purchasedPrice / 12) * 100) / 100;
         const totalPrice = billingType === "one_time" ? purchasedPrice : null;
         await connection.execute(
-          `INSERT INTO subscriptions (client_id, plan, billing_type, monthly_price, total_price, commitment_months, start_date, end_date, status, payment_id)
-           VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'active', ?)`,
-          [userId, plan, billingType, monthlyPrice, totalPrice, startDate, endDate, `rc_${eventId}`]
+          `INSERT INTO subscriptions (client_id, plan, billing_type, monthly_price, total_price, commitment_months, start_date, end_date, status, payment_id, store)
+           VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'active', ?, ?)`,
+          [userId, plan, billingType, monthlyPrice, totalPrice, startDate, endDate, `rc_${eventId}`, store]
         );
         await connection.execute(
           `UPDATE users SET pro_status = 'active' WHERE id = ?`,

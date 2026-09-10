@@ -31,6 +31,7 @@ const AdminUsers = lazy(() => import("./pages/AdminUsers"));
 const AdminBookings = lazy(() => import("./pages/AdminBooking"));
 const AdminLogs = lazy(() => import("./pages/AdminLogs"));
 const AdminAnalytics = lazy(() => import("./pages/AdminAnalytics"));
+const AdminBehavior = lazy(() => import("./pages/AdminBehavior"));
 const AdminTasks = lazy(() => import("./pages/AdminTasks"));
 const AdminModeration = lazy(() => import("./pages/AdminModeration"));
 const AdminSubscriptions = lazy(() => import("./pages/AdminSubscriptions"));
@@ -90,6 +91,7 @@ const AppInner = () => {
             {/* Fusionnée dans /admin/analytics (onglet Transactions) — redirection pour ne pas casser d'anciens liens */}
             <Route path="payments" element={<Navigate to="/admin/analytics" replace />} />
             <Route path="analytics" element={<AdminAnalytics />} />
+            <Route path="behavior" element={<AdminBehavior />} />
             <Route path="subscriptions" element={<AdminSubscriptions />} />
             <Route path="logs" element={<AdminLogs />} />
             <Route path="tasks" element={<AdminTasks />} />

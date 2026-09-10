@@ -262,6 +262,32 @@ Décision produit requise. Options, par ordre de coût :
 
 ---
 
+## 5 bis. État de livraison
+
+**Décision (2026-09-10)** : on implémente **P1 uniquement** (bloc « calculable
+maintenant » + bloc « approximations méthode OK »). Les blocs qui dépendent
+d'events produit (funnel haut, DAU/WAU/MAU réels) et **CAC / LTV par canal**
+(attribution + `marketing_spend`) sont **abandonnés** — jugés non prioritaires.
+
+**Livré (PR `feat/admin-analytics-p1`)** :
+- Backend : router `admin-analytics.routes.ts` monté sous `/api/admin/analytics/v2`.
+  Endpoints : `clients/kpis`, `clients/funnel`, `clients/cohorts`, `pros/kpis`,
+  `pros/funnel`, `pros/activity`, `pros/cohorts`, `pros/services`, `marketplace`,
+  `segments`, `subscriptions/deep`, `user-360/:id`, `data-health`.
+- Migration `20260915000001_subscriptions_store.sql` : colonne `subscriptions.store`
+  (`app_store` / `play_store` / `stripe` / `promotional` / …) — répartition
+  App Store vs Play Store des abonnés. Renseignée par le webhook RevenueCat
+  (`event.store`). Rétroactif : les `rc_%` existants = `app_store` (Android pas
+  encore distribué).
+- Front : page `/admin/behavior` (« Comportement ») — onglets Clientes / Pros /
+  Marketplace / Abonnements / Santé data. Chaque métrique porte son effectif ;
+  l'onglet « Santé data » liste le statut `real` / `computed` / `estimated` /
+  `unavailable` de chaque métrique et les prérequis manquants.
+
+**Non livré (décision produit)** : funnel haut cliente, conversion vue→résa,
+sessions/DAU réels, attribution, CAC/LTV par canal, churn abo par ancienneté
+*significatif* (la vue existe, les données monteront), Key Insights automatiques.
+
 ## 6. Réponses directes aux questions du brief
 
 - **« 60% des analyses tout de suite ? »** — oui : tout le bloc **réservations /
