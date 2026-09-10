@@ -19,6 +19,7 @@ import {
   adminTaskStatusSchema,
 } from "../middleware/validate";
 import { logAdminAction } from "../lib/audit";
+import { resolveSubscriptionPricing, resolvedMonthlyPriceSQL } from "../lib/subscription-catalog";
 
 import { AuthenticatedRequest } from "../lib/types";
 import { parseParamToInt } from "../lib/helpers";
@@ -629,9 +630,9 @@ router.get(
               COUNT(*) FILTER (WHERE status = 'active')                                                       AS subs_active,
               COUNT(*) FILTER (WHERE created_at >= (SELECT d FROM this_month))                                 AS subs_this,
               COUNT(*) FILTER (WHERE created_at >= (SELECT d FROM last_month_start) AND created_at < (SELECT d FROM this_month)) AS subs_last,
-              -- MRR = mensuels (monthly_price) + annuels amortis (total/12, déjà
-              -- stocké dans monthly_price par le webhook RC).
-              COALESCE(SUM(monthly_price) FILTER (WHERE status = 'active'), 0)                                AS sub_mrr,
+              -- MRR = prix « officiel Blyss » résolu (catalogue sauf vrai achat
+              -- App Store) — cf lib/subscription-catalog.
+              COALESCE(SUM(${resolvedMonthlyPriceSQL("subscriptions")}) FILTER (WHERE status = 'active'), 0)   AS sub_mrr,
               COUNT(*) FILTER (WHERE status = 'active' AND plan = 'start')                                     AS plan_start,
               COUNT(*) FILTER (WHERE status = 'active' AND plan = 'serenite')                                  AS plan_serenite,
               COUNT(*) FILTER (WHERE status = 'active' AND plan = 'signature')                                 AS plan_signature
@@ -2495,7 +2496,7 @@ router.get(
           COUNT(*) FILTER (WHERE status = 'active')                                                   AS active_count,
           COUNT(*) FILTER (WHERE status = 'active' AND ${SOURCE_SQL.replace(/s\./g, "subscriptions.")} = 'store')   AS active_store,
           COUNT(*) FILTER (WHERE status = 'active' AND ${SOURCE_SQL.replace(/s\./g, "subscriptions.")} IN ('granted','internal')) AS active_free,
-          COALESCE(SUM(monthly_price) FILTER (WHERE status = 'active'), 0)                             AS mrr,
+          COALESCE(SUM(${resolvedMonthlyPriceSQL("subscriptions")}) FILTER (WHERE status = 'active'), 0)  AS mrr,
           COUNT(*) FILTER (WHERE status = 'active' AND plan = 'start')                                 AS plan_start,
           COUNT(*) FILTER (WHERE status = 'active' AND plan = 'serenite')                              AS plan_serenite,
           COUNT(*) FILTER (WHERE status = 'active' AND plan = 'signature')                             AS plan_signature,
@@ -2543,7 +2544,9 @@ router.get(
             cancelledThisMonth: Number(summary?.cancelled_this_month ?? 0),
             expiring7d: Number(summary?.expiring_7d ?? 0),
           },
-          items: (rows as any[]).map((r) => ({
+          items: (rows as any[]).map((r) => {
+            const pricing = resolveSubscriptionPricing(r);
+            return {
             id: r.id,
             proId: r.client_id,
             proName: r.activity_name || `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim(),
@@ -2553,15 +2556,17 @@ router.get(
             proStatus: r.pro_status,
             plan: r.plan,
             billingType: r.billing_type,
-            monthlyPrice: Number(r.monthly_price),
-            totalPrice: r.total_price != null ? Number(r.total_price) : null,
+            monthlyPrice: pricing.monthlyPrice,
+            totalPrice: pricing.totalPrice,
+            priceSource: pricing.priceSource,
             status: r.status,
             startDate: r.start_date,
             endDate: r.end_date,
             source: r.source,
             isGranted: Boolean(r.is_granted),
             createdAt: r.created_at,
-          })),
+          };
+          }),
           meta: { page, limit, total: Number(countRows[0]?.total ?? 0) },
         },
       });
@@ -2603,7 +2608,7 @@ router.get(
                AND (s.status = 'active'
                     OR (s.status = 'cancelled' AND s.updated_at >= (months.m + INTERVAL '1 month')))
           ) AS active_end,
-          (SELECT COALESCE(SUM(s.monthly_price), 0) FROM subscriptions s
+          (SELECT COALESCE(SUM(${resolvedMonthlyPriceSQL("s")}), 0) FROM subscriptions s
              WHERE s.start_date <= (months.m + INTERVAL '1 month' - INTERVAL '1 day')
                AND (s.end_date IS NULL OR s.end_date > (months.m + INTERVAL '1 month' - INTERVAL '1 day'))
                AND (s.status = 'active'
@@ -2637,13 +2642,13 @@ router.get(
       // ── Répartition MRR par formule (actuel) ─────────────────────────────
       const [[planMix]]: any = await db.query(`
         SELECT
-          COALESCE(SUM(monthly_price) FILTER (WHERE plan = 'start'), 0)     AS mrr_start,
-          COALESCE(SUM(monthly_price) FILTER (WHERE plan = 'serenite'), 0)  AS mrr_serenite,
-          COALESCE(SUM(monthly_price) FILTER (WHERE plan = 'signature'), 0) AS mrr_signature,
+          COALESCE(SUM(${resolvedMonthlyPriceSQL("s")}) FILTER (WHERE plan = 'start'), 0)     AS mrr_start,
+          COALESCE(SUM(${resolvedMonthlyPriceSQL("s")}) FILTER (WHERE plan = 'serenite'), 0)  AS mrr_serenite,
+          COALESCE(SUM(${resolvedMonthlyPriceSQL("s")}) FILTER (WHERE plan = 'signature'), 0) AS mrr_signature,
           COUNT(*) FILTER (WHERE plan = 'start')     AS n_start,
           COUNT(*) FILTER (WHERE plan = 'serenite')  AS n_serenite,
           COUNT(*) FILTER (WHERE plan = 'signature') AS n_signature
-        FROM subscriptions WHERE status = 'active'
+        FROM subscriptions s WHERE status = 'active'
       `);
 
       // ── Durée de vie moyenne + LTV ──────────────────────────────────────
@@ -2651,8 +2656,8 @@ router.get(
         SELECT
           AVG(EXTRACT(EPOCH FROM (COALESCE(end_date::timestamp, updated_at) - start_date::timestamp)) / 2629800)
             FILTER (WHERE status = 'cancelled')                                   AS avg_lifetime_months,
-          AVG(monthly_price) FILTER (WHERE status = 'active' AND monthly_price > 0) AS arpu
-        FROM subscriptions
+          AVG(${resolvedMonthlyPriceSQL("s")}) FILTER (WHERE status = 'active') AS arpu
+        FROM subscriptions s
       `);
       const avgLifetimeMonths = lifetime?.avg_lifetime_months != null ? Math.round(Number(lifetime.avg_lifetime_months) * 10) / 10 : null;
       const arpu = lifetime?.arpu != null ? Math.round(Number(lifetime.arpu) * 100) / 100 : null;

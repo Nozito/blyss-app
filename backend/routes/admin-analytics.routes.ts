@@ -21,6 +21,7 @@ import { requireAdminMiddleware } from "../middleware/requireAdmin";
 import { getDb } from "../lib/db";
 import { AuthenticatedRequest } from "../lib/types";
 import { parseParamToInt } from "../lib/helpers";
+import { resolvedMonthlyPriceSQL, PLAN_CATALOG, verifyCatalogAgainstRevenueCat } from "../lib/subscription-catalog";
 
 const router = express.Router();
 router.use(authenticateToken, requireAdminMiddleware);
@@ -786,13 +787,13 @@ router.get("/subscriptions/deep", async (req: AuthenticatedRequest, res: Respons
     // Répartition par plateforme de facturation (App Store / Play / Stripe / offert).
     const [storeRows]: any = await db.query(`
       SELECT
-        COALESCE(store, CASE
-          WHEN payment_id LIKE 'rc_%' THEN 'app_store'
-          WHEN payment_id IN ('admin_grant','admin_internal') THEN 'promotional'
+        COALESCE(s.store, CASE
+          WHEN s.payment_id LIKE 'rc_%' THEN 'app_store'
+          WHEN s.payment_id IN ('admin_grant','admin_internal') THEN 'promotional'
           ELSE 'unknown' END) AS store,
-        COUNT(*) FILTER (WHERE status = 'active') AS active,
-        COALESCE(SUM(monthly_price) FILTER (WHERE status = 'active'), 0) AS mrr
-      FROM subscriptions
+        COUNT(*) FILTER (WHERE s.status = 'active') AS active,
+        COALESCE(SUM(${resolvedMonthlyPriceSQL("s")}) FILTER (WHERE s.status = 'active'), 0) AS mrr
+      FROM subscriptions s
       GROUP BY 1
       ORDER BY active DESC
     `);
@@ -954,6 +955,29 @@ router.get("/data-health", async (_req: AuthenticatedRequest, res: Response, nex
           estimated: "Approximation (proxy) — à interpréter avec prudence.",
           unavailable: "Nécessite une instrumentation ou un champ absent.",
         },
+      },
+    });
+  } catch (e) { next(e); }
+});
+
+/* GET /subscriptions/catalog — grille de prix officielle Blyss + contrôle RC. */
+router.get("/subscriptions/catalog", async (_req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const warnings = await verifyCatalogAgainstRevenueCat();
+    res.json({
+      success: true,
+      data: {
+        note: "Prix officiels Blyss (App Store Connect). RevenueCat n'expose pas les prix via son API serveur — cette grille est la source de vérité, alignée sur l'offering « Blyss » et sur l'app mobile (constants/plans.ts).",
+        plans: (Object.keys(PLAN_CATALOG) as (keyof typeof PLAN_CATALOG)[]).map((p) => ({
+          plan: p,
+          label: PLAN_CATALOG[p].label,
+          monthly: PLAN_CATALOG[p].monthly,
+          annual: PLAN_CATALOG[p].annual,
+          annualPerMonth: Math.round((PLAN_CATALOG[p].annual / 12) * 100) / 100,
+          productMonthly: PLAN_CATALOG[p].productMonthly,
+          productAnnual: PLAN_CATALOG[p].productAnnual,
+        })),
+        revenueCatWarnings: warnings,
       },
     });
   } catch (e) { next(e); }
