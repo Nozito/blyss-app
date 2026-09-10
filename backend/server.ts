@@ -110,8 +110,16 @@ const envFile =
   process.env.NODE_ENV === "production" ? ".env.prod" :
   process.env.NODE_ENV === "staging" ? ".env.staging" :
   ".env.dev";
-const envPath = path.resolve(__dirname, "..", envFile);
-console.info("Loading env from:", envPath);
+// `__dirname` = backend/ en dev (ts-node) mais backend/dist/ en prod (build) →
+// le fichier est à la racine du repo dans les deux cas. On teste les
+// emplacements plausibles et on prend le premier qui existe.
+const envCandidates = [
+  path.resolve(__dirname, "..", envFile),       // dev : backend/ -> racine
+  path.resolve(__dirname, "..", "..", envFile), // prod : backend/dist/ -> racine
+  path.resolve(process.cwd(), envFile),
+];
+const envPath = envCandidates.find((p) => fs.existsSync(p)) ?? envCandidates[0];
+console.info("Loading env from:", envPath, fs.existsSync(envPath) ? "(found)" : "(MISSING)");
 
 dotenv.config({ path: envPath });
 
