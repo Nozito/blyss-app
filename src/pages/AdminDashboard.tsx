@@ -27,6 +27,9 @@ import { useAuth } from "@/contexts/AuthContext";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
+// Chiffres financiers — 2 décimales, jamais arrondis à l'euro.
+const eur = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
+
 interface Changes {
   clients: number | null;
   pros: number | null;
@@ -296,9 +299,8 @@ const AdminDashboard = () => {
             <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em]">
               <DollarSign size={13} /> Revenu mensuel · abonnements pros
             </p>
-            <p className="admin-display mt-3 text-[4rem] leading-[0.85] sm:text-[6rem]">
-              {(stats?.subMrr ?? 0).toLocaleString("fr-FR")}
-              <span className="ml-2 align-top text-[1.8rem]">€</span>
+            <p className="admin-display mt-3 text-[3.4rem] leading-[0.85] sm:text-[5rem]">
+              {eur.format(stats?.subMrr ?? 0)}
             </p>
             {subChange != null && (
               <p className="mt-3 inline-flex items-center gap-1.5 text-sm font-black">
@@ -312,7 +314,7 @@ const AdminDashboard = () => {
             {[
               { k: "Abos actifs", v: stats?.subsActive ?? 0 },
               { k: "Pris ce mois", v: stats?.subsThisMonth ?? 0 },
-              { k: "Encaissé dans l'app", v: `${(stats?.collectedThisMonth ?? 0).toLocaleString("fr-FR")} €` },
+              { k: "Encaissé dans l'app", v: eur.format(stats?.collectedThisMonth ?? 0) },
             ].map((s) => (
               <div key={s.k}>
                 <dd className="admin-display text-[1.8rem] leading-none">{s.v}</dd>
