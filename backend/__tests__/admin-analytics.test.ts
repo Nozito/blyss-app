@@ -48,10 +48,8 @@ const makeToken = (userId: number) =>
 
 const ENDPOINTS = [
   "/api/admin/analytics/v2/clients/kpis",
-  "/api/admin/analytics/v2/clients/funnel",
   "/api/admin/analytics/v2/clients/cohorts",
   "/api/admin/analytics/v2/pros/kpis",
-  "/api/admin/analytics/v2/pros/funnel",
   "/api/admin/analytics/v2/pros/activity",
   "/api/admin/analytics/v2/pros/cohorts",
   "/api/admin/analytics/v2/pros/services",

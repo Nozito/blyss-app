@@ -271,8 +271,8 @@ d'events produit (funnel haut, DAU/WAU/MAU réels) et **CAC / LTV par canal**
 
 **Livré (PR `feat/admin-analytics-p1`)** :
 - Backend : router `admin-analytics.routes.ts` monté sous `/api/admin/analytics/v2`.
-  Endpoints : `clients/kpis`, `clients/funnel`, `clients/cohorts`, `pros/kpis`,
-  `pros/funnel`, `pros/activity`, `pros/cohorts`, `pros/services`, `marketplace`,
+  Endpoints : `clients/kpis`, `clients/cohorts`, `pros/kpis`,
+  `pros/activity`, `pros/cohorts`, `pros/services`, `marketplace`,
   `segments`, `subscriptions/deep`, `user-360/:id`, `data-health`.
 - Migration `20260915000001_subscriptions_store.sql` : colonne `subscriptions.store`
   (`app_store` / `play_store` / `stripe` / `promotional` / …) — répartition
@@ -284,9 +284,15 @@ d'events produit (funnel haut, DAU/WAU/MAU réels) et **CAC / LTV par canal**
   l'onglet « Santé data » liste le statut `real` / `computed` / `estimated` /
   `unavailable` de chaque métrique et les prérequis manquants.
 
-**Non livré (décision produit)** : funnel haut cliente, conversion vue→résa,
-sessions/DAU réels, attribution, CAC/LTV par canal, churn abo par ancienneté
-*significatif* (la vue existe, les données monteront), Key Insights automatiques.
+**Retiré après revue (2026-09-10)** : les **funnels d'activation** (cliente & pro,
+endpoints `clients/funnel` + `pros/funnel` + composant UI) — trop dépendants de
+tables peu remplies (`client_onboarding`, `favorites`), barres quasi plates. À
+reconstruire en P2 avec les vrais events. Le libellé **DAU/WAU/MAU** est retiré
+partout (on ne le promet pas sans events de session).
+
+**Non livré (décision produit)** : conversion vue→résa, sessions / usage réel de
+l'app, attribution, CAC/LTV par canal, churn abo par ancienneté *significatif*
+(la vue existe, les données monteront), Key Insights automatiques.
 
 ## 6. Réponses directes aux questions du brief
 
