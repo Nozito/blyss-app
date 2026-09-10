@@ -850,19 +850,28 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
   let connection;
   try {
     // ── 1. Vérification du secret ────────────────────────────────────────────
-    const authHeader = req.headers.authorization ?? "";
-    const expectedSecret = process.env.REVENUECAT_WEBHOOK_SECRET;
-    const expectedHeader = `Bearer ${expectedSecret ?? ""}`;
-    // timingSafeEqual throws on length mismatch, so pad/compare a fixed-size
-    // digest instead of the raw strings — avoids leaking secret length via
-    // early-exit timing on top of the byte values themselves.
+    // Le champ "Authorization header" de RevenueCat est envoyé verbatim. On
+    // tolère `Bearer <secret>`, `<secret>` nu, et les espaces autour — seul le
+    // token compte. Comparaison à temps constant sur un digest de taille fixe
+    // (timingSafeEqual jette sur longueurs différentes + évite de fuiter la
+    // longueur du secret).
+    const presentedToken = (req.headers.authorization ?? "")
+      .trim()
+      .replace(/^Bearer\s+/i, "")
+      .trim();
+    const expectedSecret = (process.env.REVENUECAT_WEBHOOK_SECRET ?? "").trim();
     const authMatches =
       !!expectedSecret &&
       crypto.timingSafeEqual(
-        crypto.createHash("sha256").update(authHeader).digest(),
-        crypto.createHash("sha256").update(expectedHeader).digest()
+        crypto.createHash("sha256").update(presentedToken).digest(),
+        crypto.createHash("sha256").update(expectedSecret).digest()
       );
     if (!authMatches) {
+      log.warn("/api/webhooks/revenuecat", "Unauthorized — Authorization header ne matche pas REVENUECAT_WEBHOOK_SECRET", {
+        hasHeader: !!req.headers.authorization,
+        headerLen: (req.headers.authorization ?? "").length,
+        secretLen: expectedSecret.length,
+      });
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
