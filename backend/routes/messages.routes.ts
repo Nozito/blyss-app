@@ -15,25 +15,15 @@
 import express, { Response } from "express";
 import multer, { FileFilterCallback } from "multer";
 import path from "path";
-import fs from "fs";
 import sharp from "sharp";
 import { authMiddleware } from "../middleware/auth";
 import { getDb } from "../lib/db";
+import { putFile } from "../lib/storage";
 import { sendNotificationToUser } from "../lib/notifications";
 import { parseParamToInt } from "../lib/helpers";
 import { AuthenticatedRequest } from "../lib/types";
 
 const router = express.Router();
-
-const UPLOADS_DIR = path.resolve(
-  __dirname,
-  "..",
-  process.env.NODE_ENV === "production" ? "../uploads" : "uploads"
-);
-const uploadChatDir = path.join(UPLOADS_DIR, "chat");
-if (!fs.existsSync(uploadChatDir)) {
-  fs.mkdirSync(uploadChatDir, { recursive: true });
-}
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".webp"]);
@@ -295,12 +285,10 @@ router.post(
         const base = `chat_${Number(threadId)}_${Date.now()}`;
         const fullFilename = `${base}.webp`;
         const thumbFilename = `${base}_thumb.webp`;
-        // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal
-        await sharp(req.file.buffer).resize(1280, 1280, { fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toFile(path.join(uploadChatDir, fullFilename));
-        // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal
-        await sharp(req.file.buffer).resize(300, 300, { fit: "cover", position: "center" }).webp({ quality: 75 }).toFile(path.join(uploadChatDir, thumbFilename));
-        attachmentUrl = `/uploads/chat/${fullFilename}`;
-        attachmentThumbnail = `/uploads/chat/${thumbFilename}`;
+        const fullBuffer = await sharp(req.file.buffer).resize(1280, 1280, { fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toBuffer();
+        const thumbBuffer = await sharp(req.file.buffer).resize(300, 300, { fit: "cover", position: "center" }).webp({ quality: 75 }).toBuffer();
+        attachmentUrl = await putFile(`chat/${fullFilename}`, fullBuffer, "image/webp");
+        attachmentThumbnail = await putFile(`chat/${thumbFilename}`, thumbBuffer, "image/webp");
       }
 
       const [msgRows] = await db.query(
