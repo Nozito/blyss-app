@@ -31,6 +31,7 @@ import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import bcrypt from "bcrypt";
 import { getDb, DbTimeoutError } from "./lib/db";
+import { putFile, deleteFile } from "./lib/storage";
 import { formatRdvWhen, formatEuros } from "./lib/notifyDate";
 import dotenv from "dotenv";
 import multer, { FileFilterCallback } from "multer";
@@ -2502,18 +2503,7 @@ app.get(
   }
 );
 
-/* UPLOAD PHOTO */
-const uploadDir = path.join(UPLOADS_DIR, "profile_photo");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-/* UPLOAD BANNER - DOSSIER */
-const uploadBannerDir = path.join(UPLOADS_DIR, "banners");
-if (!fs.existsSync(uploadBannerDir)) {
-  fs.mkdirSync(uploadBannerDir, { recursive: true });
-}
-
+/* UPLOAD PHOTO / BANNER — dossiers créés à la volée par lib/storage.ts (driver local) */
 
 /* STORAGE — memory (sharp processes before disk write) */
 const memStorage = multer.memoryStorage();
@@ -2550,14 +2540,13 @@ app.post(
       }
 
       const filename = `pp_${req.user.id}_${Date.now()}.webp`;
-      const destPath = path.join(uploadDir, filename);
 
-      await sharp(req.file.buffer)
+      const buffer = await sharp(req.file.buffer)
         .resize(512, 512, { fit: "cover", position: "center" })
         .webp({ quality: 82 })
-        .toFile(destPath);
+        .toBuffer();
+      const photoPath = await putFile(`profile_photo/${filename}`, buffer, "image/webp");
 
-      const photoPath = `/uploads/profile_photo/${filename}`;
       await db.execute("UPDATE users SET profile_photo = ? WHERE id = ?", [photoPath, req.user.id]);
 
       res.json({ success: true, photo: photoPath });
@@ -2595,14 +2584,13 @@ app.post(
       if (!req.file) return res.status(400).json({ success: false, message: "Aucun fichier fourni" });
 
       const filename = `banner_${userId}_${Date.now()}.webp`;
-      const destPath = path.join(uploadBannerDir, filename);
 
-      await sharp(req.file.buffer)
+      const buffer = await sharp(req.file.buffer)
         .resize(1200, 400, { fit: "cover", position: "center" })
         .webp({ quality: 85 })
-        .toFile(destPath);
+        .toBuffer();
+      const fileUrl = await putFile(`banners/${filename}`, buffer, "image/webp");
 
-      const fileUrl = `/uploads/banners/${filename}`;
       await db.query("UPDATE users SET banner_photo = ? WHERE id = ?", [fileUrl, userId]);
 
       const [users] = await db.query(
@@ -2619,10 +2607,6 @@ app.post(
 );
 
 /* ── PORTFOLIO GALLERY (public-profile "réalisations") ──────────────────── */
-const uploadGalleryDir = path.join(UPLOADS_DIR, "gallery");
-if (!fs.existsSync(uploadGalleryDir)) {
-  fs.mkdirSync(uploadGalleryDir, { recursive: true });
-}
 const uploadGallery = multer({ storage: memStorage, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } });
 const MAX_GALLERY_IMAGES = 10;
 
@@ -2676,18 +2660,17 @@ app.post(
       const fullFilename = `${base}.webp`;
       const thumbFilename = `${base}_thumb.webp`;
 
-      await sharp(req.file.buffer)
+      const fullBuffer = await sharp(req.file.buffer)
         .resize(1080, 1080, { fit: "cover", position: "center" })
         .webp({ quality: 85 })
-        .toFile(path.join(uploadGalleryDir, fullFilename));
-
-      await sharp(req.file.buffer)
+        .toBuffer();
+      const thumbBuffer = await sharp(req.file.buffer)
         .resize(300, 300, { fit: "cover", position: "center" })
         .webp({ quality: 75 })
-        .toFile(path.join(uploadGalleryDir, thumbFilename));
+        .toBuffer();
 
-      const url = `/uploads/gallery/${fullFilename}`;
-      const thumbnail = `/uploads/gallery/${thumbFilename}`;
+      const url = await putFile(`gallery/${fullFilename}`, fullBuffer, "image/webp");
+      const thumbnail = await putFile(`gallery/${thumbFilename}`, thumbBuffer, "image/webp");
 
       const [rows] = await db.query(
         `INSERT INTO gallery_images (pro_id, url, thumbnail) VALUES (?, ?, ?) RETURNING id, url, thumbnail, created_at`,
@@ -2726,8 +2709,7 @@ app.delete(
       await db.execute("DELETE FROM gallery_images WHERE id = ? AND pro_id = ?", [imageId, proId]);
 
       for (const relPath of [image.url, image.thumbnail]) {
-        const filePath = path.join(UPLOADS_DIR, relPath.replace(/^\/uploads\//, ""));
-        fs.unlink(filePath, () => {}); // best-effort — la ligne DB est déjà supprimée
+        await deleteFile(relPath); // best-effort — la ligne DB est déjà supprimée
       }
 
       res.json({ success: true });
