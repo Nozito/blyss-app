@@ -56,6 +56,7 @@ import { getActiveEntitlement } from "./lib/revenuecat";
 import { startRecallCron } from "./cron/recall";
 import { startDailyRecapCron } from "./cron/daily-recap";
 import { startOnboardingNudgeCron } from "./cron/onboarding-nudge";
+import { startCompletionSweepCron } from "./cron/completion-sweep";
 import nailTechRouter, { notifyWaitingList } from "./routes/nail-tech.routes";
 import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
@@ -6619,6 +6620,7 @@ if (process.env.NODE_ENV !== "test") {
     startFinanceReportsCron();
     startDailyRecapCron();
     startOnboardingNudgeCron();
+    startCompletionSweepCron();
   });
 }
 
