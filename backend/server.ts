@@ -1416,7 +1416,8 @@ async function requireActiveProSubscription(req: AuthenticatedRequest, res: Resp
 router.get('/prestations', authMiddleware, requireActiveProSubscription, async (req: any, res: any) => {
   try {
     const [rows] = await db.query(
-      `SELECT id, pro_id, name, description, price, duration_minutes, active, created_at
+      `SELECT id, pro_id, name, description, price, duration_minutes, active,
+              buffer_before_minutes, buffer_after_minutes, created_at
        FROM prestations
        WHERE pro_id = ?
        ORDER BY created_at DESC`,
@@ -1432,11 +1433,11 @@ router.get('/prestations', authMiddleware, requireActiveProSubscription, async (
 // ===== POST /api/pro/prestations =====
 router.post('/prestations', authMiddleware, validate(prestationSchema), requireActiveProSubscription, async (req: any, res: any) => {
   try {
-    const { name, description, price, duration_minutes, active } = req.body;
+    const { name, description, price, duration_minutes, active, buffer_before_minutes, buffer_after_minutes } = req.body;
     const [prestRows] = await db.query(
-      `INSERT INTO prestations (pro_id, name, description, price, duration_minutes, active)
-       VALUES (?, ?, ?, ?, ?, ?) RETURNING *`,
-      [req.user!.id, name, description, price, duration_minutes, active]
+      `INSERT INTO prestations (pro_id, name, description, price, duration_minutes, active, buffer_before_minutes, buffer_after_minutes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+      [req.user!.id, name, description, price, duration_minutes, active, buffer_before_minutes, buffer_after_minutes]
     );
     res.status(201).json({ success: true, data: (prestRows as any[])[0] });
   } catch (error) {
@@ -1449,7 +1450,7 @@ router.post('/prestations', authMiddleware, validate(prestationSchema), requireA
 router.patch('/prestations/:id', authMiddleware, validate(prestationPatchSchema), requireActiveProSubscription, async (req: any, res: any) => {
   try {
     const { id } = req.params;
-    const { name, description, price, duration_minutes, active } = req.body;
+    const { name, description, price, duration_minutes, active, buffer_before_minutes, buffer_after_minutes } = req.body;
     // Vérifie que la prestation appartient au pro
     const [check] = await db.query(
       'SELECT id FROM prestations WHERE id = ? AND pro_id = ?',
@@ -1479,6 +1480,14 @@ router.patch('/prestations/:id', authMiddleware, validate(prestationPatchSchema)
     if (active !== undefined) {
       updates.push(`active = ?`);
       values.push(active);
+    }
+    if (buffer_before_minutes !== undefined) {
+      updates.push(`buffer_before_minutes = ?`);
+      values.push(buffer_before_minutes);
+    }
+    if (buffer_after_minutes !== undefined) {
+      updates.push(`buffer_after_minutes = ?`);
+      values.push(buffer_after_minutes);
     }
     if (updates.length === 0) {
       return res.status(400).json({ success: false, error: 'Aucune modification fournie' });

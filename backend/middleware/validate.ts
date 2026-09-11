@@ -27,6 +27,16 @@ export function validate<T>(schema: ZodSchema<T>) {
 
 // ── Schemas ────────────────────────────────────────────────────────────────────
 
+// Valeurs alignées sur les CHECK constraints buffer_before_minutes /
+// buffer_after_minutes de la table `prestations` (voir migrations
+// 20260412000002 et 20260902000001).
+const BUFFER_MINUTES_VALUES = [0, 5, 10, 15, 20, 30] as const;
+const bufferMinutesSchema = z
+  .number("Le temps de battement doit être un nombre")
+  .refine((v) => (BUFFER_MINUTES_VALUES as readonly number[]).includes(v), {
+    message: "Temps de battement invalide (0, 5, 10, 15, 20 ou 30 min)",
+  });
+
 export const prestationSchema = z.object({
   name: z.string().min(1, "Le nom est requis").max(100, "Nom trop long"),
   description: z.string().max(500, "Description trop longue").optional().default(""),
@@ -37,6 +47,8 @@ export const prestationSchema = z.object({
     .positive("La durée doit être positive")
     .max(480, "Durée maximale : 8 heures"),
   active: z.boolean().optional().default(true),
+  buffer_before_minutes: bufferMinutesSchema.optional().default(0),
+  buffer_after_minutes: bufferMinutesSchema.optional().default(0),
 });
 
 export const userUpdateSchema = z.object({
@@ -103,6 +115,8 @@ export const prestationPatchSchema = z.object({
     .max(480, "Durée maximale : 8 heures")
     .optional(),
   active: z.boolean().optional(),
+  buffer_before_minutes: bufferMinutesSchema.optional(),
+  buffer_after_minutes: bufferMinutesSchema.optional(),
 });
 
 export const reviewSchema = z.object({
