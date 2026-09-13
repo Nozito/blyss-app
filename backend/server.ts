@@ -3855,6 +3855,45 @@ app.get(
   }
 );
 
+/* PRO RESERVATION BY ID — pour les deep-links notifs (#11 : taper une notif
+ * de report ouvrait le calendrier sans jamais naviguer au bon mois, puisque
+ * /api/pro/calendar est toujours borné à un mois. La date renvoyée ici sert
+ * à faire sauter l'écran directement dessus avant de chercher le RDV. */
+app.get(
+  "/api/pro/reservations/:id",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    let connection;
+    try {
+      const proId = getProId(req);
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ success: false, error: "id invalide" });
+      }
+
+      connection = await db.getConnection();
+      const [rows] = (await connection.query(
+        `SELECT r.id, r.start_datetime::date AS date, r.status
+         FROM reservations r
+         WHERE r.id = ? AND r.pro_id = ?`,
+        [id, proId]
+      )) as [any[], any];
+
+      const row = rows[0];
+      if (!row) {
+        return res.status(404).json({ success: false, error: "Rendez-vous introuvable" });
+      }
+
+      res.json({ success: true, data: { id: row.id, date: row.date, status: row.status } });
+    } catch (err) {
+      console.error("[PRO RESERVATION BY ID] error =", err);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
+
 /* PRO CALENDAR */
 app.get(
   "/api/pro/calendar",
