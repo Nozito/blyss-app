@@ -4,8 +4,8 @@
  * Couverts :
  *   INITIAL_PURCHASE → INSERT subscription + UPDATE users SET pro_status='active'
  *   RENEWAL → même flow activate
- *   CANCELLATION → UPDATE subscriptions cancelled + UPDATE users SET pro_status='inactive'
- *   EXPIRATION → même que CANCELLATION
+ *   CANCELLATION → aucun changement (accès conservé jusqu'à end_date, renouvellement auto coupé seulement)
+ *   EXPIRATION → UPDATE subscriptions cancelled + UPDATE users SET pro_status='inactive'
  *   Secret invalide → 401
  */
 
@@ -155,17 +155,17 @@ describe("POST /api/webhooks/revenuecat", () => {
     expect(insertCall?.[1]).toContain("signature");
   });
 
-  it("CANCELLATION → UPDATE subscriptions cancelled + UPDATE users pro_status='inactive'", async () => {
+  it("CANCELLATION → aucun changement d'état (accès conservé jusqu'à end_date, EXPIRATION s'en chargera)", async () => {
     const res = await sendRCWebhook("CANCELLATION", { userId: "12" });
 
     expect(res.status).toBe(200);
 
     const calls = mockExecute.mock.calls as unknown[][];
-    expect(calls.find((a) => sqlIncludes(a, "UPDATE subscriptions", "cancelled"))).toBeDefined();
-    expect(calls.find((a) => sqlIncludes(a, "UPDATE users", "inactive"))).toBeDefined();
+    expect(calls.find((a) => sqlIncludes(a, "UPDATE subscriptions", "cancelled"))).toBeUndefined();
+    expect(calls.find((a) => sqlIncludes(a, "UPDATE users", "inactive"))).toBeUndefined();
   });
 
-  it("EXPIRATION → même comportement que CANCELLATION", async () => {
+  it("EXPIRATION → UPDATE subscriptions cancelled + UPDATE users pro_status='inactive'", async () => {
     const res = await sendRCWebhook("EXPIRATION", { userId: "13" });
 
     expect(res.status).toBe(200);
