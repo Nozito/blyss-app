@@ -134,6 +134,9 @@ describe("POST /api/pro/unavailabilities — création", () => {
   it("200 — crée l'indisponibilité et la retourne", async () => {
     const created = { id: 1, pro_id: 7, ...validBody, created_at: new Date().toISOString() };
     mockConnection.query.mockResolvedValueOnce([[created], []]);
+    // Requête de conflits (réservations existantes sur la période bloquée) —
+    // aucune ici.
+    mockConnection.query.mockResolvedValueOnce([[], []]);
 
     const res = await request(app)
       .post("/api/pro/unavailabilities")
@@ -142,7 +145,22 @@ describe("POST /api/pro/unavailabilities — création", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.data).toMatchObject({ id: 1, pro_id: 7 });
+    expect(res.body.data).toMatchObject({ id: 1, pro_id: 7, conflictingAppointments: [] });
+  });
+
+  it("200 — signale les rendez-vous déjà pris sur la période bloquée", async () => {
+    const created = { id: 2, pro_id: 7, ...validBody, created_at: new Date().toISOString() };
+    const conflict = { id: 99, start_datetime: "2026-10-01T10:00:00Z", first_name: "Alice", last_name: "Martin" };
+    mockConnection.query.mockResolvedValueOnce([[created], []]);
+    mockConnection.query.mockResolvedValueOnce([[conflict], []]);
+
+    const res = await request(app)
+      .post("/api/pro/unavailabilities")
+      .set("Cookie", `access_token=${token}`)
+      .send(validBody);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.conflictingAppointments).toEqual([conflict]);
   });
 });
 
