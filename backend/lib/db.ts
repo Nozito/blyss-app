@@ -1,5 +1,14 @@
-import { Pool, PoolClient } from "pg";
+import { Pool, PoolClient, types } from "pg";
 import { execSync } from "child_process";
+
+// pg renvoie par défaut un objet Date JS pour toute colonne PostgreSQL de
+// type DATE (OID 1082) — Express la sérialise ensuite en timestamp ISO
+// complet ("2026-10-01T00:00:00.000Z") au lieu du "2026-10-01" attendu par
+// le code (comparaisons de chaînes YYYY-MM-DD, `new Date(x + "T12:00:00")`…).
+// Trouvé via un vrai bug en prod (unavailabilities.start_date affichait
+// "Invalid Date"/NaN) — pas propre à cette colonne, donc corrigé une fois
+// ici pour toute colonne DATE du schéma plutôt que colonne par colonne.
+types.setTypeParser(types.builtins.DATE, (val: string) => val);
 
 /** Custom error thrown when a DB query exceeds the timeout. */
 export class DbTimeoutError extends Error {
