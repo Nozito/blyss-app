@@ -98,6 +98,7 @@ import rescheduleRouter from "./routes/reschedule.routes";
 import workingHoursRouter from "./routes/working-hours.routes";
 import clientOnboardingRouter from "./routes/client-onboarding.routes";
 import proNailStylesRouter from "./routes/pro-nail-styles.routes";
+import geoRouter from "./routes/geo.routes";
 import { createRescheduleRequest, RescheduleServiceError } from "./services/reschedule.service";
 import { createReservation, ReservationServiceError } from "./services/reservation.service";
 import { getAvailability, AvailabilityError } from "./services/availability.service";
@@ -635,6 +636,7 @@ app.use("/api", workingHoursRouter);
 app.use("/api", nailTechRouter);
 app.use("/api/messages", messagesRouter);
 app.use("/api/client/onboarding", onboardingLimiter, authMiddleware, clientOnboardingRouter);
+app.use("/api/geo", geoRouter);
 
 // ── Health check (no auth) ──────────────────────────────────────────────────
 app.get("/api/health", async (_req: Request, res: Response) => {
