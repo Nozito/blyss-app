@@ -4913,7 +4913,22 @@ app.post(
       );
 
       const row = Array.isArray(rows) ? rows[0] : rows;
-      res.json({ success: true, data: row });
+
+      // La période bloquée n'annule ni ne déplace les rdv déjà pris dessus —
+      // on se contente de les signaler pour que la pro les reprogramme
+      // elle-même (voir retour user : aucune alerte n'existait avant, les
+      // rdv restaient "confirmés" dans une période où la pro se dit absente).
+      const [conflicts] = await connection.query(
+        `SELECT r.id, r.start_datetime, u.first_name, u.last_name
+         FROM reservations r
+         JOIN users u ON u.id = r.client_id
+         WHERE r.pro_id = ? AND r.status IN ('pending', 'confirmed')
+           AND r.start_datetime::date >= ?::date AND r.start_datetime::date <= ?::date
+         ORDER BY r.start_datetime ASC`,
+        [proId, start_date, end_date]
+      );
+
+      res.json({ success: true, data: { ...row, conflictingAppointments: conflicts ?? [] } });
     } catch (err) {
       console.error("[CREATE UNAVAILABILITY] error =", err);
       res.status(500).json({ success: false, error: "Erreur serveur" });
