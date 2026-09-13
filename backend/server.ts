@@ -3171,10 +3171,16 @@ app.get(
         whereParts.push("EXISTS (SELECT 1 FROM prestations p2 WHERE p2.pro_id = u.id AND p2.name ILIKE ? AND p2.active = TRUE)");
         whereParams.push(`%${serviceFilter}%`);
       }
-      if (stylesFilter.length > 0) {
-        whereParts.push("EXISTS (SELECT 1 FROM pro_nail_styles pns WHERE pns.pro_id = u.id AND pns.style_nails::text = ANY(?::text[]))");
-        whereParams.push(stylesFilter);
-      }
+      // Volontairement PAS un filtre WHERE (contrairement à city/service) :
+      // pro_nail_styles est vide en pratique (aucun pro ne l'a encore
+      // rempli) — en filtre dur, "Choisies pour toi" (home cliente) se
+      // retrouvait systématiquement vide dès qu'une préférence de style
+      // était enregistrée. Même logique que `matches_style` dans
+      // /api/client/onboarding/recommendations : ça fait remonter les pros
+      // pertinentes, ça n'exclut jamais les autres.
+      const matchesStyleSelect = stylesFilter.length > 0
+        ? "EXISTS (SELECT 1 FROM pro_nail_styles pns WHERE pns.pro_id = u.id AND pns.style_nails::text = ANY(?::text[]))"
+        : "FALSE";
 
       const whereClause = whereParts.join(" AND ");
       const havingClause = minRating > 0 ? "HAVING COALESCE(AVG(r.rating), 0) >= ?" : "";
@@ -3201,15 +3207,16 @@ app.get(
           u.latitude, u.longitude, u.public_latitude, u.public_longitude,
           u.service_radius_km, u.service_area_label, u.specialty, u.geo_precision,
           COALESCE(AVG(r.rating), 0) as avg_rating,
-          COUNT(DISTINCT r.id) as reviews_count
+          COUNT(DISTINCT r.id) as reviews_count,
+          ${matchesStyleSelect} AS matches_style
         FROM users u
         LEFT JOIN reviews r ON r.pro_id = u.id AND r.deleted_at IS NULL
         WHERE ${whereClause}
         GROUP BY u.id
         ${havingClause}
-        ORDER BY avg_rating DESC, reviews_count DESC
+        ORDER BY matches_style DESC, avg_rating DESC, reviews_count DESC
         LIMIT ? OFFSET ?`,
-        [...whereParams, ...havingParams, limit, offset]
+        [...(stylesFilter.length > 0 ? [stylesFilter] : []), ...whereParams, ...havingParams, limit, offset]
       );
 
       // Distance is always computed from the real coordinates (never the public/jittered
@@ -3814,6 +3821,7 @@ app.get(
           r.status,
           u.first_name,
           u.last_name,
+          p.id AS prestation_id,
           p.name AS prestation_name
         FROM reservations r
         JOIN users u ON u.id = r.client_id
@@ -3835,6 +3843,7 @@ app.get(
         price: Number(r.price),
         status: r.status,
         client_name: `${r.first_name} ${r.last_name}`,
+        prestation_id: r.prestation_id,
         prestation_name: r.prestation_name,
       }));
 
@@ -3883,6 +3892,7 @@ app.get(
           r.status,
           u.first_name,
           u.last_name,
+          p.id AS prestation_id,
           p.name AS prestation_name
         FROM reservations r
         JOIN users u ON u.id = r.client_id
@@ -3901,6 +3911,7 @@ app.get(
         price: Number(r.price),
         status: r.status,
         client_name: `${r.first_name} ${r.last_name}`,
+        prestation_id: r.prestation_id,
         prestation_name: r.prestation_name,
       }));
 
