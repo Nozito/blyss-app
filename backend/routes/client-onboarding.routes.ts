@@ -50,8 +50,14 @@ router.get("/status", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user!.id;
     const [rows] = (await getDb().query(
+      // p.styles::text[] — client_preferences.styles est un tableau de l'ENUM
+      // custom nail_style. pg n'a de parseur intégré que pour les OID connus
+      // (dont text[] = 1009) ; un tableau d'un type custom repart tel quel en
+      // texte brut Postgres ("{nail_art,pose_gel}", une STRING, pas un
+      // array JS). Le cast fait convertir la valeur en text[] côté Postgres
+      // avant l'envoi, ce que pg sait parser nativement.
       `SELECT o.current_step, o.completed_at, o.skipped_at, o.acquisition_source,
-              p.style_nails, p.styles, p.city
+              p.style_nails, p.styles::text[] AS styles, p.city
        FROM client_onboarding o
        LEFT JOIN client_preferences p ON p.client_id = o.client_id
        WHERE o.client_id = ?`,
@@ -135,7 +141,12 @@ router.get("/recommendations", async (req: AuthenticatedRequest, res: Response) 
     const clientId = req.user!.id;
     const db = getDb();
 
-    const [prefRows] = (await db.query("SELECT style_nails, styles, city FROM client_preferences WHERE client_id = ?", [
+    // styles::text[] — voir le commentaire équivalent sur GET /status : sans
+    // le cast, pg renvoie le tableau nail_style[] en texte brut Postgres
+    // (une string), qui finirait bindé tel quel dans ANY(?::text[]) plus bas
+    // (un tableau à un seul élément au lieu du vrai contenu) et casserait
+    // silencieusement le matching par style.
+    const [prefRows] = (await db.query("SELECT style_nails, styles::text[] AS styles, city FROM client_preferences WHERE client_id = ?", [
       clientId,
     ])) as [Array<{ style_nails: string | null; styles: string[] | null; city: string | null }>, unknown];
 
