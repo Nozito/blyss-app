@@ -478,8 +478,11 @@ export const onboardingPreferencesSchema = z
     style_nails: z.enum(NAIL_STYLES).optional(),
     city: z.string().trim().min(1).max(120).optional(),
   })
-  .refine((v) => (v.styles && v.styles.length > 0) || !!v.style_nails, {
-    message: "styles ou style_nails requis",
+  .refine((v) => (v.styles && v.styles.length > 0) || !!v.style_nails || !!v.city, {
+    // La cliente doit pouvoir remplir l'un OU l'autre (styles OU ville), pas
+    // forcément les deux — avant ce fix, la ville seule était rejetée alors
+    // qu'elle est utile à elle seule pour les recommandations par zone.
+    message: "styles, style_nails ou city requis",
   });
 export const proNailStyleSchema = z.object({
   style: z.enum(NAIL_STYLES),

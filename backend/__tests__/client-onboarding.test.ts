@@ -105,11 +105,21 @@ describe("POST /api/client/onboarding/preferences", () => {
     expect(res.status).toBe(400);
   });
 
-  it("styles vide / absent → 400", async () => {
+  it("ville seule (sans styles) → 200 — l'un ou l'autre suffit", async () => {
+    mockQuery.mockResolvedValueOnce([[{ role: "client" }]]); // assertClient
+    mockExecute.mockResolvedValue([[]]);
     const res = await request(app)
       .post("/api/client/onboarding/preferences")
       .set("Authorization", `Bearer ${tok(7)}`)
       .send({ city: "Lyon" });
+    expect(res.status).toBe(200);
+  });
+
+  it("styles ET ville absents → 400", async () => {
+    const res = await request(app)
+      .post("/api/client/onboarding/preferences")
+      .set("Authorization", `Bearer ${tok(7)}`)
+      .send({});
     expect(res.status).toBe(400);
   });
 
