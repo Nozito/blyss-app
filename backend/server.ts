@@ -3123,6 +3123,13 @@ app.get(
       const cityFilter = ((req.query.city as string) || "").trim();
       const serviceFilter = ((req.query.service as string) || "").trim();
       const minRating = parseFloat(req.query.min_rating as string) || 0;
+      // Styles préférés de la cliente (ex: ?styles=classique,gel) — utilisé
+      // par la home "Choisies pour toi" qui n'appliquait jusqu'ici aucun
+      // filtre du tout (ni ville, ni style) malgré les préférences enregistrées.
+      const stylesFilter = ((req.query.styles as string) || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
 
       // Geolocation params
       const userLat = parseFloat(req.query.lat as string);
@@ -3144,6 +3151,10 @@ app.get(
       if (serviceFilter) {
         whereParts.push("EXISTS (SELECT 1 FROM prestations p2 WHERE p2.pro_id = u.id AND p2.name ILIKE ? AND p2.active = TRUE)");
         whereParams.push(`%${serviceFilter}%`);
+      }
+      if (stylesFilter.length > 0) {
+        whereParts.push("EXISTS (SELECT 1 FROM pro_nail_styles pns WHERE pns.pro_id = u.id AND pns.style_nails::text = ANY(?::text[]))");
+        whereParams.push(stylesFilter);
       }
 
       const whereClause = whereParts.join(" AND ");
