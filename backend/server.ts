@@ -976,7 +976,15 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
       const store: string | null = RC_STORE_MAP[String(event.store ?? "").toUpperCase()] ?? null;
 
       const activateEvents = ["INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "PRODUCT_CHANGE"];
-      const deactivateEvents = ["CANCELLATION", "EXPIRATION"];
+      // CANCELLATION ≠ EXPIRATION : CANCELLATION veut dire "le renouvellement
+      // automatique est coupé", pas "l'accès doit s'arrêter maintenant" — la
+      // pro a déjà payé sa période en cours (jusqu'à `end_date`, déjà stocké
+      // depuis l'activation) et doit la garder. Seule EXPIRATION (envoyée par
+      // RevenueCat quand la période se termine réellement sans renouvellement)
+      // doit couper l'accès. Avant ce fix, les deux étaient traités pareil :
+      // une résiliation coupait l'accès immédiatement, avant la fin de ce qui
+      // avait été payé.
+      const deactivateEvents = ["EXPIRATION"];
 
       if (activateEvents.includes(eventType)) {
         const startDate = new Date().toISOString().slice(0, 10);
@@ -1001,12 +1009,14 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
         );
         log.info("/api/webhooks/revenuecat/activate", 200, 0, userId);
 
-      } else if (deactivateEvents.includes(eventType)) {
+      } else if (deactivateEvents.includes(eventType) || eventType === "CANCELLATION") {
         // An admin-granted subscription (payment_id='admin_grant') has no
         // real RevenueCat purchase behind it. If this event is about to
-        // cancel one, it means either a stray/unrelated RC event landed for
+        // touch one, it means either a stray/unrelated RC event landed for
         // this user, or the admin grant is being legitimately superseded —
-        // either way, nobody would otherwise know this happened.
+        // either way, nobody would otherwise know this happened. Checked for
+        // CANCELLATION too (not just EXPIRATION) purely for this alert — no
+        // DB write happens on CANCELLATION regardless of this check.
         const [activeRows] = await connection.query(
           `SELECT payment_id FROM subscriptions WHERE client_id = ? AND status = 'active' LIMIT 1`,
           [userId]
@@ -1020,15 +1030,22 @@ app.post("/api/webhooks/revenuecat", async (req: Request, res: Response) => {
           }).catch(() => {});
         }
 
-        await connection.execute(
-          `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
-          [userId]
-        );
-        await connection.execute(
-          `UPDATE users SET pro_status = 'inactive' WHERE id = ?`,
-          [userId]
-        );
-        log.info("/api/webhooks/revenuecat/deactivate", 200, 0, userId);
+        if (eventType === "CANCELLATION") {
+          // Renouvellement automatique coupé — l'accès reste actif jusqu'à
+          // `end_date` (déjà en base). EXPIRATION s'en chargera au bon
+          // moment si la pro ne réactive pas d'ici là.
+          log.info("/api/webhooks/revenuecat/cancellation-noted", 200, 0, userId);
+        } else {
+          await connection.execute(
+            `UPDATE subscriptions SET status = 'cancelled' WHERE client_id = ? AND status = 'active'`,
+            [userId]
+          );
+          await connection.execute(
+            `UPDATE users SET pro_status = 'inactive' WHERE id = ?`,
+            [userId]
+          );
+          log.info("/api/webhooks/revenuecat/deactivate", 200, 0, userId);
+        }
 
       } else if (eventType === "BILLING_ISSUE") {
         // Renewal failed — RevenueCat/StoreKit grace period keeps access
