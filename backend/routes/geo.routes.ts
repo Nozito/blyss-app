@@ -11,6 +11,12 @@
  * gratuite, sans rate-limit (contrairement à Nominatim, 1 req/s), pensée pour
  * l'autocomplete (`boost=population` classe Paris avant Parisot). Scopée à la
  * France — contrairement au géocodage pro qui couvre aussi BE/CH/LU.
+ *
+ * `type=commune-actuelle,arrondissement-municipal` : par défaut l'API ne
+ * renvoie que la commune entière ("Paris"), jamais ses arrondissements —
+ * "arrondissement-municipal" fait remonter "Paris 15e Arrondissement",
+ * "Lyon 3e Arrondissement" etc. comme résultats à part entière (Paris,
+ * Lyon, Marseille sont les seules villes découpées ainsi en France).
  */
 
 import express, { Request, Response } from "express";
@@ -39,6 +45,7 @@ router.get("/cities", publicListingLimiter, async (req: Request, res: Response) 
   try {
     const url = new URL("https://geo.api.gouv.fr/communes");
     url.searchParams.set("nom", q);
+    url.searchParams.set("type", "commune-actuelle,arrondissement-municipal");
     url.searchParams.set("boost", "population");
     url.searchParams.set("limit", "8");
     url.searchParams.set("fields", "nom,codesPostaux");
