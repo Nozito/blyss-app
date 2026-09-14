@@ -3979,7 +3979,7 @@ app.get(
           c.id,
           CONCAT(c.first_name, ' ', c.last_name) AS name,
           c.phone_number AS phone,
-          MAX(r.start_datetime) AS last_visit,
+          MAX(CASE WHEN r.start_datetime <= NOW() THEN r.start_datetime END) AS last_visit,
           COUNT(*) AS total_visits,
           n.notes
         FROM reservations r
@@ -3998,16 +3998,19 @@ app.get(
       const now = new Date();
 
       const data = rows.map((r) => {
-        const last = new Date(r.last_visit);
-        const diffMs = now.getTime() - last.getTime();
-        // r.last_visit peut être un rendez-vous "confirmed" à venir (pas encore
-        // eu lieu) : borner à 0 pour éviter un décompte négatif ("il y a -57 jours").
-        const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
-
-        let lastVisitLabel = "";
-        if (diffDays === 0) lastVisitLabel = "Aujourd'hui";
-        else if (diffDays === 1) lastVisitLabel = "Il y a 1 jour";
-        else lastVisitLabel = `Il y a ${diffDays} jours`;
+        // last_visit ne retient que les rendez-vous déjà passés (cf. CASE WHEN
+        // start_datetime <= NOW() en SQL) : un rdv "confirmed" à venir ne doit
+        // jamais se traduire par "Aujourd'hui" pour une cliente jamais venue.
+        let lastVisitLabel: string;
+        if (!r.last_visit) {
+          lastVisitLabel = "Jamais venue";
+        } else {
+          const last = new Date(r.last_visit);
+          const diffDays = Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
+          if (diffDays === 0) lastVisitLabel = "Aujourd'hui";
+          else if (diffDays === 1) lastVisitLabel = "Il y a 1 jour";
+          else lastVisitLabel = `Il y a ${diffDays} jours`;
+        }
 
         const initials = r.name
           .split(" ")
