@@ -2,9 +2,9 @@
  * Tests — cron/completion-sweep.ts (sweepPastConfirmedReservations)
  *
  * Couverts :
- *   Une réservation 'confirmed' dont end_datetime est dépassée de plus de
- *     24h passe en 'completed' — sans ça (oubli de la pro), la cliente ne
- *     voit jamais le bouton « Laisser un avis ».
+ *   Une réservation 'confirmed' dont le jour calendaire (Europe/Paris) est
+ *     déjà passé bascule en 'completed' — sans ça (oubli de la pro), la
+ *     cliente ne voit jamais le bouton « Laisser un avis ».
  *   Le WHERE status='confirmed' de l'UPDATE protège une réservation qu'une
  *     pro a entre-temps marquée completed/no-show/annulée elle-même.
  */
@@ -31,7 +31,7 @@ function sqlIncludes(args: unknown[], ...fragments: string[]): boolean {
 describe("sweepPastConfirmedReservations", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("passe en 'completed' les réservations confirmed dont la fin est dépassée depuis plus de 24h", async () => {
+  it("passe en 'completed' les réservations confirmed dont le jour calendaire Europe/Paris est déjà passé", async () => {
     mockExecute.mockResolvedValueOnce([[{ id: 701 }, { id: 702 }], []]);
 
     const count = await sweepPastConfirmedReservations();
@@ -44,8 +44,8 @@ describe("sweepPastConfirmedReservations", () => {
         "UPDATE reservations",
         "status = 'completed'",
         "status = 'confirmed'",
-        "end_datetime < NOW()",
-        "MAKE_INTERVAL(hours => 24)"
+        "end_datetime AT TIME ZONE 'Europe/Paris')::date",
+        "NOW() AT TIME ZONE 'Europe/Paris')::date"
       )
     ).toBe(true);
   });
