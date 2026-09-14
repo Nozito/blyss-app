@@ -379,7 +379,7 @@ async function endExpiredLiveActivities(): Promise<void> {
   }
 }
 
-async function sendPostReminders(): Promise<void> {
+export async function sendPostReminders(): Promise<void> {
   const db = getDb();
   const [rows] = await db.query(POST_CLAIM_QUERY, []);
 

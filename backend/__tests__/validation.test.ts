@@ -307,10 +307,6 @@ describe("PUT /api/users/update — validation Zod", () => {
       service_radius_km: 5, service_area_label: null,
       latitude: 47.2181, longitude: -1.5528,
     }]]);
-    // profile_visibility absent du mock ci-dessus → défaut "public", donc la
-    // route déclenche le check anti-publication-incomplète et fait une requête
-    // COUNT(*) supplémentaire sur les prestations actives (server.ts ~L2974).
-    mockQuery.mockResolvedValueOnce([[{ count: 0 }]]);
 
     const res = await request(app)
       .put("/api/users/update")
@@ -319,6 +315,47 @@ describe("PUT /api/users/update — validation Zod", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
+  });
+
+  it("n'exige PAS un profil complet quand profile_visibility n'est pas dans la requête (édition de données perso, pas de republication)", async () => {
+    // Le profil est déjà public en base et incomplet (pas d'activity_name) —
+    // avant fix, la route retombait sur ce défaut "public" et bloquait TOUTE
+    // sauvegarde depuis les paramètres (qui n'envoient jamais profile_visibility),
+    // même pour éditer juste la ville. cf. project_query_cache_logout_leak /
+    // signalé par l'utilisateur le 2026-09-14.
+    mockExecute.mockResolvedValueOnce([[{
+      id: 42, role: "pro", password_hash: "hash",
+      first_name: "Iara", last_name: "D", activity_name: null, city: "Nantes",
+      instagram_account: null, bio: null, acceptance_conditions: null,
+      geo_precision: "city", address_line: null, postal_code: null,
+      service_radius_km: 5, service_area_label: null, profile_visibility: "public",
+    }]]);
+
+    const res = await request(app)
+      .put("/api/users/update")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ city: "Lyon" });
+
+    expect(res.body.message).not.toMatch(/doit être complété/);
+  });
+
+  it("400 si profile_visibility='public' est explicitement demandé sur un profil incomplet", async () => {
+    mockExecute.mockResolvedValueOnce([[{
+      id: 42, role: "pro", password_hash: "hash",
+      first_name: "Iara", last_name: "D", activity_name: null, city: "Nantes",
+      instagram_account: null, bio: null, acceptance_conditions: null,
+      geo_precision: "city", address_line: null, postal_code: null,
+      service_radius_km: 5, service_area_label: null, profile_visibility: "private",
+    }]]);
+    mockQuery.mockResolvedValueOnce([[{ count: 0 }]]); // COUNT prestations actives
+
+    const res = await request(app)
+      .put("/api/users/update")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ profile_visibility: "public" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/doit être complété/);
   });
 });
 

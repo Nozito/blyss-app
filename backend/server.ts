@@ -2973,8 +2973,13 @@ app.put(
       // A pro can't go public with a profile that would leave a client stuck —
       // no name/city to show, or nothing bookable at all. Checked server-side
       // (not just in the mobile UI) so this can't be bypassed by calling the
-      // API directly.
-      if (user.role === "pro" && updatedProfileVisibility === "public") {
+      // API directly. On vérifie `profile_visibility` (la valeur brute
+      // envoyée dans CETTE requête), pas `updatedProfileVisibility` (qui
+      // retombe sur la valeur déjà en base si absente) — sinon toute
+      // sauvegarde de données perso (settings.tsx, qui n'envoie jamais ce
+      // champ) redéclenchait le contrôle dès que le profil était déjà
+      // public, même sans intention de le republier.
+      if (user.role === "pro" && profile_visibility === "public") {
         const missing: string[] = [];
         if (!updatedActivityName?.trim()) missing.push("le nom de ton activité");
         if (!updatedCity?.trim()) missing.push("ta ville");
