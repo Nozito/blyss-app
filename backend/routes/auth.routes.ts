@@ -229,9 +229,12 @@ router.post(
         }
 
         const [userRows] = (await connection.execute(
+          // profile_visibility explicite (pas de fallback sur le défaut de
+          // colonne, qui était 'public') — un nouveau pro doit être privé
+          // tant qu'elle n'a pas choisi de publier un profil complet.
           `INSERT INTO users
-           (first_name, last_name, email, phone_number, birth_date, password_hash, role, activity_name, city, instagram_account, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()) RETURNING id`,
+           (first_name, last_name, email, phone_number, birth_date, password_hash, role, activity_name, city, instagram_account, profile_visibility, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()) RETURNING id`,
           [
             first_name?.trim() || null,
             last_name?.trim() || null,
@@ -245,6 +248,7 @@ router.post(
             role === "pro" && instagram_account?.trim()
               ? instagram_account.trim()
               : null,
+            role === "pro" ? "private" : "public",
           ]
         )) as [any, any];
 
