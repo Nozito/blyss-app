@@ -357,6 +357,60 @@ describe("PUT /api/users/update — validation Zod", () => {
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/doit être complété/);
   });
+
+  it("400 si adresse/code postal manquants, même avec activité + ville + prestations OK", async () => {
+    mockExecute.mockResolvedValueOnce([[{
+      id: 42, role: "pro", password_hash: "hash",
+      first_name: "Iara", last_name: "D", activity_name: "Nails", city: "Nantes",
+      instagram_account: null, bio: null, acceptance_conditions: null,
+      geo_precision: "city", address_line: null, postal_code: null,
+      service_radius_km: 5, service_area_label: null, profile_visibility: "private",
+    }]]);
+    mockQuery.mockResolvedValueOnce([[{ count: 3 }]]); // prestations actives OK
+
+    const res = await request(app)
+      .put("/api/users/update")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ profile_visibility: "public" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/ton adresse/);
+    expect(res.body.message).toMatch(/ton code postal/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DELETE /api/notifications/push-token — désenregistrement au logout
+// ═══════════════════════════════════════════════════════════════════════════
+describe("DELETE /api/notifications/push-token", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("supprime le token scopé à l'utilisateur courant (pas un autre compte sur le même appareil)", async () => {
+    const token = makeToken(42, "pro");
+    mockExecute.mockResolvedValueOnce([[], []]);
+
+    const res = await request(app)
+      .delete("/api/notifications/push-token")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ token: "ExponentPushToken[abc123]" });
+
+    expect(res.status).toBe(200);
+    const call = mockExecute.mock.calls[0];
+    expect(call[0]).toMatch(/DELETE FROM expo_push_tokens/);
+    expect(call[0]).toMatch(/user_id = \?/);
+    expect(call[1]).toEqual([42, "ExponentPushToken[abc123]"]);
+  });
+
+  it("400 si le token est absent du body", async () => {
+    const token = makeToken(42, "pro");
+
+    const res = await request(app)
+      .delete("/api/notifications/push-token")
+      .set("Authorization", `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(400);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

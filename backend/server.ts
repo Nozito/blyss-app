@@ -2818,6 +2818,34 @@ app.post(
   }
 );
 
+/**
+ * DELETE EXPO PUSH TOKEN (mobile app, appelé au logout) — la contrainte
+ * unique de expo_push_tokens est sur (user_id, token), pas sur token seul :
+ * sans cette route, un appareil partagé entre deux comptes accumulait une
+ * ligne par compte pour le même token physique, et chacun continuait de
+ * recevoir des notifications indéfiniment après s'être déconnecté.
+ */
+app.delete(
+  "/api/notifications/push-token",
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { token } = req.body as { token?: string };
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ success: false, message: "Token required" });
+      }
+      await db.execute(
+        "DELETE FROM expo_push_tokens WHERE user_id = ? AND token = ?",
+        [req.user!.id, token]
+      );
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ success: false, message: "Failed to delete push token" });
+    }
+  }
+);
+
 /* UPDATE USER PROFILE */
 app.put(
   "/api/users/update",
@@ -2983,6 +3011,8 @@ app.put(
         const missing: string[] = [];
         if (!updatedActivityName?.trim()) missing.push("le nom de ton activité");
         if (!updatedCity?.trim()) missing.push("ta ville");
+        if (!updatedAddressLine?.trim()) missing.push("ton adresse");
+        if (!updatedPostalCode?.trim()) missing.push("ton code postal");
         const [prestationRows] = await db.query(
           "SELECT COUNT(*) AS count FROM prestations WHERE pro_id = ? AND active = TRUE",
           [req.user!.id]
