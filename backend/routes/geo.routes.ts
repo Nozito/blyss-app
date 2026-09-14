@@ -67,4 +67,61 @@ router.get("/cities", publicListingLimiter, async (req: Request, res: Response) 
   }
 });
 
+export interface AddressSuggestion {
+  label: string; // numéro + voie seuls, ex. "12 Rue de la Paix" — pas le code postal/ville
+  postcode: string;
+  city: string;
+  fullLabel: string; // adresse complète formatée, ex. "12 Rue de la Paix 75002 Paris"
+  lat: number;
+  lon: number;
+}
+
+/**
+ * Autocomplete + vérification d'adresses françaises réelles (numéro + voie),
+ * pour le profil public pro (adresse + code postal). Utilise la Base Adresse
+ * Nationale (api-adresse.data.gouv.fr) plutôt que Nominatim (déjà utilisé
+ * pour geocodeCity dans lib/geocoding.ts) : gratuite, sans rate-limit,
+ * pensée pour l'autocomplete, et donne directement les coordonnées —
+ * `type=housenumber` restreint aux adresses précises (pas juste une rue ou
+ * une commune).
+ */
+router.get("/addresses", publicListingLimiter, async (req: Request, res: Response) => {
+  const q = ((req.query.q as string) || "").trim();
+  if (q.length < 3) {
+    return res.json({ success: true, data: [] });
+  }
+
+  try {
+    const url = new URL("https://api-adresse.data.gouv.fr/search/");
+    url.searchParams.set("q", q);
+    url.searchParams.set("type", "housenumber");
+    url.searchParams.set("autocomplete", "1");
+    url.searchParams.set("limit", "8");
+
+    const apiRes = await fetch(url.toString(), { signal: AbortSignal.timeout(4000) });
+    if (!apiRes.ok) {
+      return res.json({ success: true, data: [], degraded: true });
+    }
+
+    const json = (await apiRes.json()) as {
+      features?: {
+        properties: { name: string; postcode: string; city: string; label: string };
+        geometry: { coordinates: [number, number] };
+      }[];
+    };
+    const data: AddressSuggestion[] = (json.features ?? []).map((f) => ({
+      label: f.properties.name,
+      postcode: f.properties.postcode,
+      city: f.properties.city,
+      fullLabel: f.properties.label,
+      lon: f.geometry.coordinates[0],
+      lat: f.geometry.coordinates[1],
+    }));
+    res.json({ success: true, data });
+  } catch (err) {
+    log.error("/api/geo/addresses", err instanceof Error ? err.message : String(err));
+    res.json({ success: true, data: [], degraded: true });
+  }
+});
+
 export default router;
