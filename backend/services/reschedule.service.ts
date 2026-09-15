@@ -249,7 +249,13 @@ export async function acceptRescheduleRequest({ requestId, clientId }: ClientAct
       availability = await checkSlotAvailability({
         proId: request.pro_id,
         serviceIds: [request.proposed_prestation_id],
-        startDatetime: request.proposed_start_datetime,
+        // pg renvoie les colonnes timestamptz en objets Date (jamais en
+        // chaîne ISO) — sans cette conversion, DateTime.fromISO() (luxon)
+        // reçoit un Date et le juge invalide, faisant échouer TOUTE
+        // acceptation avec 422 INVALID_INPUT dès qu'on tourne sur une vraie
+        // base (bug pré-existant, invisible avec des mocks qui ne servaient
+        // que des littéraux string — révélé par la recette Postgres réelle V3).
+        startDatetime: new Date(request.proposed_start_datetime).toISOString(),
         excludeReservationId: request.reservation_id,
         requestedByRole: "pro",
       });
@@ -304,6 +310,53 @@ export async function acceptRescheduleRequest({ requestId, clientId }: ClientAct
         request.reservation_id,
       ]
     );
+
+    // ── Cas B (doc §11) : la prestation a réellement changé ────────────────
+    // reservation_items est la source de vérité fonctionnelle (doc §16.3) —
+    // le mettre à jour ici évite EXACTEMENT la divergence identifiée lors de
+    // la recette V1 (colonnes legacy réécrites ci-dessus, reservation_items
+    // resté figé sur l'ancienne prestation). Cas A (aucun changement de
+    // prestation, simple déplacement de date) : ce bloc ne s'exécute pas,
+    // les snapshots existants restent intacts, conformément à la doc §12.1.
+    //
+    // Limite assumée : `reschedule_requests` ne porte qu'un id de prestation
+    // nu (pas de variantes/options/questions) — la reconfiguration proposée
+    // par ce mécanisme reste donc un simple remplacement de prestation de
+    // base. Une proposition de report vers un panier multi-prestations
+    // entièrement différent n'est pas prise en charge par ce schéma (hors
+    // périmètre de ce chantier, cf. rapport final). En présence de plusieurs
+    // `reservation_items` (V3), seul le premier par position est remplacé —
+    // même convention que la colonne legacy `reservations.prestation_id`.
+    const [existingItemRows] = await connection.query(
+      `SELECT id, prestation_id FROM reservation_items WHERE reservation_id = ? ORDER BY position LIMIT 1`,
+      [request.reservation_id]
+    );
+    const existingItem = (existingItemRows as any[])[0];
+    const isReconfiguration =
+      !!existingItem &&
+      request.proposed_prestation_id != null &&
+      existingItem.prestation_id !== request.proposed_prestation_id;
+
+    if (isReconfiguration) {
+      const [proposedPrestationRows] = await connection.query(
+        `SELECT name FROM prestations WHERE id = ?`,
+        [request.proposed_prestation_id]
+      );
+      const proposedName = (proposedPrestationRows as any[])[0]?.name ?? "Prestation";
+      // Les enfants (variantes/options/réponses) appartenaient à l'ANCIENNE
+      // prestation — les supprimer est correct, pas une perte d'historique :
+      // l'ancien snapshot n'a jamais concerné le nouveau RDV proposé.
+      await connection.execute(`DELETE FROM reservation_item_variants WHERE reservation_item_id = ?`, [existingItem.id]);
+      await connection.execute(`DELETE FROM reservation_item_options WHERE reservation_item_id = ?`, [existingItem.id]);
+      await connection.execute(`DELETE FROM reservation_item_answers WHERE reservation_item_id = ?`, [existingItem.id]);
+      await connection.execute(
+        `UPDATE reservation_items
+           SET prestation_id = ?, snapshot_name = ?, snapshot_price = ?, snapshot_duration_minutes = ?
+         WHERE id = ?`,
+        [request.proposed_prestation_id, proposedName, request.proposed_price, availability.serviceDurationMinutes, existingItem.id]
+      );
+    }
+
     await connection.query(
       `UPDATE reschedule_requests SET status = 'accepted', accepted_at = NOW() WHERE id = ?`,
       [requestId]

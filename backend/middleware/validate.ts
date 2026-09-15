@@ -249,10 +249,14 @@ export const reviewSchema = z.object({
 // ce seuil, faute de quoi le remboursement/rétractation reste attaquable.
 const EARLY_EXECUTION_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
 
-// Sélection de configuration (doc §4.1, §13.1) — V1 : une seule prestation
-// par réservation, donc une sélection "à plat" plutôt que par item ; V3
-// remplacera prestation_id par un tableau `items[]` portant chacun sa propre
-// sélection, sans changer la forme de ces deux champs.
+// Sélection de configuration (doc §4.1, §13.1). Deux formes acceptées :
+//   - legacy (V1/V2, apps déjà publiées) : `prestation_id` + ces deux champs
+//     à plat, une seule prestation par réservation ;
+//   - V3 : `items[]`, chaque élément portant sa propre sélection — plusieurs
+//     prestations dans le même RDV, chacune avec sa propre configuration.
+// Les deux champs à plat restent acceptés indéfiniment (dual-read, même
+// principe que le dual-write des colonnes legacy `reservations`, doc §16.3) :
+// une app mobile pas encore mise à jour doit continuer à fonctionner.
 const selectedVariantValueIdsSchema = z
   .array(z.number().int().positive())
   .max(20, "Trop de valeurs sélectionnées")
@@ -264,10 +268,21 @@ const selectedOptionIdsSchema = z
   .optional()
   .default([]);
 
+// Élément du panier V3 (doc §2, §13.3) — une prestation + sa configuration.
+const reservationItemInputSchema = z.object({
+  prestation_id: z.number("prestation_id doit être un nombre").int().positive(),
+  selected_variant_value_ids: selectedVariantValueIdsSchema,
+  selected_option_ids: selectedOptionIdsSchema,
+  answers: z.array(reservationAnswerSchema).max(50).optional().default([]),
+});
+const reservationItemsSchema = z.array(reservationItemInputSchema).min(1).max(10, "10 prestations maximum par rendez-vous");
+
 export const reservationSchema = z
   .object({
     pro_id: z.number("pro_id doit être un nombre").int().positive(),
-    prestation_id: z.number("prestation_id doit être un nombre").int().positive(),
+    // Optionnel désormais : requis seulement en l'absence de `items` (cf. refine).
+    prestation_id: z.number("prestation_id doit être un nombre").int().positive().optional(),
+    items: reservationItemsSchema.optional(),
     start_datetime: z.string().datetime("start_datetime doit être une date ISO valide"),
     end_datetime: z.string().datetime("end_datetime doit être une date ISO valide"),
     // Le prix n'est plus utilisé — il est toujours recalculé côté serveur
@@ -284,6 +299,10 @@ export const reservationSchema = z
     selected_variant_value_ids: selectedVariantValueIdsSchema,
     selected_option_ids: selectedOptionIdsSchema,
     answers: z.array(reservationAnswerSchema).max(50).optional().default([]),
+  })
+  .refine((d) => d.prestation_id != null || (d.items && d.items.length > 0), {
+    message: "prestation_id ou items est requis",
+    path: ["prestation_id"],
   })
   .refine((d) => new Date(d.start_datetime) < new Date(d.end_datetime), {
     message: "start_datetime doit être antérieur à end_datetime",
@@ -303,10 +322,12 @@ export const reservationSchema = z
 // RDV créé manuellement par la pro pour l'une de ses clientes (walk-in,
 // téléphone) — mêmes contraintes légales que reservationSchema (art.
 // L221-18), mais pas de payment_method : ces RDV sont toujours "sur place".
+// Même dualité prestation_id/items que reservationSchema ci-dessus (doc §12).
 export const proAppointmentSchema = z
   .object({
     client_id: z.number("client_id doit être un nombre").int().positive(),
-    prestation_id: z.number("prestation_id doit être un nombre").int().positive(),
+    prestation_id: z.number("prestation_id doit être un nombre").int().positive().optional(),
+    items: reservationItemsSchema.optional(),
     start_datetime: z.string().datetime("start_datetime doit être une date ISO valide"),
     end_datetime: z.string().datetime("end_datetime doit être une date ISO valide"),
     early_execution_requested: z.boolean().optional().default(false),
@@ -326,6 +347,10 @@ export const proAppointmentSchema = z
           .optional(),
       })
       .optional(),
+  })
+  .refine((d) => d.prestation_id != null || (d.items && d.items.length > 0), {
+    message: "prestation_id ou items est requis",
+    path: ["prestation_id"],
   })
   .refine((d) => new Date(d.start_datetime) < new Date(d.end_datetime), {
     message: "start_datetime doit être antérieur à end_datetime",

@@ -20,6 +20,7 @@
 import { DateTime, Interval } from "luxon";
 import { getDb } from "../lib/db";
 import { log } from "../lib/logger";
+import { sortByOrderingRank } from "./pricing-engine";
 
 const db = getDb();
 
@@ -58,6 +59,17 @@ export interface GetAvailabilityInput {
   slotStepMinutes?: number;
   requestedByRole: RequestedByRole;
   now?: Date; // injectable pour les tests
+  /**
+   * Moteur de prestations V3 (doc §5) : durée FINALE de chaque occurrence de
+   * `serviceIds`, dans le MÊME ORDRE (positionnel, pas par id — une même
+   * prestation peut apparaître deux fois dans le panier avec deux
+   * configurations différentes). En V3, le panier est entièrement configuré
+   * AVANT l'affichage des créneaux (doc §1) : l'indicatif calculé côté
+   * mobile peut donc déjà nourrir la liste, pas seulement la vérification
+   * finale — absent/incomplet ⇒ durée brute de la prestation pour cette
+   * occurrence (comportement V1/V2 inchangé).
+   */
+  durationOverrides?: number[];
 }
 
 export interface AvailabilitySlot {
@@ -81,13 +93,15 @@ export interface CheckSlotInput {
   requestedByRole: RequestedByRole;
   now?: Date;
   /**
-   * Moteur de prestations (doc §5/§11) : durée FINALE d'une prestation
-   * (base + deltas des variantes/options sélectionnées), par id de
-   * prestation, quand elle diffère de `prestations.duration_minutes` brut.
-   * Les buffers restent ceux de la prestation (non affectés par la
-   * sélection). Absent/incomplet ⇒ durée brute utilisée pour ce service.
+   * Moteur de prestations (doc §5/§11) : durée FINALE de chaque occurrence de
+   * `serviceIds`, dans le MÊME ORDRE (positionnel — voir GetAvailabilityInput
+   * pour la raison : une prestation identique peut apparaître deux fois avec
+   * des configurations différentes, un id ne suffit plus à les distinguer
+   * depuis le chantier V3). Les buffers restent ceux de la prestation (non
+   * affectés par la sélection). Absent/incomplet ⇒ durée brute pour cette
+   * occurrence.
    */
-  durationOverrides?: Record<number, number>;
+  durationOverrides?: number[];
 }
 
 export interface CheckSlotResult {
@@ -166,6 +180,7 @@ interface ProContext {
     booking_lead_time_minutes: number | null;
     booking_horizon_days: number | null;
     is_online_bookable: boolean;
+    ordering_rank: number;
   }>;
   defaultLeadTimeMinutes: number | null;
   defaultHorizonDays: number | null;
@@ -176,7 +191,8 @@ async function loadProContext(
   proId: number,
   serviceIds: number[],
   timezoneOverride: string | undefined,
-  role: RequestedByRole
+  role: RequestedByRole,
+  durationOverrides?: number[]
 ): Promise<ProContext> {
   if (!Array.isArray(serviceIds) || serviceIds.length === 0) {
     throw new AvailabilityError(422, "Au moins une prestation est requise", "INVALID_INPUT");
@@ -203,19 +219,25 @@ async function loadProContext(
   }
   const engineEnabled = Boolean(pro.uses_availability_engine) && !isAvailabilityEngineForcedOff();
 
-  const placeholders = serviceIds.map(() => "?").join(", ");
+  // IN (...) dédoublonne au niveau SQL : comparer services.length à
+  // serviceIds.length casse dès qu'une même prestation apparaît deux fois
+  // dans le panier (cas "prestations identiques", V3) — comparer au nombre
+  // d'ids UNIQUES demandés, seule mesure correcte de "toutes trouvées".
+  const uniqueServiceIds = [...new Set(serviceIds)];
+  const placeholders = uniqueServiceIds.map(() => "?").join(", ");
   const [serviceRows] = await db.query(
     `SELECT id, duration_minutes,
             COALESCE(buffer_before_minutes, 0) AS buffer_before_minutes,
             COALESCE(buffer_after_minutes, 0)  AS buffer_after_minutes,
-            booking_lead_time_minutes, booking_horizon_days, is_online_bookable
+            booking_lead_time_minutes, booking_horizon_days, is_online_bookable,
+            ordering_rank
      FROM prestations
      WHERE pro_id = ? AND id IN (${placeholders})`,
-    [proId, ...serviceIds]
+    [proId, ...uniqueServiceIds]
   );
   const services = serviceRows as ProContext["services"];
 
-  if (services.length !== serviceIds.length) {
+  if (services.length !== uniqueServiceIds.length) {
     throw new AvailabilityError(422, "Prestation inconnue pour ce professionnel", "UNKNOWN_SERVICE");
   }
   // Le flow public n'expose que les prestations réservables en ligne. La pro
@@ -231,8 +253,18 @@ async function loadProContext(
     [proId]
   );
 
-  // Préserve l'ordre demandé par l'appelant (buffer avant = 1ʳᵉ, après = dernière).
-  const orderedServices = serviceIds.map((id) => services.find((s) => s.id === id)!);
+  // Une occurrence par élément demandé (pas par id unique) : deux entrées
+  // pour la même prestation restent deux lignes distinctes, chacune avec sa
+  // propre durée (override positionnel appliqué AVANT le tri, doc §4/§10).
+  // Puis tri par ordering_rank (décision verrouillée V3) — remplace
+  // l'ancien comportement "ordre de l'appelant" : le panier respecte
+  // toujours l'ordre métier (ex. Dépose avant Pose), jamais l'ordre de
+  // sélection dans l'app.
+  const occurrences = serviceIds.map((id, i) => ({
+    ...services.find((s) => s.id === id)!,
+    duration_minutes: durationOverrides?.[i] ?? services.find((s) => s.id === id)!.duration_minutes,
+  }));
+  const orderedServices = sortByOrderingRank(occurrences, (s) => s.ordering_rank, (s) => s.id);
 
   return {
     timezone: timezoneOverride || pro.timezone || DEFAULT_TIMEZONE,
@@ -452,7 +484,7 @@ export async function getAvailability(input: GetAvailabilityInput): Promise<Avai
     throw new AvailabilityError(422, "Pas de créneau invalide", "INVALID_INPUT");
   }
 
-  const ctx = await loadProContext(input.proId, input.serviceIds, input.timezone, input.requestedByRole);
+  const ctx = await loadProContext(input.proId, input.serviceIds, input.timezone, input.requestedByRole, input.durationOverrides);
   const tz = ctx.timezone;
   const blocking = resolveServiceBlocking(ctx.services);
   const limits = resolveEffectiveLimits(ctx);
@@ -536,15 +568,9 @@ export async function getAvailability(input: GetAvailabilityInput): Promise<Avai
 
 export async function checkSlotAvailability(input: CheckSlotInput): Promise<CheckSlotResult> {
   const now = input.now ?? new Date();
-  const ctx = await loadProContext(input.proId, input.serviceIds, input.timezone, input.requestedByRole);
+  const ctx = await loadProContext(input.proId, input.serviceIds, input.timezone, input.requestedByRole, input.durationOverrides);
   const tz = ctx.timezone;
-  const effectiveServices = input.durationOverrides
-    ? ctx.services.map((s) => ({
-        ...s,
-        duration_minutes: input.durationOverrides![s.id] ?? s.duration_minutes,
-      }))
-    : ctx.services;
-  const blocking = resolveServiceBlocking(effectiveServices);
+  const blocking = resolveServiceBlocking(ctx.services);
   const limits = resolveEffectiveLimits(ctx);
 
   const startDt = DateTime.fromISO(input.startDatetime, { zone: tz });
@@ -658,6 +684,7 @@ export async function findAlternativeSlots(params: {
   requestedByRole: RequestedByRole;
   limit?: number;
   now?: Date;
+  durationOverrides?: number[];
 }): Promise<AvailabilitySlot[]> {
   const limit = params.limit ?? 3;
   try {
@@ -672,6 +699,7 @@ export async function findAlternativeSlots(params: {
       timezone: params.timezone,
       requestedByRole: params.requestedByRole,
       now: params.now,
+      durationOverrides: params.durationOverrides,
     });
     const all = avail.days.flatMap((d) => d.slots);
     return all

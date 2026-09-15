@@ -1466,7 +1466,22 @@ function parseAvailabilityQuery(req: Request) {
   }
   const step = req.query.step ? parseInt(String(req.query.step), 10) : undefined;
   const timezone = req.query.timezone ? String(req.query.timezone) : undefined;
-  return { serviceIds, from, to, step, timezone };
+  // Moteur de prestations V3 (doc §5, §14) : durée finale indicative de
+  // chaque occurrence de service_ids, calculée côté mobile une fois le
+  // panier entièrement configuré (variantes/options/questions) — jamais
+  // fait confiance pour la réservation elle-même (revalidée côté serveur à
+  // la création), utilisée uniquement pour afficher des créneaux réalistes.
+  // Positionnel comme service_ids ; absent/mal formé ⇒ ignoré (durée brute).
+  const durationOverridesRaw = req.query.duration_overrides
+    ? String(req.query.duration_overrides).split(",").map((s) => parseInt(s.trim(), 10))
+    : undefined;
+  const durationOverrides =
+    durationOverridesRaw &&
+    durationOverridesRaw.length === serviceIds.length &&
+    durationOverridesRaw.every((n) => Number.isInteger(n) && n > 0)
+      ? durationOverridesRaw
+      : undefined;
+  return { serviceIds, from, to, step, timezone, durationOverrides };
 }
 
 async function handleAvailability(
@@ -1488,6 +1503,7 @@ async function handleAvailability(
       timezone: parsed.timezone,
       slotStepMinutes: parsed.step,
       requestedByRole,
+      durationOverrides: parsed.durationOverrides,
     });
     return res.json({ success: true, data });
   } catch (error) {
@@ -1565,6 +1581,43 @@ function mapReservationAnswers(
     value: a.value,
     values: a.values,
     consent: a.consent,
+  }));
+}
+
+/**
+ * Normalise le corps de requête validé (doc §13.3) vers le panier attendu
+ * par reservation.service.ts. Deux formes acceptées côté API, jamais
+ * mélangées : `items[]` (V3, prioritaire si présent) ou les champs à plat
+ * `prestation_id`/`selected_variant_value_ids`/`selected_option_ids`/
+ * `answers` (V1/V2, apps déjà publiées — dual-read indéfini, doc §16.3).
+ */
+function buildReservationItems(body: {
+  prestation_id?: number;
+  items?: Array<{
+    prestation_id: number;
+    selected_variant_value_ids?: number[];
+    selected_option_ids?: number[];
+    answers?: Array<{ question_id: number; value?: string; values?: number[]; consent?: boolean }>;
+  }>;
+  selected_variant_value_ids?: number[];
+  selected_option_ids?: number[];
+  answers?: Array<{ question_id: number; value?: string; values?: number[]; consent?: boolean }>;
+}) {
+  const rawItems = body.items?.length
+    ? body.items
+    : [
+        {
+          prestation_id: body.prestation_id!,
+          selected_variant_value_ids: body.selected_variant_value_ids,
+          selected_option_ids: body.selected_option_ids,
+          answers: body.answers,
+        },
+      ];
+  return rawItems.map((item) => ({
+    prestationId: item.prestation_id,
+    selectedVariantValueIds: item.selected_variant_value_ids,
+    selectedOptionIds: item.selected_option_ids,
+    answers: mapReservationAnswers(item.answers),
   }));
 }
 
@@ -5053,16 +5106,7 @@ app.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const proId = getProId(req);
-      const {
-        client_id,
-        prestation_id,
-        start_datetime,
-        early_execution_requested,
-        manual_override,
-        selected_variant_value_ids,
-        selected_option_ids,
-        answers,
-      } = req.body;
+      const { client_id, start_datetime, early_execution_requested, manual_override } = req.body;
 
       // Contrôle d'accès RGPD — le client_id vient du body (la pro choisit),
       // donc on ne s'y fie pas : autorisé UNIQUEMENT s'il existe une
@@ -5083,14 +5127,11 @@ app.post(
       const result = await createReservation({
         proId,
         clientId: client_id,
-        serviceIds: [prestation_id],
+        items: buildReservationItems(req.body),
         startDatetime: start_datetime,
         requestedByRole: "pro",
         bookingSource: "pro",
         earlyExecutionRequested: !!early_execution_requested,
-        selectedVariantValueIds: selected_variant_value_ids,
-        selectedOptionIds: selected_option_ids,
-        answers: mapReservationAnswers(answers),
         manualOverride: manual_override
           ? {
               mode: manual_override.mode,
@@ -6612,7 +6653,7 @@ app.put("/api/pro/stripe/deposit", authenticateToken, validate(depositSchema), a
 app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reservationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user?.id as number;
-    const { pro_id, prestation_id, start_datetime, payment_method, selected_variant_value_ids, selected_option_ids, answers } = req.body;
+    const { pro_id, start_datetime, payment_method } = req.body;
     const paidOnline = payment_method === "online";
 
     // Toute la logique anti-double-booking (lock advisory pro_id → re-check
@@ -6622,15 +6663,12 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
     const result = await createReservation({
       proId: pro_id,
       clientId,
-      serviceIds: [prestation_id],
+      items: buildReservationItems(req.body),
       startDatetime: start_datetime,
       requestedByRole: "public",
       bookingSource: "client",
       paidOnline,
       earlyExecutionRequested: !!req.body.early_execution_requested,
-      selectedVariantValueIds: selected_variant_value_ids,
-      selectedOptionIds: selected_option_ids,
-      answers: mapReservationAnswers(answers),
     });
 
     return res.json({

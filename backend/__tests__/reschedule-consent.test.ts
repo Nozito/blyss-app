@@ -293,6 +293,7 @@ describe("PATCH /api/client/reschedule-requests/:id/accept", () => {
       .mockResolvedValueOnce([[], []]) // advisory lock
       .mockResolvedValueOnce([[{ status: "pending", expires_at: futureExpiry, reservation_status: "confirmed" }], []]) // re-check sous verrou
       .mockResolvedValueOnce([[], []]) // UPDATE reservations
+      .mockResolvedValueOnce([[{ id: 1, prestation_id: 3 }], []]) // SELECT reservation_items (position 0) — même prestation → Cas A
       .mockResolvedValueOnce([[], []]); // UPDATE reschedule_requests accepted
 
     const res = await request(app)
@@ -313,6 +314,75 @@ describe("PATCH /api/client/reschedule-requests/:id/accept", () => {
 
     const calls = mockConnection.query.mock.calls.map((c) => String(c[0]));
     expect(calls.some((sql) => sql.toUpperCase().includes("UPDATE RESERVATIONS"))).toBe(true);
+    // Cas A (même prestation) : reservation_items n'est ni supprimé ni ré-écrit.
+    expect(mockConnection.execute).not.toHaveBeenCalled();
+    expect(mockConnection.commit).toHaveBeenCalled();
+  });
+
+  it("convertit proposed_start_datetime en chaîne ISO avant checkSlotAvailability (pg renvoie un objet Date pour timestamptz, jamais une string)", async () => {
+    // Reproduit fidèlement ce que renvoie réellement `pg` pour une colonne
+    // timestamptz — contrairement au reste des fixtures de ce fichier qui
+    // stringifient déjà proposed_start_datetime, masquant le bug. Sans la
+    // conversion dans reschedule.service.ts, DateTime.fromISO() (luxon)
+    // reçoit un Date, le juge invalide, et TOUTE acceptation échoue en 422
+    // INVALID_INPUT dès qu'on tourne sur une vraie base (trouvé en recette
+    // Postgres réelle V3, jamais détecté par les mocks jusqu'ici).
+    const rowWithRealDateObject = { ...baseRequestRow, proposed_start_datetime: FAR_FUTURE };
+    mockCheckSlotAvailability.mockResolvedValueOnce(AVAILABLE_OK);
+    mockTopQuery
+      .mockResolvedValueOnce([[rowWithRealDateObject], []])
+      .mockResolvedValueOnce([[{ id: 900, created_at: new Date().toISOString() }], []]);
+
+    mockConnection.query
+      .mockResolvedValueOnce([[], []])
+      .mockResolvedValueOnce([[{ status: "pending", expires_at: futureExpiry, reservation_status: "confirmed" }], []])
+      .mockResolvedValueOnce([[], []])
+      .mockResolvedValueOnce([[{ id: 1, prestation_id: 3 }], []])
+      .mockResolvedValueOnce([[], []]);
+
+    const res = await request(app)
+      .patch("/api/client/reschedule-requests/501/accept")
+      .set("Cookie", `access_token=${clientToken}`);
+
+    expect(res.status).toBe(200);
+    const callArgs = mockCheckSlotAvailability.mock.calls[0][0];
+    expect(typeof callArgs.startDatetime).toBe("string");
+    expect(callArgs.startDatetime).toBe(FAR_FUTURE.toISOString());
+  });
+
+  it("200 : Cas B (prestation changée) — reservation_items régénéré, enfants supprimés, colonnes legacy ET reservation_items cohérents", async () => {
+    mockCheckSlotAvailability.mockResolvedValueOnce(AVAILABLE_OK);
+    const reconfiguredRow = { ...baseRequestRow, proposed_prestation_id: 9, proposed_price: 70 };
+    mockTopQuery
+      .mockResolvedValueOnce([[reconfiguredRow], []]) // loadRequestForClient
+      .mockResolvedValueOnce([[{ id: 900, created_at: new Date().toISOString() }], []]); // notif pro
+
+    mockConnection.query
+      .mockResolvedValueOnce([[], []]) // advisory lock
+      .mockResolvedValueOnce([[{ status: "pending", expires_at: futureExpiry, reservation_status: "confirmed" }], []]) // re-check
+      .mockResolvedValueOnce([[], []]) // UPDATE reservations
+      .mockResolvedValueOnce([[{ id: 1, prestation_id: 3 }], []]) // SELECT reservation_items — ancienne prestation (3) ≠ proposée (9)
+      .mockResolvedValueOnce([[{ name: "Nouvelle prestation" }], []]) // SELECT prestations (nom de la prestation proposée)
+      .mockResolvedValueOnce([[], []]); // UPDATE reschedule_requests accepted
+
+    mockConnection.execute
+      .mockResolvedValueOnce([[], []]) // DELETE reservation_item_variants
+      .mockResolvedValueOnce([[], []]) // DELETE reservation_item_options
+      .mockResolvedValueOnce([[], []]) // DELETE reservation_item_answers
+      .mockResolvedValueOnce([[], []]); // UPDATE reservation_items
+
+    const res = await request(app)
+      .patch("/api/client/reschedule-requests/501/accept")
+      .set("Cookie", `access_token=${clientToken}`);
+
+    expect(res.status).toBe(200);
+
+    const executeCalls = mockConnection.execute.mock.calls.map((c) => String(c[0]));
+    expect(executeCalls.some((sql) => sql.includes("DELETE FROM reservation_item_variants"))).toBe(true);
+    expect(executeCalls.some((sql) => sql.includes("DELETE FROM reservation_item_options"))).toBe(true);
+    expect(executeCalls.some((sql) => sql.includes("DELETE FROM reservation_item_answers"))).toBe(true);
+    const updateItemCall = mockConnection.execute.mock.calls.find(([sql]) => String(sql).includes("UPDATE reservation_items"));
+    expect(updateItemCall?.[1]).toEqual([9, "Nouvelle prestation", 70, AVAILABLE_OK.serviceDurationMinutes, 1]);
     expect(mockConnection.commit).toHaveBeenCalled();
   });
 

@@ -84,7 +84,7 @@ function installFixture(opts: { questions?: any[]; choices?: Record<number, any[
 const baseInput = {
   proId: 1,
   clientId: 42,
-  serviceIds: [10],
+  items: [{ prestationId: 10 }],
   startDatetime: "2026-09-07T10:00:00.000Z", // lundi 12:00 Paris
   requestedByRole: "public" as const,
   bookingSource: "client" as const,
@@ -112,7 +112,7 @@ describe("createReservation — questions personnalisées (V2)", () => {
 
     const result = await createReservation({
       ...baseInput,
-      answers: [{ questionId: 1, value: "Ongles courts svp" }],
+      items: [{ prestationId: 10, answers: [{ questionId: 1, value: "Ongles courts svp" }] }],
     });
 
     expect(result.price).toBe(45);
@@ -133,7 +133,7 @@ describe("createReservation — questions personnalisées (V2)", () => {
   it("rejette (422) une question requise sans réponse", async () => {
     installFixture({ questions: [{ id: 1, label: "As-tu déjà une pose ?", type: "boolean", required: true, is_sensitive: false }] });
 
-    await expect(createReservation({ ...baseInput, answers: [] })).rejects.toMatchObject({
+    await expect(createReservation({ ...baseInput, items: [{ prestationId: 10, answers: [] }] })).rejects.toMatchObject({
       status: 422,
       code: "QUESTION_REQUIRED",
     });
@@ -142,7 +142,7 @@ describe("createReservation — questions personnalisées (V2)", () => {
   it("accepte une réponse boolean valide ('true'/'false')", async () => {
     installFixture({ questions: [{ id: 1, label: "As-tu déjà une pose ?", type: "boolean", required: true, is_sensitive: false }] });
 
-    const result = await createReservation({ ...baseInput, answers: [{ questionId: 1, value: "true" }] });
+    const result = await createReservation({ ...baseInput, items: [{ prestationId: 10, answers: [{ questionId: 1, value: "true" }] }] });
     expect(result.reservationId).toBeDefined();
   });
 
@@ -150,7 +150,7 @@ describe("createReservation — questions personnalisées (V2)", () => {
     installFixture({ questions: [{ id: 1, label: "As-tu déjà une pose ?", type: "boolean", required: true, is_sensitive: false }] });
 
     await expect(
-      createReservation({ ...baseInput, answers: [{ questionId: 1, value: "peut-être" }] })
+      createReservation({ ...baseInput, items: [{ prestationId: 10, answers: [{ questionId: 1, value: "peut-être" }] }] })
     ).rejects.toMatchObject({ status: 422, code: "QUESTION_ANSWER_INVALID" });
   });
 
@@ -160,7 +160,7 @@ describe("createReservation — questions personnalisées (V2)", () => {
       choices: { 1: [{ id: 100, label: "Naturel" }, { id: 101, label: "Glossy" }] },
     });
 
-    await createReservation({ ...baseInput, answers: [{ questionId: 1, values: [101] }] });
+    await createReservation({ ...baseInput, items: [{ prestationId: 10, answers: [{ questionId: 1, values: [101] }] }] });
 
     const answerInsert = mockExecute.mock.calls.find(([sql]: any[]) => sql.includes("INSERT INTO reservation_item_answers"));
     expect(answerInsert![1][6]).toBe("Glossy"); // answer_value = libellé, pas l'id
@@ -173,7 +173,7 @@ describe("createReservation — questions personnalisées (V2)", () => {
       choices: { 1: [{ id: 100, label: "French" }, { id: 101, label: "Nail Art" }] },
     });
 
-    await createReservation({ ...baseInput, answers: [{ questionId: 1, values: [100, 101, 100] }] });
+    await createReservation({ ...baseInput, items: [{ prestationId: 10, answers: [{ questionId: 1, values: [100, 101, 100] }] }] });
 
     const answerInsert = mockExecute.mock.calls.find(([sql]: any[]) => sql.includes("INSERT INTO reservation_item_answers"));
     expect(answerInsert![1][7]).toEqual(["French", "Nail Art"]);
@@ -187,7 +187,7 @@ describe("createReservation — questions personnalisées (V2)", () => {
     });
 
     await expect(
-      createReservation({ ...baseInput, answers: [{ questionId: 1, values: [999] }] })
+      createReservation({ ...baseInput, items: [{ prestationId: 10, answers: [{ questionId: 1, values: [999] }] }] })
     ).rejects.toMatchObject({ status: 422, code: "QUESTION_ANSWER_INVALID" });
   });
 
@@ -195,14 +195,14 @@ describe("createReservation — questions personnalisées (V2)", () => {
     installFixture({ questions: [{ id: 1, label: "Allergie connue ?", type: "short_text", required: false, is_sensitive: true }] });
 
     await expect(
-      createReservation({ ...baseInput, answers: [{ questionId: 1, value: "Aucune", consent: false }] })
+      createReservation({ ...baseInput, items: [{ prestationId: 10, answers: [{ questionId: 1, value: "Aucune", consent: false }] }] })
     ).rejects.toMatchObject({ status: 422, code: "SENSITIVE_CONSENT_REQUIRED" });
   });
 
   it("question sensible avec consentement explicite → acceptée, snapshot_is_sensitive=true", async () => {
     installFixture({ questions: [{ id: 1, label: "Allergie connue ?", type: "short_text", required: false, is_sensitive: true }] });
 
-    await createReservation({ ...baseInput, answers: [{ questionId: 1, value: "Aucune", consent: true }] });
+    await createReservation({ ...baseInput, items: [{ prestationId: 10, answers: [{ questionId: 1, value: "Aucune", consent: true }] }] });
 
     const answerInsert = mockExecute.mock.calls.find(([sql]: any[]) => sql.includes("INSERT INTO reservation_item_answers"));
     expect(answerInsert![1][4]).toBe(true); // snapshot_is_sensitive
@@ -212,7 +212,7 @@ describe("createReservation — questions personnalisées (V2)", () => {
     installFixture({ questions: [] }); // la question 1 a été désactivée entre-temps
 
     await expect(
-      createReservation({ ...baseInput, answers: [{ questionId: 1, value: "test" }] })
+      createReservation({ ...baseInput, items: [{ prestationId: 10, answers: [{ questionId: 1, value: "test" }] }] })
     ).rejects.toMatchObject({ status: 422, code: "QUESTION_INVALID" });
   });
 });
