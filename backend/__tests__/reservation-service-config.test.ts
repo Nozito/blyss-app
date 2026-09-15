@@ -34,7 +34,7 @@ vi.mock("../lib/db", () => ({
 
 vi.mock("../lib/notifications", () => ({ sendNotificationToUser: vi.fn().mockResolvedValue(undefined) }));
 
-import { createReservation, ReservationServiceError } from "../services/reservation.service";
+import { createReservation } from "../services/reservation.service";
 
 const MON_9_18 = [{ weekday: 1, start_time: "09:00:00", end_time: "18:00:00" }];
 
@@ -123,11 +123,11 @@ describe("createReservation — moteur de prestations (variantes/options)", () =
 
     expect(result.price).toBe(55);
 
-    const itemInsert = mockExecute.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO reservation_items"));
+    const itemInsert = mockExecute.mock.calls.find(([sql]: any[]) => sql.includes("INSERT INTO reservation_items"));
     expect(itemInsert).toBeDefined();
     expect(itemInsert![1]).toEqual([result.reservationId, 10, "Pose Gel X", 55, 75, 0]);
 
-    const variantInsert = mockExecute.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO reservation_item_variants"));
+    const variantInsert = mockExecute.mock.calls.find(([sql]: any[]) => sql.includes("INSERT INTO reservation_item_variants"));
     expect(variantInsert).toBeDefined();
     expect(variantInsert![1]).toEqual(
       expect.arrayContaining([1, 100, "Longueur", "M", 10, 15])
@@ -151,7 +151,7 @@ describe("createReservation — moteur de prestations (variantes/options)", () =
 
     expect(result.price).toBe(63); // 45 + 10 + 8
 
-    const optionInsert = mockExecute.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO reservation_item_options"));
+    const optionInsert = mockExecute.mock.calls.find(([sql]: any[]) => sql.includes("INSERT INTO reservation_item_options"));
     expect(optionInsert).toBeDefined();
   });
 
@@ -188,7 +188,7 @@ describe("createReservation — moteur de prestations (variantes/options)", () =
     const result = await createReservation({ ...baseInput, selectedOptionIds: [200, 200] });
 
     expect(result.price).toBe(53); // 45 + 8, une seule fois
-    const optionInserts = mockExecute.mock.calls.filter(([sql]: [string]) => sql.includes("INSERT INTO reservation_item_options"));
+    const optionInserts = mockExecute.mock.calls.filter(([sql]: any[]) => sql.includes("INSERT INTO reservation_item_options"));
     expect(optionInserts).toHaveLength(1);
   });
 
@@ -212,9 +212,9 @@ describe("createReservation — moteur de prestations (variantes/options)", () =
     const result = await createReservation(baseInput);
 
     expect(result.price).toBe(45);
-    const itemInsert = mockExecute.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO reservation_items"));
+    const itemInsert = mockExecute.mock.calls.find(([sql]: any[]) => sql.includes("INSERT INTO reservation_items"));
     expect(itemInsert![1]).toEqual([result.reservationId, 10, "Pose Gel X", 45, 60, 0]);
-    const variantInsert = mockExecute.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO reservation_item_variants"));
+    const variantInsert = mockExecute.mock.calls.find(([sql]: any[]) => sql.includes("INSERT INTO reservation_item_variants"));
     expect(variantInsert).toBeUndefined();
   });
 
