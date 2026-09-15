@@ -489,3 +489,76 @@ describe("checkSlotAvailability", () => {
     expect(r).toMatchObject({ available: false, reason: "before_lead_time" });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Moteur de prestations V3 — panier multi-prestations (doc §4, §5, §14)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("checkSlotAvailability — panier multi-prestations (V3)", () => {
+  const baseInput = {
+    proId: 1,
+    timezone: "Europe/Paris",
+    requestedByRole: "public" as const,
+    now: new Date("2026-09-01T08:00:00.000Z"),
+  };
+
+  it("Bug corrigé : deux occurrences de la MÊME prestation ne lèvent plus UNKNOWN_SERVICE (IN (...) dédoublonne au niveau SQL)", async () => {
+    installFixture({
+      workingHours: MON_9_18,
+      services: [{ id: 10, duration_minutes: 30, buffer_before_minutes: 0, buffer_after_minutes: 0, booking_lead_time_minutes: null, booking_horizon_days: null, is_online_bookable: true, ordering_rank: 10 }],
+    });
+    // Avant le fix : services.length (1, dédoublonné par SQL) !== serviceIds.length (2) → 422 à tort.
+    const r = await checkSlotAvailability({ ...baseInput, serviceIds: [10, 10], startDatetime: "2026-09-07T10:00:00.000Z" });
+    expect(r.available).toBe(true);
+    // Durée visible = 2 occurrences de 30 min, aucun buffer entre les deux (buffers à 0 ici).
+    expect(r.serviceDurationMinutes).toBe(60);
+  });
+
+  it("Ordre métier : la prestation au rang le plus bas passe TOUJOURS en premier, quel que soit l'ordre de sélection", async () => {
+    const services = [
+      { id: 20, duration_minutes: 20, buffer_before_minutes: 0, buffer_after_minutes: 5, booking_lead_time_minutes: null, booking_horizon_days: null, is_online_bookable: true, ordering_rank: 20 }, // "Pose"
+      { id: 10, duration_minutes: 15, buffer_before_minutes: 5, buffer_after_minutes: 0, booking_lead_time_minutes: null, booking_horizon_days: null, is_online_bookable: true, ordering_rank: 0 }, // "Dépose"
+    ];
+    installFixture({ workingHours: MON_9_18, services });
+
+    // Cliente sélectionne "Pose puis Dépose" (20 avant 10) — Blyss doit quand
+    // même bloquer Dépose(rank 0) → Pose(rank 20), jamais l'inverse.
+    const r = await checkSlotAvailability({ ...baseInput, serviceIds: [20, 10], startDatetime: "2026-09-07T10:00:00.000Z" });
+    // buffer avant = celui du 1er par RANG (Dépose, id 10) = 5
+    // buffer après = celui du dernier par RANG (Pose, id 20) = 5
+    // visible = 15 (Dépose) + 0 (after Dépose, intermédiaire) + 0 (before Pose, intermédiaire) + 20 (Pose) = 35
+    expect(r.bufferBeforeMinutes).toBe(5);
+    expect(r.bufferAfterMinutes).toBe(5);
+    expect(r.serviceDurationMinutes).toBe(35);
+  });
+
+  it("Égalité de rang : départage déterministe par id de prestation croissant", async () => {
+    const services = [
+      { id: 30, duration_minutes: 10, buffer_before_minutes: 0, buffer_after_minutes: 100, booking_lead_time_minutes: null, booking_horizon_days: null, is_online_bookable: true, ordering_rank: 10 },
+      { id: 15, duration_minutes: 10, buffer_before_minutes: 100, buffer_after_minutes: 0, booking_lead_time_minutes: null, booking_horizon_days: null, is_online_bookable: true, ordering_rank: 10 },
+    ];
+    installFixture({ workingHours: MON_9_18, services });
+
+    // Même rang (10) pour les deux → id croissant décide : 15 avant 30,
+    // quel que soit l'ordre envoyé par le client ([30, 15] ici).
+    const r = await checkSlotAvailability({ ...baseInput, serviceIds: [30, 15], startDatetime: "2026-09-07T10:00:00.000Z" });
+    // Si 15 est bien en premier : bufferBefore = buffer_before de 15 = 100.
+    expect(r.bufferBeforeMinutes).toBe(100);
+    // Et 30 en dernier : bufferAfter = buffer_after de 30 = 100.
+    expect(r.bufferAfterMinutes).toBe(100);
+  });
+
+  it("durationOverrides positionnel : deux occurrences de la même prestation avec des configurations différentes gardent leur propre durée", async () => {
+    installFixture({
+      workingHours: MON_9_18,
+      services: [{ id: 10, duration_minutes: 30, buffer_before_minutes: 0, buffer_after_minutes: 0, booking_lead_time_minutes: null, booking_horizon_days: null, is_online_bookable: true, ordering_rank: 10 }],
+    });
+    // Même prestation deux fois, une configurée +15min, l'autre +0min.
+    const r = await checkSlotAvailability({
+      ...baseInput,
+      serviceIds: [10, 10],
+      durationOverrides: [45, 30],
+      startDatetime: "2026-09-07T10:00:00.000Z",
+    });
+    expect(r.serviceDurationMinutes).toBe(75); // 45 + 30, pas 60 (durée brute) ni 90 (2x45)
+  });
+});

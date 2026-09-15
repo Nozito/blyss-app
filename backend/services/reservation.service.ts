@@ -31,7 +31,7 @@ import {
   type AvailabilitySlot,
   type RequestedByRole,
 } from "./availability.service";
-import { computeItemPricing, PricingError } from "./pricing-engine";
+import { computeItemPricing, computeReservationTotals, sortByOrderingRank, PricingError } from "./pricing-engine";
 
 const db = getDb();
 
@@ -60,37 +60,6 @@ export interface ManualOverride {
   acknowledgedConflictReservationIds?: number[];
 }
 
-export interface CreateReservationInput {
-  proId: number;
-  clientId: number;
-  serviceIds: number[];
-  startDatetime: string; // instant ISO — départ visible du RDV
-  requestedByRole: RequestedByRole;
-  paidOnline?: boolean;
-  earlyExecutionRequested?: boolean;
-  bookingSource: "client" | "pro";
-  manualOverride?: ManualOverride;
-  timezone?: string;
-  now?: Date;
-  /**
-   * Moteur de prestations (doc §4.1, §13.1) — sélection de configuration
-   * pour LA prestation réservée. V1 : uniquement significatif quand
-   * `serviceIds.length === 1` (une réservation = une prestation configurée) ;
-   * ignoré sur le chemin multi-service legacy (`serviceIds.length > 1`), qui
-   * reste hors du périmètre exposé de ce chantier.
-   */
-  selectedVariantValueIds?: number[];
-  selectedOptionIds?: number[];
-  /**
-   * Moteur de prestations V2 (doc §9, §13.2) — réponses aux questions
-   * personnalisées de LA prestation réservée. Mêmes limites que ci-dessus :
-   * significatif uniquement quand `serviceIds.length === 1`. Les questions
-   * n'ont aucun effet sur le prix/la durée (décision verrouillée du
-   * chantier V2) — jamais transmises au pricing engine.
-   */
-  answers?: ReservationAnswerInput[];
-}
-
 export interface ReservationAnswerInput {
   questionId: number;
   /** short_text / long_text / boolean — valeur brute. */
@@ -99,6 +68,37 @@ export interface ReservationAnswerInput {
   values?: number[];
   /** Consentement explicite requis si la question est marquée sensible (doc §9.2). */
   consent?: boolean;
+}
+
+/**
+ * Un élément du panier (doc §2, §13.3) — une prestation avec sa propre
+ * configuration. V1 exposait un seul élément (`serviceIds.length === 1`
+ * implicite) ; V3 généralise à N éléments SANS changer la structure : une
+ * réservation à 1 élément suit exactement le même chemin de code qu'à N.
+ * Deux occurrences de la MÊME prestation (`prestationId` identique) sont
+ * autorisées et restent deux éléments distincts, chacun avec sa propre
+ * configuration — jamais fusionnées.
+ */
+export interface ReservationItemInput {
+  prestationId: number;
+  selectedVariantValueIds?: number[];
+  selectedOptionIds?: number[];
+  answers?: ReservationAnswerInput[];
+}
+
+export interface CreateReservationInput {
+  proId: number;
+  clientId: number;
+  /** Panier — 1..N prestations, chacune avec sa propre configuration (doc §2). */
+  items: ReservationItemInput[];
+  startDatetime: string; // instant ISO — départ visible du RDV
+  requestedByRole: RequestedByRole;
+  paidOnline?: boolean;
+  earlyExecutionRequested?: boolean;
+  bookingSource: "client" | "pro";
+  manualOverride?: ManualOverride;
+  timezone?: string;
+  now?: Date;
 }
 
 export interface CreateReservationResult {
@@ -373,9 +373,23 @@ async function resolveAnswers(prestationId: number, answers: ReservationAnswerIn
   return resolved;
 }
 
+interface ResolvedItem {
+  prestationId: number;
+  name: string;
+  orderingRank: number;
+  price: number;
+  durationMinutes: number;
+  variants: ResolvedVariantValue[];
+  options: ResolvedOption[];
+  answers: ResolvedAnswer[];
+}
+
 export async function createReservation(input: CreateReservationInput): Promise<CreateReservationResult> {
   const now = input.now ?? new Date();
 
+  if (!Array.isArray(input.items) || input.items.length === 0) {
+    throw new ReservationServiceError(422, "Au moins une prestation est requise", "NO_ITEMS");
+  }
   if (input.manualOverride && input.requestedByRole !== "pro") {
     throw new ReservationServiceError(403, "Override réservé aux professionnels", "OVERRIDE_NOT_ALLOWED");
   }
@@ -383,74 +397,87 @@ export async function createReservation(input: CreateReservationInput): Promise<
     throw new ReservationServiceError(422, "Un motif est obligatoire pour forcer un créneau en conflit", "OVERRIDE_REASON_REQUIRED");
   }
 
-  // ── Prestation(s) : appartenance à la pro + prix serveur (jamais le body) ──
+  // ── Prestations : appartenance à la pro + prix serveur (jamais le body) ────
   // active = TRUE : une prestation désactivée par la pro ("masquée, non
   // réservable" — service-form.tsx) ne doit jamais être réservable, que l'ID
   // provienne du parcours normal ou soit connu/deviné directement (trouvé en
-  // recette fonctionnelle V1 — la liste publique filtrait déjà `active`,
-  // mais ce lookup, commun aux deux flux client et pro, ne le faisait pas).
-  const placeholders = input.serviceIds.map(() => "?").join(", ");
+  // recette fonctionnelle V1). IN (...) dédoublonne au niveau SQL — comparer
+  // au nombre d'ids UNIQUES demandés (doc §14, cas "prestations identiques").
+  const requestedPrestationIds = input.items.map((i) => i.prestationId);
+  const uniquePrestationIds = [...new Set(requestedPrestationIds)];
+  const placeholders = uniquePrestationIds.map(() => "?").join(", ");
   const [serviceRows] = await db.query(
     `SELECT id, name, price,
             duration_minutes,
             COALESCE(buffer_before_minutes, 0) AS buffer_before_minutes,
             COALESCE(buffer_after_minutes, 0)  AS buffer_after_minutes,
-            is_online_bookable
+            is_online_bookable, ordering_rank
      FROM prestations WHERE pro_id = ? AND id IN (${placeholders}) AND active = TRUE`,
-    [input.proId, ...input.serviceIds]
+    [input.proId, ...uniquePrestationIds]
   );
   const services = serviceRows as any[];
-  if (services.length !== input.serviceIds.length) {
+  if (services.length !== uniquePrestationIds.length) {
     throw new ReservationServiceError(422, "Prestation invalide pour ce professionnel", "SERVICE_NOT_BOOKABLE");
   }
   if (input.requestedByRole === "public" && services.some((s) => !s.is_online_bookable)) {
     throw new ReservationServiceError(422, "Cette prestation n'est pas réservable en ligne", "SERVICE_NOT_BOOKABLE");
   }
-  const ordered = input.serviceIds.map((id) => services.find((s) => s.id === id));
-  const primaryService = ordered[0];
-  const singleService = ordered.length === 1;
-  const prestationName: string = ordered.length === 1 ? primaryService.name : `${ordered.length} prestations`;
 
-  // ── Moteur de prestations (doc §4.1, §5) : résolution + calcul du prix/durée
-  // réels de la sélection. Uniquement sur le chemin à une prestation — le
-  // multi-service legacy (serviceIds.length > 1) garde la somme brute, hors
-  // périmètre exposé de ce chantier (cf. commentaire CreateReservationInput).
-  let variantValues: ResolvedVariantValue[] = [];
-  let selectedOptions: ResolvedOption[] = [];
-  let answers: ResolvedAnswer[] = [];
-  let price: number;
-  let finalDurationMinutes: number;
-  if (singleService) {
-    const resolved = await resolveConfigSelection(
-      primaryService.id,
-      input.selectedVariantValueIds ?? [],
-      input.selectedOptionIds ?? []
+  // ── Moteur de prestations (doc §3) : résolution + pricing engine PAR ITEM ──
+  // Toujours le même chemin, qu'il y ait 1 ou N prestations — aucune branche
+  // "legacy multi-service" séparée (l'ancienne branche sommait les prix bruts
+  // sans jamais résoudre variantes/options/questions ; supprimée avec V3).
+  const resolvedItemsInInputOrder: ResolvedItem[] = [];
+  for (const item of input.items) {
+    const base = services.find((s) => s.id === item.prestationId)!;
+    const resolvedConfig = await resolveConfigSelection(
+      item.prestationId,
+      item.selectedVariantValueIds ?? [],
+      item.selectedOptionIds ?? []
     );
-    variantValues = resolved.variantValues;
-    selectedOptions = resolved.options;
-    // Questions (V2) — résolues séparément du pricing engine : elles ne
-    // participent jamais au calcul de prix/durée (décision verrouillée).
-    answers = await resolveAnswers(primaryService.id, input.answers ?? []);
+    const resolvedAnswersForItem = await resolveAnswers(item.prestationId, item.answers ?? []);
+    let itemPricing;
     try {
-      const pricing = computeItemPricing({
-        basePrice: Number(primaryService.price),
-        baseDurationMinutes: Number(primaryService.duration_minutes),
-        variantValues: variantValues.map((v) => ({ price_delta: Number(v.price_delta), duration_delta: Number(v.duration_delta) })),
-        options: selectedOptions.map((o) => ({ price_delta: Number(o.price_delta), duration_delta: Number(o.duration_delta) })),
+      itemPricing = computeItemPricing({
+        basePrice: Number(base.price),
+        baseDurationMinutes: Number(base.duration_minutes),
+        variantValues: resolvedConfig.variantValues.map((v) => ({ price_delta: Number(v.price_delta), duration_delta: Number(v.duration_delta) })),
+        options: resolvedConfig.options.map((o) => ({ price_delta: Number(o.price_delta), duration_delta: Number(o.duration_delta) })),
       });
-      price = pricing.price;
-      finalDurationMinutes = pricing.durationMinutes;
     } catch (err) {
       if (err instanceof PricingError) {
-        throw new ReservationServiceError(422, err.message, err.code);
+        throw new ReservationServiceError(422, `« ${base.name} » : ${err.message}`, err.code);
       }
       throw err;
     }
-  } else {
-    price = ordered.reduce((sum, s) => sum + Number(s.price), 0);
-    finalDurationMinutes = ordered.reduce((sum, s) => sum + Number(s.duration_minutes), 0);
+    resolvedItemsInInputOrder.push({
+      prestationId: item.prestationId,
+      name: base.name,
+      orderingRank: base.ordering_rank,
+      price: itemPricing.price,
+      durationMinutes: itemPricing.durationMinutes,
+      variants: resolvedConfig.variantValues,
+      options: resolvedConfig.options,
+      answers: resolvedAnswersForItem,
+    });
   }
-  const durationOverrides = singleService ? { [primaryService.id]: finalDurationMinutes } : undefined;
+
+  // Ordre métier (doc §4, décision verrouillée) — jamais l'ordre de saisie de
+  // la cliente. Détermine à la fois la numérotation `position` des
+  // `reservation_items` ET l'ordre des buffers dans le calcul de dispo
+  // (durationOverrides ci-dessous reste positionnel sur l'ordre D'ENTRÉE ;
+  // c'est loadProContext, dans availability.service.ts, qui retrie de façon
+  // identique — cf. sortByOrderingRank).
+  const sortedItems = sortByOrderingRank(resolvedItemsInInputOrder, (i) => i.orderingRank, (i) => i.prestationId);
+
+  const { totalPrice: price } = computeReservationTotals(sortedItems.map((i) => ({ price: i.price, durationMinutes: i.durationMinutes })));
+  // Durée "brute" (hors buffers) — indicative ici ; la durée réellement
+  // bloquée (avec buffers) vient de checkSlotAvailability ci-dessous, seule
+  // source de vérité pour blocked_start/end_datetime (doc §5).
+  const durationOverrides = requestedPrestationIds.map(
+    (_, i) => resolvedItemsInInputOrder[i].durationMinutes
+  );
+  const prestationName: string = sortedItems.length === 1 ? sortedItems[0].name : `${sortedItems.length} prestations`;
 
   // ── Cliente : bloquée ? ───────────────────────────────────────────────────
   const [blockedRows] = await db.query(
@@ -470,7 +497,7 @@ export async function createReservation(input: CreateReservationInput): Promise<
   // ── 1. Pré-check optimiste hors transaction (court-circuit rapide) ─────────
   const preCheck = await checkSlotAvailability({
     proId: input.proId,
-    serviceIds: input.serviceIds,
+    serviceIds: requestedPrestationIds,
     startDatetime: input.startDatetime,
     timezone: input.timezone,
     requestedByRole: input.requestedByRole,
@@ -490,11 +517,12 @@ export async function createReservation(input: CreateReservationInput): Promise<
       if (canOverride) {
         const alt = await findAlternativeSlots({
           proId: input.proId,
-          serviceIds: input.serviceIds,
+          serviceIds: requestedPrestationIds,
           aroundDatetime: input.startDatetime,
           timezone: input.timezone,
           requestedByRole: input.requestedByRole,
           now,
+            durationOverrides,
         });
         const err = reasonToError(preCheck.reason, alt);
         err.extra = { ...(err.extra ?? {}), canOverride: true };
@@ -504,11 +532,12 @@ export async function createReservation(input: CreateReservationInput): Promise<
         input.requestedByRole === "public"
           ? await findAlternativeSlots({
               proId: input.proId,
-              serviceIds: input.serviceIds,
+              serviceIds: requestedPrestationIds,
               aroundDatetime: input.startDatetime,
               timezone: input.timezone,
               requestedByRole: "public",
               now,
+                durationOverrides,
             })
           : [];
       throw reasonToError(preCheck.reason, alt);
@@ -546,11 +575,12 @@ export async function createReservation(input: CreateReservationInput): Promise<
       if (!recheck.available && !overrideApplied) {
         const alt = await findAlternativeSlots({
           proId: input.proId,
-          serviceIds: input.serviceIds,
+          serviceIds: requestedPrestationIds,
           aroundDatetime: input.startDatetime,
           timezone: input.timezone,
           requestedByRole: input.requestedByRole,
           now,
+            durationOverrides,
         });
         // On lève : withProReservationLock fera le ROLLBACK.
         throw new ReservationServiceError(409, "Ce créneau vient d'être réservé.", SLOT_NO_LONGER_AVAILABLE, {
@@ -629,7 +659,7 @@ export async function createReservation(input: CreateReservationInput): Promise<
         [
           input.clientId,
           input.proId,
-          input.serviceIds[0],
+          sortedItems[0].prestationId,
           input.startDatetime,
           snapshot.visibleEnd,
           initialStatus,
@@ -658,38 +688,13 @@ export async function createReservation(input: CreateReservationInput): Promise<
 
       // ── Moteur de prestations : reservation_items + snapshots normalisés ──
       // Source de vérité fonctionnelle dès V1 (doc §16.3) — une ligne par
-      // prestation du RDV (toujours 1 en V1 exposée ; le chemin multi-service
-      // legacy en écrit déjà plusieurs, ce qui corrige au passage la perte
-      // d'identité des prestations 2..n identifiée dans l'audit).
-      const itemsToInsert = singleService
-        ? [
-            {
-              prestationId: primaryService.id,
-              name: primaryService.name as string,
-              price,
-              durationMinutes: finalDurationMinutes,
-              position: 0,
-              variants: variantValues,
-              options: selectedOptions,
-              answers,
-            },
-          ]
-        : ordered.map((s, i) => ({
-            prestationId: s.id as number,
-            name: s.name as string,
-            price: Number(s.price),
-            durationMinutes: Number(s.duration_minutes),
-            position: i,
-            variants: [] as ResolvedVariantValue[],
-            options: [] as ResolvedOption[],
-            answers: [] as ResolvedAnswer[],
-          }));
-
-      for (const item of itemsToInsert) {
+      // élément du panier, dans l'ordre métier (`sortedItems`, doc §4).
+      // 1 élément (V1/V2) ou N (V3) : exactement le même chemin de code.
+      for (const [position, item] of sortedItems.entries()) {
         const [itemRows] = await conn.execute(
           `INSERT INTO reservation_items (reservation_id, prestation_id, snapshot_name, snapshot_price, snapshot_duration_minutes, position)
            VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
-          [reservationId, item.prestationId, item.name, item.price, item.durationMinutes, item.position]
+          [reservationId, item.prestationId, item.name, item.price, item.durationMinutes, position]
         );
         const reservationItemId = (itemRows as any[])[0]?.id as number;
 

@@ -96,7 +96,7 @@ function installFixture(opts: {
 const baseInput = {
   proId: 1,
   clientId: 42,
-  serviceIds: [10],
+  items: [{ prestationId: 10 }],
   startDatetime: "2026-09-07T10:00:00.000Z", // lundi 12:00 Paris
   requestedByRole: "public" as const,
   bookingSource: "client" as const,
@@ -119,7 +119,7 @@ describe("createReservation — moteur de prestations (variantes/options)", () =
       ],
     });
 
-    const result = await createReservation({ ...baseInput, selectedVariantValueIds: [100] });
+    const result = await createReservation({ ...baseInput, items: [{ prestationId: 10, selectedVariantValueIds: [100] }] });
 
     expect(result.price).toBe(55);
 
@@ -145,8 +145,7 @@ describe("createReservation — moteur de prestations (variantes/options)", () =
 
     const result = await createReservation({
       ...baseInput,
-      selectedVariantValueIds: [100],
-      selectedOptionIds: [200],
+      items: [{ prestationId: 10, selectedVariantValueIds: [100], selectedOptionIds: [200] }],
     });
 
     expect(result.price).toBe(63); // 45 + 10 + 8
@@ -161,7 +160,7 @@ describe("createReservation — moteur de prestations (variantes/options)", () =
       variantValues: [],
     });
 
-    await expect(createReservation({ ...baseInput, selectedVariantValueIds: [] })).rejects.toMatchObject({
+    await expect(createReservation({ ...baseInput, items: [{ prestationId: 10, selectedVariantValueIds: [] }] })).rejects.toMatchObject({
       status: 422,
       code: "VARIANT_GROUP_REQUIRED",
     });
@@ -173,7 +172,7 @@ describe("createReservation — moteur de prestations (variantes/options)", () =
       variantValues: [], // la valeur demandée n'est plus active → absente du résultat
     });
 
-    await expect(createReservation({ ...baseInput, selectedVariantValueIds: [999] })).rejects.toMatchObject({
+    await expect(createReservation({ ...baseInput, items: [{ prestationId: 10, selectedVariantValueIds: [999] }] })).rejects.toMatchObject({
       status: 422,
       code: "VARIANT_VALUE_INVALID",
     });
@@ -185,7 +184,7 @@ describe("createReservation — moteur de prestations (variantes/options)", () =
       options: [{ id: 200, name: "Nail Art", price_delta: 8, duration_delta: 10 }],
     });
 
-    const result = await createReservation({ ...baseInput, selectedOptionIds: [200, 200] });
+    const result = await createReservation({ ...baseInput, items: [{ prestationId: 10, selectedOptionIds: [200, 200] }] });
 
     expect(result.price).toBe(53); // 45 + 8, une seule fois
     const optionInserts = mockExecute.mock.calls.filter(([sql]: any[]) => sql.includes("INSERT INTO reservation_item_options"));
@@ -200,7 +199,7 @@ describe("createReservation — moteur de prestations (variantes/options)", () =
       ],
     });
 
-    await expect(createReservation({ ...baseInput, selectedVariantValueIds: [100] })).rejects.toMatchObject({
+    await expect(createReservation({ ...baseInput, items: [{ prestationId: 10, selectedVariantValueIds: [100] }] })).rejects.toMatchObject({
       status: 422,
       code: "NEGATIVE_PRICE",
     });

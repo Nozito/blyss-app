@@ -98,7 +98,7 @@ function installFixture(opts: {
 const baseInput = {
   proId: 1,
   clientId: 42,
-  serviceIds: [10],
+  items: [{ prestationId: 10 }],
   startDatetime: "2026-09-07T10:00:00.000Z", // lundi 12:00 Paris
   requestedByRole: "public" as const,
   bookingSource: "client" as const,

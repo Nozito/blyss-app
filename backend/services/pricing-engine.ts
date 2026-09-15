@@ -167,3 +167,27 @@ export function computeFromPriceFloor(input: FromPriceFloorInput): number {
   }
   return round2(floor);
 }
+
+/**
+ * Tri de l'ordre d'un panier multi-prestations (V3, doc §4/§10, décision
+ * verrouillée) : `ordering_rank` numérique croissant, PAS de dépendances
+ * pair-à-pair ni de tri topologique. Départage déterministe par id de
+ * prestation croissant (jamais par l'ordre d'arrivée dans la requête, pour
+ * qu'une même sélection produise toujours le même ordre quel que soit
+ * l'ordre dans lequel la cliente a ajouté les prestations au panier).
+ *
+ * `Array.prototype.sort` est stable depuis ES2019 (garanti par la spec) :
+ * deux occurrences de la MÊME prestation (rang et id strictement égaux, cas
+ * "prestations identiques" du panier) conservent leur ordre d'arrivée entre
+ * elles — c'est la seule situation où l'ordre d'entrée influence le résultat,
+ * et c'est le comportement voulu (rien d'autre ne les différencie).
+ *
+ * Utilisé à l'identique par reservation.service.ts (numérotation `position`
+ * des `reservation_items`) et availability.service.ts (ordre des buffers
+ * dans `resolveServiceBlocking`) — les deux DOIVENT trier de façon identique,
+ * sans quoi la position affichée à l'historique ne correspondrait plus à
+ * l'ordre réellement bloqué au calendrier.
+ */
+export function sortByOrderingRank<T>(items: T[], getRank: (item: T) => number, getId: (item: T) => number): T[] {
+  return [...items].sort((a, b) => getRank(a) - getRank(b) || getId(a) - getId(b));
+}
