@@ -96,12 +96,15 @@ import adminAnalyticsRouter from "./routes/admin-analytics.routes";
 import cancellationRouter from "./routes/cancellation.routes";
 import rescheduleRouter from "./routes/reschedule.routes";
 import workingHoursRouter from "./routes/working-hours.routes";
+import prestationConfigRouter from "./routes/prestation-config.routes";
 import clientOnboardingRouter from "./routes/client-onboarding.routes";
 import proNailStylesRouter from "./routes/pro-nail-styles.routes";
 import geoRouter from "./routes/geo.routes";
 import { createRescheduleRequest, RescheduleServiceError } from "./services/reschedule.service";
 import { createReservation, ReservationServiceError } from "./services/reservation.service";
 import { getAvailability, AvailabilityError } from "./services/availability.service";
+import { duplicatePrestation, PrestationConfigError } from "./services/prestation-config.service";
+import { computeWorstCasePricing } from "./services/pricing-engine";
 import messagesRouter from "./routes/messages.routes";
 import { getTopServices, getRevenueStats } from "./lib/finance";
 
@@ -633,6 +636,7 @@ app.use("/api", proNailStylesRouter);
 app.use("/api", cancellationRouter);
 app.use("/api", rescheduleRouter);
 app.use("/api", workingHoursRouter);
+app.use("/api", prestationConfigRouter);
 app.use("/api", nailTechRouter);
 app.use("/api/messages", messagesRouter);
 app.use("/api/client/onboarding", onboardingLimiter, authMiddleware, clientOnboardingRouter);
@@ -1286,7 +1290,7 @@ app.get(
       // cet endpoint est appelable directement par proId, donc doit rester
       // cohérent même si quelqu'un le requête sans passer par la fiche.
       const [rows] = await db.query(
-        `SELECT p.id, p.name, p.description, p.price, p.duration_minutes, p.active
+        `SELECT p.id, p.name, p.description, p.price, p.duration_minutes, p.active, p.pricing_mode, p.ordering_rank
          FROM prestations p
          JOIN users u ON u.id = p.pro_id
          WHERE p.pro_id = ? AND p.active = TRUE
@@ -1295,6 +1299,66 @@ app.get(
         [proId]
       );
 
+      res.json({ success: true, data: rows });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * GET variantes/options d'UNE prestation (PUBLIC) — moteur de prestations.
+ * Réf : docs/ARCHITECTURE_MOTEUR_PRESTATIONS_V1_V3.md (§13.1). Uniquement
+ * les groupes/valeurs/options ACTIFS : une cliente ne doit jamais pouvoir
+ * sélectionner une configuration désactivée. Même garde de visibilité pro
+ * que GET /api/prestations/pro/:id (pas d'exposition si profil non public).
+ */
+app.get(
+  "/api/prestations/:id/variant-groups",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const prestationId = parseParamToInt(req.params.id);
+      const [groupRows] = await db.query(
+        `SELECT vg.id, vg.name, vg.required, vg.selection_mode, vg.sort_order
+         FROM variant_groups vg
+         JOIN prestations p ON p.id = vg.prestation_id
+         JOIN users u ON u.id = p.pro_id
+         WHERE vg.prestation_id = ? AND vg.active = TRUE
+           AND u.is_active = TRUE AND u.pro_status = 'active' AND u.profile_visibility = 'public'
+         ORDER BY vg.sort_order, vg.id`,
+        [prestationId]
+      );
+      const groups = groupRows as any[];
+      for (const g of groups) {
+        const [valueRows] = await db.query(
+          `SELECT id, label, price_delta, duration_delta, sort_order
+           FROM variant_values WHERE variant_group_id = ? AND active = TRUE ORDER BY sort_order, id`,
+          [g.id]
+        );
+        g.values = valueRows;
+      }
+      res.json({ success: true, data: groups });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+app.get(
+  "/api/prestations/:id/options",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const prestationId = parseParamToInt(req.params.id);
+      const [rows] = await db.query(
+        `SELECT o.id, o.name, o.price_delta, o.duration_delta, o.sort_order
+         FROM options o
+         JOIN prestations p ON p.id = o.prestation_id
+         JOIN users u ON u.id = p.pro_id
+         WHERE o.prestation_id = ? AND o.active = TRUE
+           AND u.is_active = TRUE AND u.pro_status = 'active' AND u.profile_visibility = 'public'
+         ORDER BY o.sort_order, o.id`,
+        [prestationId]
+      );
       res.json({ success: true, data: rows });
     } catch (error) {
       next(error);
@@ -1432,12 +1496,68 @@ async function requireActiveProSubscription(req: AuthenticatedRequest, res: Resp
   next();
 }
 
+/**
+ * Revalide, AVANT d'écrire un nouveau prix/durée de base sur une prestation,
+ * que la pire combinaison légale de sa config actuelle (groupes de variantes
+ * + options actifs, inchangés par ce changement) resterait viable — sans
+ * transaction : la config n'est pas elle-même modifiée par cet appel, donc
+ * valider avant l'UPDATE est équivalent à valider après (doc §5.3, décision
+ * verrouillée §0.8). Retourne null si viable, sinon { code, message }.
+ */
+async function checkPrestationBaseChangeViable(
+  prestationId: number,
+  candidatePrice: number,
+  candidateDurationMinutes: number
+): Promise<{ code: string; message: string } | null> {
+  const [groupRows] = await db.query(
+    `SELECT id, required FROM variant_groups WHERE prestation_id = ? AND active = TRUE`,
+    [prestationId]
+  );
+  const groups = await Promise.all(
+    (groupRows as any[]).map(async (g) => {
+      const [valueRows] = await db.query(
+        `SELECT price_delta, duration_delta FROM variant_values WHERE variant_group_id = ? AND active = TRUE`,
+        [g.id]
+      );
+      return {
+        required: g.required as boolean,
+        values: (valueRows as any[]).map((v) => ({ price_delta: Number(v.price_delta), duration_delta: Number(v.duration_delta) })),
+      };
+    })
+  );
+  const [optionRows] = await db.query(
+    `SELECT price_delta, duration_delta FROM options WHERE prestation_id = ? AND active = TRUE`,
+    [prestationId]
+  );
+  const options = (optionRows as any[]).map((o) => ({ price_delta: Number(o.price_delta), duration_delta: Number(o.duration_delta) }));
+
+  const worst = computeWorstCasePricing({
+    basePrice: candidatePrice,
+    baseDurationMinutes: candidateDurationMinutes,
+    groups,
+    options,
+  });
+  if (worst.price < 0) {
+    return {
+      code: "CONFIG_NEGATIVE_PRICE",
+      message: `Ce nouveau prix peut aboutir à un total négatif (${worst.price.toFixed(2)} €) avec la configuration actuelle (variantes/options). Ajuste les tarifs concernés ou le nouveau prix.`,
+    };
+  }
+  if (worst.durationMinutes <= 0) {
+    return {
+      code: "CONFIG_NON_POSITIVE_DURATION",
+      message: `Cette nouvelle durée peut aboutir à un total nul ou négatif (${worst.durationMinutes} min) avec la configuration actuelle (variantes/options). Ajuste les durées concernées ou la nouvelle durée.`,
+    };
+  }
+  return null;
+}
+
 // ===== GET /api/pro/prestations =====
 router.get('/prestations', authMiddleware, requireActiveProSubscription, async (req: any, res: any) => {
   try {
     const [rows] = await db.query(
       `SELECT id, pro_id, name, description, price, duration_minutes, active,
-              buffer_before_minutes, buffer_after_minutes, created_at
+              buffer_before_minutes, buffer_after_minutes, pricing_mode, ordering_rank, created_at
        FROM prestations
        WHERE pro_id = ?
        ORDER BY created_at DESC`,
@@ -1453,11 +1573,11 @@ router.get('/prestations', authMiddleware, requireActiveProSubscription, async (
 // ===== POST /api/pro/prestations =====
 router.post('/prestations', authMiddleware, validate(prestationSchema), requireActiveProSubscription, async (req: any, res: any) => {
   try {
-    const { name, description, price, duration_minutes, active, buffer_before_minutes, buffer_after_minutes } = req.body;
+    const { name, description, price, duration_minutes, active, buffer_before_minutes, buffer_after_minutes, pricing_mode, ordering_rank } = req.body;
     const [prestRows] = await db.query(
-      `INSERT INTO prestations (pro_id, name, description, price, duration_minutes, active, buffer_before_minutes, buffer_after_minutes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
-      [req.user!.id, name, description, price, duration_minutes, active, buffer_before_minutes, buffer_after_minutes]
+      `INSERT INTO prestations (pro_id, name, description, price, duration_minutes, active, buffer_before_minutes, buffer_after_minutes, pricing_mode, ordering_rank)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+      [req.user!.id, name, description, price, duration_minutes, active, buffer_before_minutes, buffer_after_minutes, pricing_mode, ordering_rank]
     );
     res.status(201).json({ success: true, data: (prestRows as any[])[0] });
   } catch (error) {
@@ -1470,10 +1590,10 @@ router.post('/prestations', authMiddleware, validate(prestationSchema), requireA
 router.patch('/prestations/:id', authMiddleware, validate(prestationPatchSchema), requireActiveProSubscription, async (req: any, res: any) => {
   try {
     const { id } = req.params;
-    const { name, description, price, duration_minutes, active, buffer_before_minutes, buffer_after_minutes } = req.body;
+    const { name, description, price, duration_minutes, active, buffer_before_minutes, buffer_after_minutes, pricing_mode, ordering_rank } = req.body;
     // Vérifie que la prestation appartient au pro
     const [check] = await db.query(
-      'SELECT id FROM prestations WHERE id = ? AND pro_id = ?',
+      'SELECT id, price, duration_minutes FROM prestations WHERE id = ? AND pro_id = ?',
       [id, req.user!.id]
     );
     if ((check as any[]).length === 0) {
@@ -1509,8 +1629,31 @@ router.patch('/prestations/:id', authMiddleware, validate(prestationPatchSchema)
       updates.push(`buffer_after_minutes = ?`);
       values.push(buffer_after_minutes);
     }
+    if (pricing_mode !== undefined) {
+      updates.push(`pricing_mode = ?`);
+      values.push(pricing_mode);
+    }
+    if (ordering_rank !== undefined) {
+      updates.push(`ordering_rank = ?`);
+      values.push(ordering_rank);
+    }
     if (updates.length === 0) {
       return res.status(400).json({ success: false, error: 'Aucune modification fournie' });
+    }
+    // Le prix/la durée de base vont changer : revalide AVANT d'écrire que la
+    // pire combinaison légale de la config (variantes + options actives déjà
+    // en base, inchangées par ce PATCH) reste viable (doc §5.3, décision
+    // verrouillée §0.8) — valider avant plutôt qu'après évite d'avoir à
+    // ouvrir une transaction rien que pour ce cas.
+    if (price !== undefined || duration_minutes !== undefined) {
+      const worstCaseError = await checkPrestationBaseChangeViable(
+        parseInt(id, 10),
+        price ?? Number((check as any[])[0].price),
+        duration_minutes ?? Number((check as any[])[0].duration_minutes)
+      );
+      if (worstCaseError) {
+        return res.status(422).json({ success: false, error: worstCaseError.code, message: worstCaseError.message });
+      }
     }
     values.push(id);
     await db.query(
@@ -1564,30 +1707,14 @@ router.delete('/prestations/:id', authMiddleware, requireActiveProSubscription, 
 router.post('/prestations/:id/duplicate', authMiddleware, requireActiveProSubscription, async (req: any, res: any) => {
   try {
     const { id } = req.params;
-    // Récupère la prestation originale
-    const [originalRows] = await db.query(
-      'SELECT * FROM prestations WHERE id = ? AND pro_id = ?',
-      [id, req.user!.id]
-    );
-    if ((originalRows as any[]).length === 0) {
-      return res.status(404).json({ success: false, error: 'Prestation introuvable' });
-    }
-    const presta = (originalRows as any[])[0];
-    // Duplique
-    const [dupRows] = await db.query(
-      `INSERT INTO prestations (pro_id, name, description, price, duration_minutes, active)
-       VALUES (?, ?, ?, ?, ?, ?) RETURNING *`,
-      [
-        req.user!.id,
-        `${presta.name} (copie)`,
-        presta.description,
-        presta.price,
-        presta.duration_minutes,
-        false // désactivée par défaut
-      ]
-    );
-    res.status(201).json({ success: true, data: (dupRows as any[])[0] });
+    // Duplique la prestation ET toute sa configuration (groupes, valeurs,
+    // options, questions, choix) — jamais de donnée de réservation (doc §17).
+    const duplicate = await duplicatePrestation(parseInt(id, 10), req.user!.id);
+    res.status(201).json({ success: true, data: duplicate });
   } catch (error) {
+    if (error instanceof PrestationConfigError) {
+      return res.status(error.status).json({ success: false, error: error.code, message: error.message });
+    }
     console.error('POST /prestations/:id/duplicate error:', error);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
@@ -4862,7 +4989,15 @@ app.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const proId = getProId(req);
-      const { client_id, prestation_id, start_datetime, early_execution_requested, manual_override } = req.body;
+      const {
+        client_id,
+        prestation_id,
+        start_datetime,
+        early_execution_requested,
+        manual_override,
+        selected_variant_value_ids,
+        selected_option_ids,
+      } = req.body;
 
       // Contrôle d'accès RGPD — le client_id vient du body (la pro choisit),
       // donc on ne s'y fie pas : autorisé UNIQUEMENT s'il existe une
@@ -4888,6 +5023,8 @@ app.post(
         requestedByRole: "pro",
         bookingSource: "pro",
         earlyExecutionRequested: !!early_execution_requested,
+        selectedVariantValueIds: selected_variant_value_ids,
+        selectedOptionIds: selected_option_ids,
         manualOverride: manual_override
           ? {
               mode: manual_override.mode,
@@ -6409,7 +6546,7 @@ app.put("/api/pro/stripe/deposit", authenticateToken, validate(depositSchema), a
 app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reservationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user?.id as number;
-    const { pro_id, prestation_id, start_datetime, payment_method } = req.body;
+    const { pro_id, prestation_id, start_datetime, payment_method, selected_variant_value_ids, selected_option_ids } = req.body;
     const paidOnline = payment_method === "online";
 
     // Toute la logique anti-double-booking (lock advisory pro_id → re-check
@@ -6425,6 +6562,8 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
       bookingSource: "client",
       paidOnline,
       earlyExecutionRequested: !!req.body.early_execution_requested,
+      selectedVariantValueIds: selected_variant_value_ids,
+      selectedOptionIds: selected_option_ids,
     });
 
     return res.json({

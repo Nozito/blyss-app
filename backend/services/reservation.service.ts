@@ -31,6 +31,7 @@ import {
   type AvailabilitySlot,
   type RequestedByRole,
 } from "./availability.service";
+import { computeItemPricing, PricingError } from "./pricing-engine";
 
 const db = getDb();
 
@@ -71,6 +72,15 @@ export interface CreateReservationInput {
   manualOverride?: ManualOverride;
   timezone?: string;
   now?: Date;
+  /**
+   * Moteur de prestations (doc §4.1, §13.1) — sélection de configuration
+   * pour LA prestation réservée. V1 : uniquement significatif quand
+   * `serviceIds.length === 1` (une réservation = une prestation configurée) ;
+   * ignoré sur le chemin multi-service legacy (`serviceIds.length > 1`), qui
+   * reste hors du périmètre exposé de ce chantier.
+   */
+  selectedVariantValueIds?: number[];
+  selectedOptionIds?: number[];
 }
 
 export interface CreateReservationResult {
@@ -150,6 +160,92 @@ function overrideCovers(mode: ManualOverrideMode, reason: UnavailableReason | un
   return false;
 }
 
+interface ResolvedVariantValue {
+  id: number;
+  variant_group_id: number;
+  group_name: string;
+  label: string;
+  price_delta: number;
+  duration_delta: number;
+}
+
+interface ResolvedOption {
+  id: number;
+  name: string;
+  price_delta: number;
+  duration_delta: number;
+}
+
+/**
+ * Valide une sélection de variantes/options pour UNE prestation : les
+ * valeurs/options doivent être actives et appartenir à cette prestation, un
+ * groupe requis actif doit avoir exactement une valeur sélectionnée, aucun
+ * groupe ne peut recevoir deux valeurs (doc §5.3, §18). Les doublons
+ * d'options sont dédoublonnés silencieusement (doc §18, décision verrouillée).
+ */
+async function resolveConfigSelection(
+  prestationId: number,
+  selectedVariantValueIds: number[],
+  selectedOptionIds: number[]
+): Promise<{ variantValues: ResolvedVariantValue[]; options: ResolvedOption[] }> {
+  const [groupRows] = await db.query(
+    `SELECT id, name, required FROM variant_groups WHERE prestation_id = ? AND active = TRUE`,
+    [prestationId]
+  );
+  const groups = groupRows as Array<{ id: number; name: string; required: boolean }>;
+
+  const dedupedVariantIds = [...new Set(selectedVariantValueIds)];
+  let variantValues: ResolvedVariantValue[] = [];
+  if (dedupedVariantIds.length > 0) {
+    const placeholders = dedupedVariantIds.map(() => "?").join(", ");
+    const [valueRows] = await db.query(
+      `SELECT vv.id, vv.variant_group_id, vg.name AS group_name, vv.label, vv.price_delta, vv.duration_delta
+       FROM variant_values vv
+       JOIN variant_groups vg ON vg.id = vv.variant_group_id
+       WHERE vv.id IN (${placeholders}) AND vv.active = TRUE AND vg.active = TRUE AND vg.prestation_id = ?`,
+      [...dedupedVariantIds, prestationId]
+    );
+    variantValues = valueRows as ResolvedVariantValue[];
+    if (variantValues.length !== dedupedVariantIds.length) {
+      throw new ReservationServiceError(422, "Une des valeurs sélectionnées n'est plus disponible.", "VARIANT_VALUE_INVALID");
+    }
+  }
+
+  const byGroup = new Map<number, ResolvedVariantValue[]>();
+  for (const v of variantValues) {
+    const arr = byGroup.get(v.variant_group_id) ?? [];
+    arr.push(v);
+    byGroup.set(v.variant_group_id, arr);
+  }
+  for (const [, values] of byGroup) {
+    if (values.length > 1) {
+      throw new ReservationServiceError(422, "Une seule valeur peut être sélectionnée par groupe.", "VARIANT_GROUP_MULTIPLE_VALUES");
+    }
+  }
+  for (const group of groups) {
+    if (group.required && !byGroup.has(group.id)) {
+      throw new ReservationServiceError(422, `Le choix « ${group.name} » est requis.`, "VARIANT_GROUP_REQUIRED");
+    }
+  }
+
+  const dedupedOptionIds = [...new Set(selectedOptionIds)];
+  let options: ResolvedOption[] = [];
+  if (dedupedOptionIds.length > 0) {
+    const placeholders = dedupedOptionIds.map(() => "?").join(", ");
+    const [optionRows] = await db.query(
+      `SELECT id, name, price_delta, duration_delta FROM options
+       WHERE id IN (${placeholders}) AND active = TRUE AND prestation_id = ?`,
+      [...dedupedOptionIds, prestationId]
+    );
+    options = optionRows as ResolvedOption[];
+    if (options.length !== dedupedOptionIds.length) {
+      throw new ReservationServiceError(422, "Une des options sélectionnées n'est plus disponible.", "OPTION_INVALID");
+    }
+  }
+
+  return { variantValues, options };
+}
+
 export async function createReservation(input: CreateReservationInput): Promise<CreateReservationResult> {
   const now = input.now ?? new Date();
 
@@ -180,8 +276,45 @@ export async function createReservation(input: CreateReservationInput): Promise<
   }
   const ordered = input.serviceIds.map((id) => services.find((s) => s.id === id));
   const primaryService = ordered[0];
-  const price = ordered.reduce((sum, s) => sum + Number(s.price), 0);
+  const singleService = ordered.length === 1;
   const prestationName: string = ordered.length === 1 ? primaryService.name : `${ordered.length} prestations`;
+
+  // ── Moteur de prestations (doc §4.1, §5) : résolution + calcul du prix/durée
+  // réels de la sélection. Uniquement sur le chemin à une prestation — le
+  // multi-service legacy (serviceIds.length > 1) garde la somme brute, hors
+  // périmètre exposé de ce chantier (cf. commentaire CreateReservationInput).
+  let variantValues: ResolvedVariantValue[] = [];
+  let selectedOptions: ResolvedOption[] = [];
+  let price: number;
+  let finalDurationMinutes: number;
+  if (singleService) {
+    const resolved = await resolveConfigSelection(
+      primaryService.id,
+      input.selectedVariantValueIds ?? [],
+      input.selectedOptionIds ?? []
+    );
+    variantValues = resolved.variantValues;
+    selectedOptions = resolved.options;
+    try {
+      const pricing = computeItemPricing({
+        basePrice: Number(primaryService.price),
+        baseDurationMinutes: Number(primaryService.duration_minutes),
+        variantValues: variantValues.map((v) => ({ price_delta: Number(v.price_delta), duration_delta: Number(v.duration_delta) })),
+        options: selectedOptions.map((o) => ({ price_delta: Number(o.price_delta), duration_delta: Number(o.duration_delta) })),
+      });
+      price = pricing.price;
+      finalDurationMinutes = pricing.durationMinutes;
+    } catch (err) {
+      if (err instanceof PricingError) {
+        throw new ReservationServiceError(422, err.message, err.code);
+      }
+      throw err;
+    }
+  } else {
+    price = ordered.reduce((sum, s) => sum + Number(s.price), 0);
+    finalDurationMinutes = ordered.reduce((sum, s) => sum + Number(s.duration_minutes), 0);
+  }
+  const durationOverrides = singleService ? { [primaryService.id]: finalDurationMinutes } : undefined;
 
   // ── Cliente : bloquée ? ───────────────────────────────────────────────────
   const [blockedRows] = await db.query(
@@ -206,6 +339,7 @@ export async function createReservation(input: CreateReservationInput): Promise<
     timezone: input.timezone,
     requestedByRole: input.requestedByRole,
     now,
+    durationOverrides,
   });
 
   let overrideApplied: ManualOverrideMode | null = null;
@@ -384,8 +518,63 @@ export async function createReservation(input: CreateReservationInput): Promise<
         ]
       );
 
+      const reservationId = (resaRows as any[])[0]?.id as number;
+
+      // ── Moteur de prestations : reservation_items + snapshots normalisés ──
+      // Source de vérité fonctionnelle dès V1 (doc §16.3) — une ligne par
+      // prestation du RDV (toujours 1 en V1 exposée ; le chemin multi-service
+      // legacy en écrit déjà plusieurs, ce qui corrige au passage la perte
+      // d'identité des prestations 2..n identifiée dans l'audit).
+      const itemsToInsert = singleService
+        ? [
+            {
+              prestationId: primaryService.id,
+              name: primaryService.name as string,
+              price,
+              durationMinutes: finalDurationMinutes,
+              position: 0,
+              variants: variantValues,
+              options: selectedOptions,
+            },
+          ]
+        : ordered.map((s, i) => ({
+            prestationId: s.id as number,
+            name: s.name as string,
+            price: Number(s.price),
+            durationMinutes: Number(s.duration_minutes),
+            position: i,
+            variants: [] as ResolvedVariantValue[],
+            options: [] as ResolvedOption[],
+          }));
+
+      for (const item of itemsToInsert) {
+        const [itemRows] = await conn.execute(
+          `INSERT INTO reservation_items (reservation_id, prestation_id, snapshot_name, snapshot_price, snapshot_duration_minutes, position)
+           VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+          [reservationId, item.prestationId, item.name, item.price, item.durationMinutes, item.position]
+        );
+        const reservationItemId = (itemRows as any[])[0]?.id as number;
+
+        for (const v of item.variants) {
+          await conn.execute(
+            `INSERT INTO reservation_item_variants (
+               reservation_item_id, variant_group_id, variant_value_id,
+               snapshot_group_name, snapshot_value_label, snapshot_price_delta, snapshot_duration_delta
+             ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [reservationItemId, v.variant_group_id, v.id, v.group_name, v.label, v.price_delta, v.duration_delta]
+          );
+        }
+        for (const o of item.options) {
+          await conn.execute(
+            `INSERT INTO reservation_item_options (reservation_item_id, option_id, snapshot_name, snapshot_price_delta, snapshot_duration_delta)
+             VALUES (?, ?, ?, ?, ?)`,
+            [reservationItemId, o.id, o.name, o.price_delta, o.duration_delta]
+          );
+        }
+      }
+
       return {
-        reservationId: (resaRows as any[])[0]?.id as number,
+        reservationId,
         depositPercentage: depositPct,
         depositAmount: depositAmt,
       };
