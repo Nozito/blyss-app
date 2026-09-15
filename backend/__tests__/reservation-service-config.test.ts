@@ -39,12 +39,22 @@ import { createReservation, ReservationServiceError } from "../services/reservat
 const MON_9_18 = [{ weekday: 1, start_time: "09:00:00", end_time: "18:00:00" }];
 
 /** Groupe "Longueur" (requis, valeur M +10€/+15min) + option "Nail Art" (+8€/+10min). */
-function installFixture(opts: { variantGroups?: any[]; variantValues?: any[]; options?: any[]; insertId?: number }) {
+function installFixture(opts: {
+  variantGroups?: any[];
+  variantValues?: any[];
+  options?: any[];
+  insertId?: number;
+  /** Simule une prestation active=false : le lookup (AND active = TRUE) ne la retourne plus. */
+  prestationInactive?: boolean;
+}) {
   const insertId = opts.insertId ?? 55;
+  const prestationsLookupSql: string[] = [];
   mockExecute.mockResolvedValue([[{ id: insertId }], []]);
   mockQuery.mockImplementation((sql: string) => {
     if (sql.includes("pg_advisory_xact_lock")) return Promise.resolve([[], []]);
     if (sql.includes("FROM prestations")) {
+      prestationsLookupSql.push(sql);
+      if (opts.prestationInactive) return Promise.resolve([[], []]);
       return Promise.resolve([
         [
           {
@@ -80,6 +90,7 @@ function installFixture(opts: { variantGroups?: any[]; variantValues?: any[]; op
     if (sql.includes("FROM options")) return Promise.resolve([opts.options ?? [], []]);
     return Promise.resolve([[], []]);
   });
+  return { prestationsLookupSql };
 }
 
 const baseInput = {
@@ -205,5 +216,37 @@ describe("createReservation — moteur de prestations (variantes/options)", () =
     expect(itemInsert![1]).toEqual([result.reservationId, 10, "Pose Gel X", 45, 60, 0]);
     const variantInsert = mockExecute.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO reservation_item_variants"));
     expect(variantInsert).toBeUndefined();
+  });
+
+  // ── Recette fonctionnelle V1 (finding corrigé) ──────────────────────────
+  // Une prestation active=false ("masquée, non réservable" côté pro) était
+  // réservable via un appel direct à POST /api/reservations avec son id,
+  // en contournant le filtre active=TRUE de la liste publique. Le lookup de
+  // reservation.service.ts filtre désormais lui-même sur active=TRUE.
+  it("refuse la réservation d'une prestation active=false (peu importe l'origine de l'id)", async () => {
+    installFixture({ prestationInactive: true });
+
+    await expect(createReservation(baseInput)).rejects.toMatchObject({
+      status: 422,
+      code: "SERVICE_NOT_BOOKABLE",
+    });
+  });
+
+  it("le lookup de prestation filtre explicitement sur active = TRUE (garde contre une régression silencieuse)", async () => {
+    const { prestationsLookupSql } = installFixture({});
+
+    await createReservation(baseInput);
+
+    expect(prestationsLookupSql.length).toBeGreaterThan(0);
+    expect(prestationsLookupSql[0]).toMatch(/active\s*=\s*TRUE/i);
+  });
+
+  it("non-régression : une prestation active=true (comportement par défaut de la fixture) reste réservable normalement", async () => {
+    installFixture({});
+
+    const result = await createReservation(baseInput);
+
+    expect(result.price).toBe(45);
+    expect(result.reservationId).toBeDefined();
   });
 });

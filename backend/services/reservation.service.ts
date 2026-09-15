@@ -257,6 +257,11 @@ export async function createReservation(input: CreateReservationInput): Promise<
   }
 
   // ── Prestation(s) : appartenance à la pro + prix serveur (jamais le body) ──
+  // active = TRUE : une prestation désactivée par la pro ("masquée, non
+  // réservable" — service-form.tsx) ne doit jamais être réservable, que l'ID
+  // provienne du parcours normal ou soit connu/deviné directement (trouvé en
+  // recette fonctionnelle V1 — la liste publique filtrait déjà `active`,
+  // mais ce lookup, commun aux deux flux client et pro, ne le faisait pas).
   const placeholders = input.serviceIds.map(() => "?").join(", ");
   const [serviceRows] = await db.query(
     `SELECT id, name, price,
@@ -264,7 +269,7 @@ export async function createReservation(input: CreateReservationInput): Promise<
             COALESCE(buffer_before_minutes, 0) AS buffer_before_minutes,
             COALESCE(buffer_after_minutes, 0)  AS buffer_after_minutes,
             is_online_bookable
-     FROM prestations WHERE pro_id = ? AND id IN (${placeholders})`,
+     FROM prestations WHERE pro_id = ? AND id IN (${placeholders}) AND active = TRUE`,
     [input.proId, ...input.serviceIds]
   );
   const services = serviceRows as any[];
