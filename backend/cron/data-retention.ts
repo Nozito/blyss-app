@@ -17,6 +17,7 @@ import path from "path";
 import fs from "fs";
 import { getDb } from "../lib/db";
 import { log } from "../lib/logger";
+import { getSensitiveAnswerRetentionDays } from "../lib/sensitive-questions";
 
 const ROUTE = "/cron/data-retention";
 
@@ -292,6 +293,28 @@ async function anonymizeOldReviewComments(): Promise<number> {
 }
 
 /**
+ * Anonymise le contenu des réponses à des questions marquées sensibles
+ * (moteur de prestations V2, doc §9.2) au-delà du seuil de rétention
+ * configurable (SENSITIVE_ANSWER_RETENTION_DAYS, défaut provisoire — cf.
+ * lib/sensitive-questions.ts). Ne touche que le contenu de la réponse
+ * (answer_value/answer_values) : la ligne et son contexte (libellé/type
+ * snapshotés) sont conservés, cohérent avec le traitement des avis
+ * ci-dessus (le commentaire est vidé, la note reste).
+ */
+async function anonymizeOldSensitiveAnswers(): Promise<number> {
+  const days = getSensitiveAnswerRetentionDays();
+  const [result] = await getDb().execute(
+    `UPDATE reservation_item_answers
+     SET answer_value = NULL, answer_values = NULL
+     WHERE snapshot_is_sensitive = TRUE
+       AND (answer_value IS NOT NULL OR answer_values IS NOT NULL)
+       AND created_at < NOW() - (? || ' days')::INTERVAL`,
+    [days]
+  );
+  return (result as any).rowCount ?? 0;
+}
+
+/**
  * Purge le journal d'audit RGPD lui-même au-delà de
  * AUDIT_LOG_RETENTION_MONTHS — sans quoi cette table grandit indéfiniment.
  */
@@ -359,6 +382,14 @@ export async function runDataRetentionCycle(): Promise<void> {
     log.warn(ROUTE, `Anonymized ${anonymized} review comment(s) older than ${REVIEW_COMMENT_ANONYMIZE_YEARS} years`);
   } catch (err: unknown) {
     log.error(ROUTE, "anonymize_old_review_comments failed", err instanceof Error ? err.stack : String(err));
+  }
+
+  try {
+    const anonymized = await anonymizeOldSensitiveAnswers();
+    await logAudit("anonymize_old_sensitive_answers", anonymized);
+    log.warn(ROUTE, `Anonymized ${anonymized} sensitive question answer(s) older than ${getSensitiveAnswerRetentionDays()} days`);
+  } catch (err: unknown) {
+    log.error(ROUTE, "anonymize_old_sensitive_answers failed", err instanceof Error ? err.stack : String(err));
   }
 
   try {
