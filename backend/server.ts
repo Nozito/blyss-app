@@ -104,7 +104,9 @@ import { createRescheduleRequest, RescheduleServiceError } from "./services/resc
 import { createReservation, ReservationServiceError } from "./services/reservation.service";
 import { getAvailability, AvailabilityError } from "./services/availability.service";
 import { duplicatePrestation, PrestationConfigError } from "./services/prestation-config.service";
+import questionConfigRouter from "./routes/question-config.routes";
 import { computeWorstCasePricing } from "./services/pricing-engine";
+import { PROVISIONAL_SENSITIVE_CONSENT_TEXT } from "./lib/sensitive-questions";
 import messagesRouter from "./routes/messages.routes";
 import { getTopServices, getRevenueStats } from "./lib/finance";
 
@@ -637,6 +639,7 @@ app.use("/api", cancellationRouter);
 app.use("/api", rescheduleRouter);
 app.use("/api", workingHoursRouter);
 app.use("/api", prestationConfigRouter);
+app.use("/api", questionConfigRouter);
 app.use("/api", nailTechRouter);
 app.use("/api/messages", messagesRouter);
 app.use("/api/client/onboarding", onboardingLimiter, authMiddleware, clientOnboardingRouter);
@@ -1366,6 +1369,50 @@ app.get(
   }
 );
 
+/**
+ * GET questions personnalisées d'UNE prestation (PUBLIC) — moteur de
+ * prestations V2. Réf : docs/ARCHITECTURE_MOTEUR_PRESTATIONS_V1_V3.md (§13.2).
+ * Uniquement les questions/choix ACTIFS. `sensitive_consent_text` n'est
+ * inclus QUE pour les questions is_sensitive=true — texte servi
+ * dynamiquement (jamais codé en dur côté mobile) pour pouvoir être remplacé
+ * sans nouvelle version d'app une fois le contenu juridique définitif fourni
+ * (cf. backend/lib/sensitive-questions.ts, contenu explicitement provisoire).
+ */
+app.get(
+  "/api/prestations/:id/questions",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const prestationId = parseParamToInt(req.params.id);
+      const [questionRows] = await db.query(
+        `SELECT q.id, q.label, q.type, q.required, q.is_sensitive, q.sort_order
+         FROM questions q
+         JOIN prestations p ON p.id = q.prestation_id
+         JOIN users u ON u.id = p.pro_id
+         WHERE q.prestation_id = ? AND q.active = TRUE
+           AND u.is_active = TRUE AND u.pro_status = 'active' AND u.profile_visibility = 'public'
+         ORDER BY q.sort_order, q.id`,
+        [prestationId]
+      );
+      const questions = questionRows as any[];
+      for (const q of questions) {
+        if (q.type === "single_choice" || q.type === "multi_choice") {
+          const [choiceRows] = await db.query(
+            `SELECT id, label FROM question_choices WHERE question_id = ? ORDER BY sort_order, id`,
+            [q.id]
+          );
+          q.choices = choiceRows;
+        }
+        if (q.is_sensitive) {
+          q.sensitive_consent_text = PROVISIONAL_SENSITIVE_CONSENT_TEXT;
+        }
+      }
+      res.json({ success: true, data: questions });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 /* GET PORTFOLIO GALLERY BY PRO (PUBLIC) — profil public vu par une cliente */
 app.get(
   "/api/gallery/pro/:id",
@@ -1504,6 +1551,23 @@ async function requireActiveProSubscription(req: AuthenticatedRequest, res: Resp
  * valider avant l'UPDATE est équivalent à valider après (doc §5.3, décision
  * verrouillée §0.8). Retourne null si viable, sinon { code, message }.
  */
+/**
+ * Convertit le corps de requête validé (snake_case, doc §13.2) vers la forme
+ * attendue par reservation.service.ts. `answers` reste optionnel côté body
+ * (question sans réponse omise) — undefined/[] traité identiquement (aucune
+ * question requise à satisfaire) par resolveAnswers.
+ */
+function mapReservationAnswers(
+  answers: Array<{ question_id: number; value?: string; values?: number[]; consent?: boolean }> | undefined
+) {
+  return (answers ?? []).map((a) => ({
+    questionId: a.question_id,
+    value: a.value,
+    values: a.values,
+    consent: a.consent,
+  }));
+}
+
 async function checkPrestationBaseChangeViable(
   prestationId: number,
   candidatePrice: number,
@@ -4997,6 +5061,7 @@ app.post(
         manual_override,
         selected_variant_value_ids,
         selected_option_ids,
+        answers,
       } = req.body;
 
       // Contrôle d'accès RGPD — le client_id vient du body (la pro choisit),
@@ -5025,6 +5090,7 @@ app.post(
         earlyExecutionRequested: !!early_execution_requested,
         selectedVariantValueIds: selected_variant_value_ids,
         selectedOptionIds: selected_option_ids,
+        answers: mapReservationAnswers(answers),
         manualOverride: manual_override
           ? {
               mode: manual_override.mode,
@@ -6546,7 +6612,7 @@ app.put("/api/pro/stripe/deposit", authenticateToken, validate(depositSchema), a
 app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reservationSchema), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const clientId = req.user?.id as number;
-    const { pro_id, prestation_id, start_datetime, payment_method, selected_variant_value_ids, selected_option_ids } = req.body;
+    const { pro_id, prestation_id, start_datetime, payment_method, selected_variant_value_ids, selected_option_ids, answers } = req.body;
     const paidOnline = payment_method === "online";
 
     // Toute la logique anti-double-booking (lock advisory pro_id → re-check
@@ -6564,6 +6630,7 @@ app.post("/api/reservations", authenticateToken, bookingLimiter, validate(reserv
       earlyExecutionRequested: !!req.body.early_execution_requested,
       selectedVariantValueIds: selected_variant_value_ids,
       selectedOptionIds: selected_option_ids,
+      answers: mapReservationAnswers(answers),
     });
 
     return res.json({

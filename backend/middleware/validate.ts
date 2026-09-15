@@ -182,6 +182,57 @@ export const optionPatchSchema = z.object({
   sort_order: z.number().int().optional(),
 });
 
+// ── Questions personnalisées (V2) ────────────────────────────────────────────
+
+const questionTypeSchema = z.enum(["short_text", "long_text", "boolean", "single_choice", "multi_choice"], {
+  message: "type doit être short_text, long_text, boolean, single_choice ou multi_choice",
+});
+
+export const questionSchema = z.object({
+  label: z.string().min(1, "Le libellé est requis").max(300, "Libellé trop long"),
+  type: questionTypeSchema,
+  required: z.boolean().optional().default(false),
+  // Coché explicitement par la pro (éventuellement après suggestion par
+  // détection de mots-clés côté /detect-sensitive) — jamais déduit seul.
+  is_sensitive: z.boolean().optional().default(false),
+  sort_order: z.number().int().optional().default(0),
+});
+
+export const questionPatchSchema = z.object({
+  label: z.string().min(1, "Le libellé ne peut pas être vide").max(300, "Libellé trop long").optional(),
+  type: questionTypeSchema.optional(),
+  required: z.boolean().optional(),
+  is_sensitive: z.boolean().optional(),
+  active: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
+});
+
+export const questionChoiceSchema = z.object({
+  label: z.string().min(1, "Le libellé est requis").max(200, "Libellé trop long"),
+  sort_order: z.number().int().optional().default(0),
+});
+
+export const questionChoicePatchSchema = z.object({
+  label: z.string().min(1, "Le libellé ne peut pas être vide").max(200, "Libellé trop long").optional(),
+  sort_order: z.number().int().optional(),
+});
+
+export const detectSensitiveSchema = z.object({
+  label: z.string().min(1, "Le libellé est requis").max(300, "Libellé trop long"),
+});
+
+// Réponse à une question au moment de la réservation (doc §4.1/§13.2) —
+// exactement un des deux champs valeur selon le type, validé plus finement
+// côté service (dépend du type réel de la question en base).
+export const reservationAnswerSchema = z.object({
+  question_id: z.number("question_id doit être un nombre").int().positive(),
+  value: z.string().max(2000, "Réponse trop longue").optional(),
+  values: z.array(z.number().int().positive()).max(50).optional(),
+  // Consentement explicite requis si la question est marquée sensible
+  // (doc §9.2) — absent/false sur une question sensible ⇒ rejet.
+  consent: z.boolean().optional().default(false),
+});
+
 export const reviewSchema = z.object({
   pro_id: z.number("pro_id doit être un nombre").int().positive(),
   rating: z
@@ -232,6 +283,7 @@ export const reservationSchema = z
     early_execution_requested: z.boolean().optional().default(false),
     selected_variant_value_ids: selectedVariantValueIdsSchema,
     selected_option_ids: selectedOptionIdsSchema,
+    answers: z.array(reservationAnswerSchema).max(50).optional().default([]),
   })
   .refine((d) => new Date(d.start_datetime) < new Date(d.end_datetime), {
     message: "start_datetime doit être antérieur à end_datetime",
@@ -260,6 +312,7 @@ export const proAppointmentSchema = z
     early_execution_requested: z.boolean().optional().default(false),
     selected_variant_value_ids: selectedVariantValueIdsSchema,
     selected_option_ids: selectedOptionIdsSchema,
+    answers: z.array(reservationAnswerSchema).max(50).optional().default([]),
     // 3.4 — override d'ajout manuel pro (jamais accepté sur le flow client).
     // mode "outside_hours" : RDV hors horaires d'ouverture (avertissement simple).
     // mode "conflict" : RDV forcé malgré un chevauchement — note obligatoire.

@@ -81,6 +81,24 @@ export interface CreateReservationInput {
    */
   selectedVariantValueIds?: number[];
   selectedOptionIds?: number[];
+  /**
+   * Moteur de prestations V2 (doc §9, §13.2) — réponses aux questions
+   * personnalisées de LA prestation réservée. Mêmes limites que ci-dessus :
+   * significatif uniquement quand `serviceIds.length === 1`. Les questions
+   * n'ont aucun effet sur le prix/la durée (décision verrouillée du
+   * chantier V2) — jamais transmises au pricing engine.
+   */
+  answers?: ReservationAnswerInput[];
+}
+
+export interface ReservationAnswerInput {
+  questionId: number;
+  /** short_text / long_text / boolean — valeur brute. */
+  value?: string;
+  /** single_choice (1 élément) / multi_choice (0..N) — ids de question_choices. */
+  values?: number[];
+  /** Consentement explicite requis si la question est marquée sensible (doc §9.2). */
+  consent?: boolean;
 }
 
 export interface CreateReservationResult {
@@ -246,6 +264,115 @@ async function resolveConfigSelection(
   return { variantValues, options };
 }
 
+interface ResolvedAnswer {
+  questionId: number;
+  label: string;
+  type: string;
+  isSensitive: boolean;
+  choicesAvailable: string[] | null;
+  answerValue: string | null;
+  answerValues: string[] | null;
+}
+
+/**
+ * Valide et résout les réponses aux questions personnalisées d'UNE
+ * prestation (doc §9, §13.2) : toute question active requise doit être
+ * répondue, le consentement explicite est exigé pour une question active
+ * sensible, et le format de réponse doit correspondre au type réel de la
+ * question en base (jamais fait confiance au type supposé côté client).
+ * N'a AUCUN effet sur le prix/la durée — décision verrouillée du chantier V2.
+ */
+async function resolveAnswers(prestationId: number, answers: ReservationAnswerInput[]): Promise<ResolvedAnswer[]> {
+  const [questionRows] = await db.query(
+    `SELECT id, label, type, required, is_sensitive FROM questions WHERE prestation_id = ? AND active = TRUE`,
+    [prestationId]
+  );
+  const questions = questionRows as Array<{ id: number; label: string; type: string; required: boolean; is_sensitive: boolean }>;
+  const byId = new Map(questions.map((q) => [q.id, q]));
+  const answeredIds = new Set(answers.map((a) => a.questionId));
+
+  for (const q of questions) {
+    if (q.required && !answeredIds.has(q.id)) {
+      throw new ReservationServiceError(422, `La question « ${q.label} » est requise.`, "QUESTION_REQUIRED");
+    }
+  }
+
+  const resolved: ResolvedAnswer[] = [];
+  for (const a of answers) {
+    const q = byId.get(a.questionId);
+    if (!q) {
+      throw new ReservationServiceError(422, "Une des questions n'est plus disponible.", "QUESTION_INVALID");
+    }
+    if (q.is_sensitive && !a.consent) {
+      throw new ReservationServiceError(
+        422,
+        `Un consentement explicite est requis pour répondre à « ${q.label} ».`,
+        "SENSITIVE_CONSENT_REQUIRED"
+      );
+    }
+
+    let choicesAvailable: string[] | null = null;
+    let answerValue: string | null = null;
+    let answerValues: string[] | null = null;
+
+    if (q.type === "single_choice" || q.type === "multi_choice") {
+      const [choiceRows] = await db.query(`SELECT id, label FROM question_choices WHERE question_id = ?`, [q.id]);
+      const choices = choiceRows as Array<{ id: number; label: string }>;
+      choicesAvailable = choices.map((c) => c.label);
+
+      if (q.type === "single_choice") {
+        const chosenId = a.values?.[0];
+        const choice = chosenId != null ? choices.find((c) => c.id === chosenId) : undefined;
+        if (!choice) {
+          throw new ReservationServiceError(422, `Réponse invalide pour « ${q.label} ».`, "QUESTION_ANSWER_INVALID");
+        }
+        // snapshot du LIBELLÉ (jamais l'id) — même principe que
+        // snapshot_value_label sur les variantes V1 : lisible sans jointure,
+        // insensible à un renommage/suppression ultérieur du choix.
+        answerValue = choice.label;
+      } else {
+        const dedupedIds = [...new Set(a.values ?? [])];
+        if (q.required && dedupedIds.length === 0) {
+          throw new ReservationServiceError(422, `La question « ${q.label} » est requise.`, "QUESTION_REQUIRED");
+        }
+        const labels: string[] = [];
+        for (const id of dedupedIds) {
+          const choice = choices.find((c) => c.id === id);
+          if (!choice) {
+            throw new ReservationServiceError(422, `Réponse invalide pour « ${q.label} ».`, "QUESTION_ANSWER_INVALID");
+          }
+          labels.push(choice.label);
+        }
+        answerValues = labels.length > 0 ? labels : null;
+      }
+    } else if (q.type === "boolean") {
+      if (a.value !== "true" && a.value !== "false") {
+        throw new ReservationServiceError(422, `Réponse invalide pour « ${q.label} ».`, "QUESTION_ANSWER_INVALID");
+      }
+      answerValue = a.value;
+    } else {
+      // short_text / long_text
+      const text = (a.value ?? "").trim();
+      if (q.required && text.length === 0) {
+        throw new ReservationServiceError(422, `La question « ${q.label} » est requise.`, "QUESTION_REQUIRED");
+      }
+      answerValue = text.length > 0 ? text : null;
+    }
+
+    resolved.push({
+      questionId: q.id,
+      label: q.label,
+      type: q.type,
+      isSensitive: q.is_sensitive,
+      choicesAvailable,
+      answerValue,
+      answerValues,
+    });
+  }
+
+  return resolved;
+}
+
 export async function createReservation(input: CreateReservationInput): Promise<CreateReservationResult> {
   const now = input.now ?? new Date();
 
@@ -290,6 +417,7 @@ export async function createReservation(input: CreateReservationInput): Promise<
   // périmètre exposé de ce chantier (cf. commentaire CreateReservationInput).
   let variantValues: ResolvedVariantValue[] = [];
   let selectedOptions: ResolvedOption[] = [];
+  let answers: ResolvedAnswer[] = [];
   let price: number;
   let finalDurationMinutes: number;
   if (singleService) {
@@ -300,6 +428,9 @@ export async function createReservation(input: CreateReservationInput): Promise<
     );
     variantValues = resolved.variantValues;
     selectedOptions = resolved.options;
+    // Questions (V2) — résolues séparément du pricing engine : elles ne
+    // participent jamais au calcul de prix/durée (décision verrouillée).
+    answers = await resolveAnswers(primaryService.id, input.answers ?? []);
     try {
       const pricing = computeItemPricing({
         basePrice: Number(primaryService.price),
@@ -540,6 +671,7 @@ export async function createReservation(input: CreateReservationInput): Promise<
               position: 0,
               variants: variantValues,
               options: selectedOptions,
+              answers,
             },
           ]
         : ordered.map((s, i) => ({
@@ -550,6 +682,7 @@ export async function createReservation(input: CreateReservationInput): Promise<
             position: i,
             variants: [] as ResolvedVariantValue[],
             options: [] as ResolvedOption[],
+            answers: [] as ResolvedAnswer[],
           }));
 
       for (const item of itemsToInsert) {
@@ -574,6 +707,24 @@ export async function createReservation(input: CreateReservationInput): Promise<
             `INSERT INTO reservation_item_options (reservation_item_id, option_id, snapshot_name, snapshot_price_delta, snapshot_duration_delta)
              VALUES (?, ?, ?, ?, ?)`,
             [reservationItemId, o.id, o.name, o.price_delta, o.duration_delta]
+          );
+        }
+        for (const a of item.answers) {
+          await conn.execute(
+            `INSERT INTO reservation_item_answers (
+               reservation_item_id, question_id, snapshot_question_label, snapshot_question_type,
+               snapshot_is_sensitive, snapshot_choices_available, answer_value, answer_values
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              reservationItemId,
+              a.questionId,
+              a.label,
+              a.type,
+              a.isSensitive,
+              a.choicesAvailable,
+              a.answerValue,
+              a.answerValues,
+            ]
           );
         }
       }

@@ -121,6 +121,9 @@ describe("runDataRetentionCycle — messages, avis, audit_log", () => {
       if (typeof sql === "string" && sql.includes("DELETE FROM audit_log WHERE executed_at")) {
         return Promise.resolve([{ rowCount: 5 }]);
       }
+      if (typeof sql === "string" && sql.includes("UPDATE reservation_item_answers")) {
+        return Promise.resolve([{ rowCount: 2 }]);
+      }
       return Promise.resolve([{ rowCount: 0 }]);
     });
   });
@@ -139,5 +142,16 @@ describe("runDataRetentionCycle — messages, avis, audit_log", () => {
 
     const purgeAuditLog = executeCalls.find((a) => sqlIncludes(a, "DELETE FROM audit_log WHERE executed_at"));
     expect(purgeAuditLog).toBeDefined();
+  });
+
+  it("anonymise les réponses sensibles (moteur de prestations V2) au-delà du seuil de rétention configurable", async () => {
+    await runDataRetentionCycle();
+
+    const executeCalls = mockExecute.mock.calls as unknown[][];
+    const anonymizeAnswers = executeCalls.find((a) => sqlIncludes(a, "UPDATE reservation_item_answers", "snapshot_is_sensitive = TRUE"));
+    expect(anonymizeAnswers).toBeDefined();
+    // Ne vide que le contenu de la réponse, jamais le contexte snapshoté
+    // (libellé/type de la question) — cohérent avec le traitement des avis.
+    expect(anonymizeAnswers?.[0]).toContain("answer_value = NULL, answer_values = NULL");
   });
 });
