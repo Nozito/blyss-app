@@ -206,8 +206,13 @@ describe("PATCH /api/pro/prestations/:id — validation Zod", () => {
   it("200 avec mise à jour partielle valide (mock DB)", async () => {
     // requireActiveProSubscription → pro actif
     mockQuery.mockResolvedValueOnce([[{ pro_status: "active" }]]);
-    // ownership check → trouvé
-    mockQuery.mockResolvedValueOnce([[{ id: 10 }]]);
+    // ownership check → trouvé (price/duration_minutes actuels, requis par
+    // checkPrestationBaseChangeViable pour la valeur non fournie dans le body)
+    mockQuery.mockResolvedValueOnce([[{ id: 10, price: 50, duration_minutes: 60 }]]);
+    // checkPrestationBaseChangeViable : aucun groupe de variante actif
+    mockQuery.mockResolvedValueOnce([[]]);
+    // checkPrestationBaseChangeViable : aucune option active
+    mockQuery.mockResolvedValueOnce([[]]);
     // UPDATE
     mockQuery.mockResolvedValueOnce([{}]);
     // SELECT updated row

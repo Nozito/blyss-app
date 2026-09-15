@@ -80,6 +80,14 @@ export interface CheckSlotInput {
   excludeReservationId?: number;
   requestedByRole: RequestedByRole;
   now?: Date;
+  /**
+   * Moteur de prestations (doc §5/§11) : durée FINALE d'une prestation
+   * (base + deltas des variantes/options sélectionnées), par id de
+   * prestation, quand elle diffère de `prestations.duration_minutes` brut.
+   * Les buffers restent ceux de la prestation (non affectés par la
+   * sélection). Absent/incomplet ⇒ durée brute utilisée pour ce service.
+   */
+  durationOverrides?: Record<number, number>;
 }
 
 export interface CheckSlotResult {
@@ -530,7 +538,13 @@ export async function checkSlotAvailability(input: CheckSlotInput): Promise<Chec
   const now = input.now ?? new Date();
   const ctx = await loadProContext(input.proId, input.serviceIds, input.timezone, input.requestedByRole);
   const tz = ctx.timezone;
-  const blocking = resolveServiceBlocking(ctx.services);
+  const effectiveServices = input.durationOverrides
+    ? ctx.services.map((s) => ({
+        ...s,
+        duration_minutes: input.durationOverrides![s.id] ?? s.duration_minutes,
+      }))
+    : ctx.services;
+  const blocking = resolveServiceBlocking(effectiveServices);
   const limits = resolveEffectiveLimits(ctx);
 
   const startDt = DateTime.fromISO(input.startDatetime, { zone: tz });

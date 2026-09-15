@@ -37,6 +37,13 @@ const bufferMinutesSchema = z
     message: "Temps de battement invalide (0, 5, 10, 15, 20 ou 30 min)",
   });
 
+// Moteur de prestations générique (doc ARCHITECTURE_MOTEUR_PRESTATIONS_V1_V3
+// §6, §10) : pricing_mode active l'affichage "à partir de" côté liste,
+// ordering_rank détermine le tri du panier V3 (actif dès V1 même à 1 item).
+const pricingModeSchema = z.enum(["fixed", "from"], {
+  message: "pricing_mode doit être 'fixed' ou 'from'",
+});
+
 export const prestationSchema = z.object({
   name: z.string().min(1, "Le nom est requis").max(100, "Nom trop long"),
   description: z.string().max(500, "Description trop longue").optional().default(""),
@@ -49,6 +56,8 @@ export const prestationSchema = z.object({
   active: z.boolean().optional().default(true),
   buffer_before_minutes: bufferMinutesSchema.optional().default(0),
   buffer_after_minutes: bufferMinutesSchema.optional().default(0),
+  pricing_mode: pricingModeSchema.optional().default("fixed"),
+  ordering_rank: z.number("ordering_rank doit être un nombre").int().optional().default(10),
 });
 
 export const userUpdateSchema = z.object({
@@ -117,6 +126,60 @@ export const prestationPatchSchema = z.object({
   active: z.boolean().optional(),
   buffer_before_minutes: bufferMinutesSchema.optional(),
   buffer_after_minutes: bufferMinutesSchema.optional(),
+  pricing_mode: pricingModeSchema.optional(),
+  ordering_rank: z.number("ordering_rank doit être un nombre").int().optional(),
+});
+
+// ── Configuration de prestation : variantes / options (V1) ──────────────────
+
+export const variantGroupSchema = z.object({
+  name: z.string().min(1, "Le nom est requis").max(100, "Nom trop long"),
+  required: z.boolean().optional().default(true),
+  // Seul 'single' est implémenté en V1 (doc §7.1) — la valeur existe dans le
+  // schéma pour rester compatible sans migration si 'multi' est activé plus tard.
+  selection_mode: z.enum(["single", "multi"]).optional().default("single"),
+  sort_order: z.number().int().optional().default(0),
+});
+
+export const variantGroupPatchSchema = z.object({
+  name: z.string().min(1, "Le nom ne peut pas être vide").max(100, "Nom trop long").optional(),
+  required: z.boolean().optional(),
+  selection_mode: z.enum(["single", "multi"]).optional(),
+  active: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
+});
+
+const priceDeltaSchema = z.number("price_delta doit être un nombre").min(-100000).max(100000);
+const durationDeltaSchema = z.number("duration_delta doit être un nombre").int().min(-480).max(480);
+
+export const variantValueSchema = z.object({
+  label: z.string().min(1, "Le libellé est requis").max(100, "Libellé trop long"),
+  price_delta: priceDeltaSchema.optional().default(0),
+  duration_delta: durationDeltaSchema.optional().default(0),
+  sort_order: z.number().int().optional().default(0),
+});
+
+export const variantValuePatchSchema = z.object({
+  label: z.string().min(1, "Le libellé ne peut pas être vide").max(100, "Libellé trop long").optional(),
+  price_delta: priceDeltaSchema.optional(),
+  duration_delta: durationDeltaSchema.optional(),
+  active: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
+});
+
+export const optionSchema = z.object({
+  name: z.string().min(1, "Le nom est requis").max(100, "Nom trop long"),
+  price_delta: priceDeltaSchema.optional().default(0),
+  duration_delta: durationDeltaSchema.optional().default(0),
+  sort_order: z.number().int().optional().default(0),
+});
+
+export const optionPatchSchema = z.object({
+  name: z.string().min(1, "Le nom ne peut pas être vide").max(100, "Nom trop long").optional(),
+  price_delta: priceDeltaSchema.optional(),
+  duration_delta: durationDeltaSchema.optional(),
+  active: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
 });
 
 export const reviewSchema = z.object({
@@ -135,6 +198,21 @@ export const reviewSchema = z.object({
 // ce seuil, faute de quoi le remboursement/rétractation reste attaquable.
 const EARLY_EXECUTION_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
 
+// Sélection de configuration (doc §4.1, §13.1) — V1 : une seule prestation
+// par réservation, donc une sélection "à plat" plutôt que par item ; V3
+// remplacera prestation_id par un tableau `items[]` portant chacun sa propre
+// sélection, sans changer la forme de ces deux champs.
+const selectedVariantValueIdsSchema = z
+  .array(z.number().int().positive())
+  .max(20, "Trop de valeurs sélectionnées")
+  .optional()
+  .default([]);
+const selectedOptionIdsSchema = z
+  .array(z.number().int().positive())
+  .max(20, "Trop d'options sélectionnées")
+  .optional()
+  .default([]);
+
 export const reservationSchema = z
   .object({
     pro_id: z.number("pro_id doit être un nombre").int().positive(),
@@ -142,8 +220,8 @@ export const reservationSchema = z
     start_datetime: z.string().datetime("start_datetime doit être une date ISO valide"),
     end_datetime: z.string().datetime("end_datetime doit être une date ISO valide"),
     // Le prix n'est plus utilisé — il est toujours recalculé côté serveur
-    // depuis prestations.price. Champ gardé optionnel le temps que les
-    // clients en circulation arrêtent de l'envoyer.
+    // depuis prestations.price (+ variantes/options sélectionnées). Champ
+    // gardé optionnel le temps que les clients en circulation arrêtent de l'envoyer.
     price: z.number().positive().optional(),
     payment_method: z.enum(["online", "on_site"], {
       message: "payment_method doit être 'online' ou 'on_site'",
@@ -152,6 +230,8 @@ export const reservationSchema = z
     // droit de rétractation une fois la prestation pleinement exécutée —
     // distincte de l'acceptation des conditions d'annulation du pro.
     early_execution_requested: z.boolean().optional().default(false),
+    selected_variant_value_ids: selectedVariantValueIdsSchema,
+    selected_option_ids: selectedOptionIdsSchema,
   })
   .refine((d) => new Date(d.start_datetime) < new Date(d.end_datetime), {
     message: "start_datetime doit être antérieur à end_datetime",
@@ -178,6 +258,8 @@ export const proAppointmentSchema = z
     start_datetime: z.string().datetime("start_datetime doit être une date ISO valide"),
     end_datetime: z.string().datetime("end_datetime doit être une date ISO valide"),
     early_execution_requested: z.boolean().optional().default(false),
+    selected_variant_value_ids: selectedVariantValueIdsSchema,
+    selected_option_ids: selectedOptionIdsSchema,
     // 3.4 — override d'ajout manuel pro (jamais accepté sur le flow client).
     // mode "outside_hours" : RDV hors horaires d'ouverture (avertissement simple).
     // mode "conflict" : RDV forcé malgré un chevauchement — note obligatoire.
